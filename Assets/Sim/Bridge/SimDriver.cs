@@ -42,6 +42,7 @@ namespace DaggerfallWorkshop.Sim
             // events EventLog wants to record, so TimeSystem registers first.
             _loop.Register(new TimeSystem());
             _loop.Register(new WeatherSystem());
+            _loop.Register(new SunlightSystem());
             EventLog = new EventLog();
             _loop.Register(EventLog);
 

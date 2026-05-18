@@ -47,6 +47,11 @@ namespace DaggerfallWorkshop.Sim
                 "  scale=" + clock.TimeScale.ToString("F1"));
 
             var weather = ctx.Weather.Current;
+            var lighting = ctx.Lighting.Current;
+            GUILayout.Label("Sun: " + (lighting.IsNight ? "night" : "day") +
+                "  sun=" + lighting.SunIntensity.ToString("F2") +
+                "  pitch=" + lighting.SunPitchDegrees.ToString("F0") + "°");
+
             GUILayout.Label("Weather: " + weather.Kind +
                 (weather.IsRaining  ? "  rain"  : "") +
                 (weather.IsStorming ? "  storm" : "") +

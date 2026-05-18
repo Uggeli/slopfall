@@ -16,6 +16,7 @@ namespace DaggerfallWorkshop.Sim
         public VitalsRegistry Vitals { get; }
         public WorldClockRegistry WorldClock { get; }
         public WeatherRegistry Weather { get; }
+        public LightingRegistry Lighting { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -29,6 +30,7 @@ namespace DaggerfallWorkshop.Sim
             Vitals = new VitalsRegistry();
             WorldClock = new WorldClockRegistry();
             Weather = new WeatherRegistry();
+            Lighting = new LightingRegistry();
         }
     }
 }
