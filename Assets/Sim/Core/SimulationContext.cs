@@ -10,12 +10,23 @@ namespace DaggerfallWorkshop.Sim
         public SimRandom Random { get; }
         public InputBus Inputs { get; }
 
+        // Phase 1 registries — mirrored from DFU state, eventually authoritative.
+        public IdentityRegistry Identity { get; }
+        public PositionRegistry Position { get; }
+        public VitalsRegistry Vitals { get; }
+        public WorldClockRegistry WorldClock { get; }
+
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
             Events = events;
             Time = time;
             Random = random;
             Inputs = inputs;
+
+            Identity = new IdentityRegistry();
+            Position = new PositionRegistry();
+            Vitals = new VitalsRegistry();
+            WorldClock = new WorldClockRegistry();
         }
     }
 }

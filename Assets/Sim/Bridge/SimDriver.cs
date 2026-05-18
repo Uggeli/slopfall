@@ -44,6 +44,11 @@ namespace DaggerfallWorkshop.Sim
             _thread = new SimThread(_loop, Context, Snapshots);
             _thread.Start();
             Debug.Log("[SimDriver] sim thread started at " + ticksPerSecond + " Hz (seed=" + seed + ")");
+
+            // Bridge MonoBehaviours — attached to this GameObject so they share its lifetime.
+            gameObject.AddComponent<SimRegistrar>();
+            gameObject.AddComponent<WorldClockMirror>();
+            gameObject.AddComponent<SimInspector>();
         }
 
         void Update()
