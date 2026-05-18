@@ -44,6 +44,12 @@ namespace DaggerfallWorkshop.Sim
             _loop.Register(new WeatherSystem());
             _loop.Register(new SunlightSystem());
             _loop.Register(new HealthSystem());
+            // Effects: Lifecycle (writer) must run before TickSystem and
+            // Aggregate so the same-tick additions are visible. ProcessEvents
+            // order is system-registration order.
+            _loop.Register(new EffectLifecycleSystem());
+            _loop.Register(new EffectTickSystem());
+            _loop.Register(new EffectAggregateSystem());
             EventLog = new EventLog();
             _loop.Register(EventLog);
 

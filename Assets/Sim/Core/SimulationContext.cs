@@ -17,6 +17,8 @@ namespace DaggerfallWorkshop.Sim
         public WorldClockRegistry WorldClock { get; }
         public WeatherRegistry Weather { get; }
         public LightingRegistry Lighting { get; }
+        public EffectsRegistry Effects { get; }
+        public EffectAggregateRegistry EffectAggregate { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -31,6 +33,8 @@ namespace DaggerfallWorkshop.Sim
             WorldClock = new WorldClockRegistry();
             Weather = new WeatherRegistry();
             Lighting = new LightingRegistry();
+            Effects = new EffectsRegistry();
+            EffectAggregate = new EffectAggregateRegistry();
         }
     }
 }
