@@ -49,6 +49,7 @@ namespace DaggerfallWorkshop.Sim
             gameObject.AddComponent<SimRegistrar>();
             gameObject.AddComponent<WorldClockMirror>();
             gameObject.AddComponent<SimInspector>();
+            gameObject.AddComponent<SimHUD>();
         }
 
         void Update()

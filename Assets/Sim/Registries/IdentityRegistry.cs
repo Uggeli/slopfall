@@ -33,6 +33,7 @@ namespace DaggerfallWorkshop.Sim
     {
         readonly ConcurrentDictionary<EntityId, IdentityData> _d = new ConcurrentDictionary<EntityId, IdentityData>();
         int _nextId;
+        int _playerIdValue;
 
         public EntityId Allocate() => new EntityId(Interlocked.Increment(ref _nextId));
 
@@ -43,5 +44,16 @@ namespace DaggerfallWorkshop.Sim
         public int Count => _d.Count;
         public ICollection<EntityId> Ids => _d.Keys;
         public IEnumerable<KeyValuePair<EntityId, IdentityData>> All => _d;
+
+        /// Cached lookup for "which EntityId is the player." EntityId.None if no
+        /// Player-kind entity is currently registered. Single-writer = whichever
+        /// SimMirror registered the Player.
+        public EntityId PlayerId => new EntityId(Volatile.Read(ref _playerIdValue));
+
+        public void SetPlayer(EntityId id) => Interlocked.Exchange(ref _playerIdValue, id.Value);
+
+        /// Clear only if the stored player matches `id` (so a stale despawn doesn't
+        /// clobber a newer player registration).
+        public void ClearPlayer(EntityId id) => Interlocked.CompareExchange(ref _playerIdValue, 0, id.Value);
     }
 }

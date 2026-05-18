@@ -44,6 +44,8 @@ namespace DaggerfallWorkshop.Sim
 
             var identity = BuildIdentity(_entityBehaviour, _kind);
             driver.Context.Identity.Set(_id, identity);
+            if (_kind == EntityKind.Player)
+                driver.Context.Identity.SetPlayer(_id);
             _registered = true;
         }
 
@@ -78,6 +80,8 @@ namespace DaggerfallWorkshop.Sim
             if (!_registered) return;
             var driver = SimDriver.Instance;
             if (driver == null) return;
+            if (_kind == EntityKind.Player)
+                driver.Context.Identity.ClearPlayer(_id);
             driver.Context.Identity.Remove(_id);
             driver.Context.Position.Remove(_id);
             driver.Context.Vitals.Remove(_id);
