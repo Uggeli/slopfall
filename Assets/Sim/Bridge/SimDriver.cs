@@ -41,6 +41,7 @@ namespace DaggerfallWorkshop.Sim
             // Phase 3: first real systems. Order matters — TimeSystem emits
             // events EventLog wants to record, so TimeSystem registers first.
             _loop.Register(new TimeSystem());
+            _loop.Register(new WeatherSystem());
             EventLog = new EventLog();
             _loop.Register(EventLog);
 
@@ -51,6 +52,7 @@ namespace DaggerfallWorkshop.Sim
             // Bridge MonoBehaviours — attached to this GameObject so they share its lifetime.
             gameObject.AddComponent<SimRegistrar>();
             gameObject.AddComponent<WorldClockMirror>();
+            gameObject.AddComponent<WeatherMirror>();
             gameObject.AddComponent<SimInspector>();
             gameObject.AddComponent<SimHUD>();
         }

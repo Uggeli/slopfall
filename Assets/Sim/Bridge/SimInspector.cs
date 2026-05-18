@@ -46,6 +46,13 @@ namespace DaggerfallWorkshop.Sim
                 " " + clock.Hour.ToString("00") + ":" + clock.Minute.ToString("00") + ":" + clock.Second.ToString("00") +
                 "  scale=" + clock.TimeScale.ToString("F1"));
 
+            var weather = ctx.Weather.Current;
+            GUILayout.Label("Weather: " + weather.Kind +
+                (weather.IsRaining  ? "  rain"  : "") +
+                (weather.IsStorming ? "  storm" : "") +
+                (weather.IsSnowing  ? "  snow"  : "") +
+                (weather.IsOvercast ? "  overcast" : ""));
+
             GUILayout.Space(6);
             GUILayout.Label("Entities: " + ctx.Identity.Count);
 

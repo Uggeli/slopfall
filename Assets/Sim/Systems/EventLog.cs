@@ -35,6 +35,7 @@ namespace DaggerfallWorkshop.Sim
             ctx.Events.Subscribe<MidnightSimEvent>(e => Add("Midnight"));
             ctx.Events.Subscribe<CityLightsOnSimEvent>(e => Add("CityLightsOn"));
             ctx.Events.Subscribe<CityLightsOffSimEvent>(e => Add("CityLightsOff"));
+            ctx.Events.Subscribe<WeatherChangedSimEvent>(e => Add("Weather " + e.From + " → " + e.To));
         }
 
         public void ProcessEvents() { /* receives via Subscribe */ }
