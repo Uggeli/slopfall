@@ -52,6 +52,7 @@ namespace DaggerfallWorkshop.Sim
             _loop.Register(new EffectAggregateSystem());
             _loop.Register(new StatusFlagDeriveSystem());
             _loop.Register(new SkillAdvancementSystem());
+            _loop.Register(new ProgressionSystem());
             EventLog = new EventLog();
             _loop.Register(EventLog);
 

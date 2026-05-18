@@ -37,6 +37,8 @@ namespace DaggerfallWorkshop.Sim
             ctx.Events.Subscribe<CityLightsOffSimEvent>(e => Add("CityLightsOff"));
             ctx.Events.Subscribe<WeatherChangedSimEvent>(e => Add("Weather " + e.From + " → " + e.To));
             ctx.Events.Subscribe<DeathSimEvent>(e => Add("Death entity=" + e.Entity.Value + " killer=" + e.Killer.Value + " type=" + e.FatalDamageType));
+            ctx.Events.Subscribe<SkillAdvancedEvent>(e => Add("SkillUp entity=" + e.Entity.Value + " " + e.Skill + "→" + e.NewValue));
+            ctx.Events.Subscribe<LevelUpEvent>(e => Add("LevelUp entity=" + e.Entity.Value + " →L" + e.NewLevel));
         }
 
         public void ProcessEvents() { /* receives via Subscribe */ }
