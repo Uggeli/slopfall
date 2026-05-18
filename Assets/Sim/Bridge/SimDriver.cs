@@ -19,6 +19,7 @@ namespace DaggerfallWorkshop.Sim
         public SimulationContext Context { get; private set; }
         public InputBus Inputs { get; private set; }
         public SnapshotPublisher Snapshots { get; private set; }
+        public EventLog EventLog { get; private set; }
 
         SimThread _thread;
         TickLoop _loop;
@@ -37,9 +38,11 @@ namespace DaggerfallWorkshop.Sim
             Context = new SimulationContext(events, time, random, Inputs);
 
             _loop = new TickLoop(Context);
-            // Phase 1+ registers systems here:
-            //   _loop.Register(new TimeSystem());
-            //   _loop.Register(new WeatherSystem());
+            // Phase 3: first real systems. Order matters — TimeSystem emits
+            // events EventLog wants to record, so TimeSystem registers first.
+            _loop.Register(new TimeSystem());
+            EventLog = new EventLog();
+            _loop.Register(EventLog);
 
             _thread = new SimThread(_loop, Context, Snapshots);
             _thread.Start();

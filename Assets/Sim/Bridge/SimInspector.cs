@@ -12,7 +12,8 @@ namespace DaggerfallWorkshop.Sim
         [SerializeField] KeyCode toggleKey = KeyCode.F9;
         bool _open;
         Vector2 _scroll;
-        Rect _window = new Rect(20, 60, 720, 480);
+        Vector2 _eventScroll;
+        Rect _window = new Rect(20, 60, 720, 600);
 
         void Update()
         {
@@ -84,6 +85,22 @@ namespace DaggerfallWorkshop.Sim
             }
 
             GUILayout.EndScrollView();
+
+            // --- Recent sim events ---
+            GUILayout.Space(8);
+            GUILayout.Label("Recent events:");
+            _eventScroll = GUILayout.BeginScrollView(_eventScroll, GUILayout.Width(700), GUILayout.Height(120));
+            if (driver.EventLog != null)
+            {
+                var events = driver.EventLog.Snapshot();
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var e = events[i];
+                    GUILayout.Label("tick " + e.Tick.ToString().PadLeft(6) + "  t=" + e.SimSeconds.ToString("F1") + "s  " + e.Summary);
+                }
+            }
+            GUILayout.EndScrollView();
+
             GUILayout.EndVertical();
 
             GUI.DragWindow();
