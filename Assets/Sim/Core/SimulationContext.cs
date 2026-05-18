@@ -19,6 +19,7 @@ namespace DaggerfallWorkshop.Sim
         public LightingRegistry Lighting { get; }
         public EffectsRegistry Effects { get; }
         public EffectAggregateRegistry EffectAggregate { get; }
+        public StatusFlagsRegistry StatusFlags { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -35,6 +36,7 @@ namespace DaggerfallWorkshop.Sim
             Lighting = new LightingRegistry();
             Effects = new EffectsRegistry();
             EffectAggregate = new EffectAggregateRegistry();
+            StatusFlags = new StatusFlagsRegistry();
         }
     }
 }
