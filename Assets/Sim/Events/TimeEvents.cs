@@ -13,6 +13,20 @@ namespace DaggerfallWorkshop.Sim
     public sealed class NewMonthSimEvent : ISimEvent { public int Month; public int Year; }
     public sealed class NewYearSimEvent  : ISimEvent { public int Year; }
 
+    /// Main → sim input. Sent once by WorldClockMirror to hand DFU's initial
+    /// DaggerfallDateTime values + TimeScale to the sim, which then becomes the
+    /// authoritative writer of the world clock.
+    public sealed class SeedClockInput : ISimEvent
+    {
+        public int Year;
+        public int Month;
+        public int Day;
+        public int Hour;
+        public int Minute;
+        public float Second;
+        public float TimeScale;
+    }
+
     public sealed class DawnSimEvent          : ISimEvent {}
     public sealed class DuskSimEvent          : ISimEvent {}
     public sealed class MiddaySimEvent        : ISimEvent {}
