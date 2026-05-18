@@ -43,6 +43,7 @@ namespace DaggerfallWorkshop.Sim
             _loop.Register(new TimeSystem());
             _loop.Register(new WeatherSystem());
             _loop.Register(new SunlightSystem());
+            _loop.Register(new HealthSystem());
             EventLog = new EventLog();
             _loop.Register(EventLog);
 
