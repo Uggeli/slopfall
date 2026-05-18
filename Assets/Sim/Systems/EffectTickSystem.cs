@@ -1,15 +1,12 @@
+using System.Collections.Generic;
+
 namespace DaggerfallWorkshop.Sim
 {
-    /// Walks all active effects each tick, decrements RemainingTicks, fires
-    /// EffectTickedEvent for per-tick effects and EffectExpiredEvent for ones
-    /// that just hit zero. Does not mutate EffectsRegistry directly — expiry
-    /// removal is handled by EffectLifecycleSystem in response to
-    /// EffectExpiredEvent.
-    ///
-    /// Note: RemainingTicks is mutated in-place here. Safe because:
-    ///  - both this system and EffectLifecycleSystem run on the sim thread
-    ///  - readers on the main thread receive whole-EffectsData snapshots via
-    ///    Set, and we don't swap mid-walk
+    /// Walks all active effects each tick, fires EffectTickedEvent for
+    /// per-tick effects, and decrements RemainingTicks via whole-EffectsData
+    /// replacement (same discipline as EffectLifecycleSystem). Emits
+    /// EffectExpiredEvent for any effect that just hit zero so Lifecycle
+    /// removes it next tick.
     public sealed class EffectTickSystem : ISystem
     {
         SimulationContext _ctx;
@@ -22,33 +19,51 @@ namespace DaggerfallWorkshop.Sim
             foreach (var kv in _ctx.Effects.All)
             {
                 var data = kv.Value;
-                if (data == null || data.Active == null) continue;
+                if (data == null || data.Active == null || data.Active.Count == 0) continue;
+
+                var next = new EffectsData();
+                bool changed = false;
                 for (int i = 0; i < data.Active.Count; i++)
                 {
                     var fx = data.Active[i];
-                    if (fx.RemainingTicks <= 0) continue;
+                    if (fx.RemainingTicks <= 0)
+                    {
+                        next.Active.Add(fx);
+                        continue;
+                    }
 
                     if (fx.AppliesPerTick)
                     {
                         _ctx.Events.Emit(new EffectTickedEvent
                         {
-                            Target = kv.Key,
-                            Source = fx.Source,
-                            Key = fx.Key,
+                            Target    = kv.Key,
+                            Source    = fx.Source,
+                            Key       = fx.Key,
                             Magnitude = fx.Magnitude,
                         });
                     }
 
-                    fx.RemainingTicks--;
-                    if (fx.RemainingTicks == 0)
+                    long remaining = fx.RemainingTicks - 1;
+                    next.Active.Add(new EffectInstance
+                    {
+                        Key            = fx.Key,
+                        Magnitude      = fx.Magnitude,
+                        RemainingTicks = remaining,
+                        Source         = fx.Source,
+                        AppliesPerTick = fx.AppliesPerTick,
+                    });
+                    changed = true;
+
+                    if (remaining == 0)
                     {
                         _ctx.Events.Emit(new EffectExpiredEvent
                         {
                             Target = kv.Key,
-                            Key = fx.Key,
+                            Key    = fx.Key,
                         });
                     }
                 }
+                if (changed) _ctx.Effects.Set(kv.Key, next);
             }
         }
     }
