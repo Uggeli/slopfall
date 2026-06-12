@@ -8,7 +8,7 @@ using DaggerfallWorkshop.Sim;
 
 string region = null, location = null;
 int port = 8080;
-float timeScale = 600f;
+float timeScale = 120f;     // 2 game-min per real second — watchable walking
 
 for (int i = 0; i < args.Length; i++)
 {
@@ -39,17 +39,34 @@ var jsonOptions = new JsonSerializerOptions
 };
 
 // Road cells for the map underlay: flat [x0,z0,x1,z1,...] cell coords.
+// Solid (blocked) cells — building footprints, walls — as run-length rows
+// [x, y, length, ...] so houses render with real walls and perimeter.
 var roadCells = new List<int>();
+var solidRuns = new List<int>();
 var townGrid = boot.Ctx.TownGrid.Current;
 if (townGrid != null)
 {
     for (int y = 0; y < townGrid.Height; y++)
-        for (int x = 0; x < townGrid.Width; x++)
-            if (townGrid.CostAt(x, y) == 1)
+    {
+        int runStart = -1;
+        for (int x = 0; x <= townGrid.Width; x++)
+        {
+            bool solid = x < townGrid.Width && townGrid.CostAt(x, y) == 0;
+            if (solid && runStart < 0) runStart = x;
+            if (!solid && runStart >= 0)
+            {
+                solidRuns.Add(runStart);
+                solidRuns.Add(y);
+                solidRuns.Add(x - runStart);
+                runStart = -1;
+            }
+            if (x < townGrid.Width && townGrid.CostAt(x, y) == 1)
             {
                 roadCells.Add(x);
                 roadCells.Add(y);
             }
+        }
+    }
 }
 
 // Static world payload, built once — the same connect-handshake idea as Sim.Net.
@@ -63,6 +80,7 @@ var worldJson = JsonSerializer.SerializeToUtf8Bytes(new
     civilians = boot.Town.Civilians,
     cellSize = TownGridData.CellSize,
     roads = roadCells,
+    solids = solidRuns,
     buildings = boot.Ctx.Buildings.All
         .OrderBy(kv => kv.Key)
         .Select(kv => new
@@ -123,6 +141,7 @@ app.Map("/ws", async context =>
                     night = snap.IsNight,
                     sun = snap.SunIntensity,
                     weather = snap.Weather.ToString(),
+                    speed = boot.Ctx.WorldClock.Current.TimeScale,
                     // Compact rows: [id, x, z, activity, phase]
                     entities = snap.Entities.Select(e => new object[]
                         { e.Id, MathF.Round(e.X, 1), MathF.Round(e.Z, 1), (int)e.Activity, (int)e.Phase }),
@@ -143,13 +162,31 @@ app.Map("/ws", async context =>
             if (result.MessageType == WebSocketMessageType.Close) break;
 
             var doc = JsonDocument.Parse(Encoding.UTF8.GetString(buffer, 0, result.Count));
-            if (doc.RootElement.TryGetProperty("type", out var t) && t.GetString() == "inspect"
-                && doc.RootElement.TryGetProperty("id", out var idProp))
+            if (!doc.RootElement.TryGetProperty("type", out var t)) continue;
+
+            switch (t.GetString())
             {
-                var detail = Inspector.Inspect(boot.Ctx, new EntityId(idProp.GetInt32()));
-                var payload = JsonSerializer.SerializeToUtf8Bytes(
-                    new { type = "detail", detail }, jsonOptions);
-                await Send(payload);
+                case "inspect" when doc.RootElement.TryGetProperty("id", out var idProp):
+                {
+                    var detail = Inspector.Inspect(boot.Ctx, new EntityId(idProp.GetInt32()));
+                    await Send(JsonSerializer.SerializeToUtf8Bytes(
+                        new { type = "detail", detail }, jsonOptions));
+                    break;
+                }
+                case "inspectBuilding" when doc.RootElement.TryGetProperty("i", out var bProp):
+                {
+                    var building = Inspector.InspectBuilding(boot.Ctx, bProp.GetInt32());
+                    await Send(JsonSerializer.SerializeToUtf8Bytes(
+                        new { type = "building", building }, jsonOptions));
+                    break;
+                }
+                case "speed" when doc.RootElement.TryGetProperty("scale", out var sProp):
+                {
+                    // First control message a client sends: through the same
+                    // InputBus player verbs will use.
+                    boot.Ctx.Inputs.Enqueue(new SetTimeScaleInput { TimeScale = (float)sProp.GetDouble() });
+                    break;
+                }
             }
         }
     }

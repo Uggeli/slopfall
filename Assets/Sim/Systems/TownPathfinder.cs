@@ -19,8 +19,12 @@ namespace DaggerfallWorkshop.Sim
     {
         const int NearWalkableRadius = 10;
 
+        /// `approachTarget`: append the exact destination as a final waypoint
+        /// even if it sits on a blocked cell (a building door). Pass false for
+        /// targets with no business inside a building (wandering) so strollers
+        /// stop on walkable ground instead of inside someone's house.
         public static bool FindPath(TownGridData g, float fromX, float fromZ, float toX, float toZ,
-            List<PathPoint> result)
+            List<PathPoint> result, bool approachTarget = true)
         {
             result.Clear();
             if (g == null || g.Cost == null) return false;
@@ -53,7 +57,8 @@ namespace DaggerfallWorkshop.Sim
             }
             int lx = cellPath[cellPath.Count - 1] % g.Width, ly = cellPath[cellPath.Count - 1] / g.Width;
             result.Add(new PathPoint { X = g.WorldX(lx), Z = g.WorldZ(ly) });
-            result.Add(new PathPoint { X = toX, Z = toZ });
+            if (approachTarget)
+                result.Add(new PathPoint { X = toX, Z = toZ });
             return true;
         }
 

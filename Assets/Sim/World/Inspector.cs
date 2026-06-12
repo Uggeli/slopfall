@@ -36,11 +36,66 @@ namespace DaggerfallWorkshop.Sim
         public List<MemoryDetail> Memories = new List<MemoryDetail>();
     }
 
+    public sealed class OccupantDetail
+    {
+        public int Id;
+        public string Name;
+        public string Role;
+        public string Activity;
+        public bool Present;        // currently Doing something at this building
+    }
+
+    public sealed class BuildingDetail
+    {
+        public int Index;
+        public string Kind;
+        public int Quality;
+        public int FactionId;
+        public float X, Z;
+        public List<OccupantDetail> People = new List<OccupantDetail>();
+    }
+
     /// Builds the who-is-this-dude payload any client's inspector shows:
     /// identity, current activity, need bars, home, warmest relations, recent
     /// memories. Pure registry reads — safe from any thread.
     public static class Inspector
     {
+        /// Ownership made visible: a building plus everyone whose Residency
+        /// points at it (and whether they're inside right now).
+        public static BuildingDetail InspectBuilding(SimulationContext ctx, int buildingIndex)
+        {
+            if (!ctx.Buildings.TryGet(buildingIndex, out var row)) return null;
+
+            var detail = new BuildingDetail
+            {
+                Index = buildingIndex,
+                Kind = row.Kind.ToString(),
+                Quality = row.Quality,
+                FactionId = row.FactionId,
+                X = row.X,
+                Z = row.Z,
+            };
+
+            foreach (var kv in ctx.Residency.All)
+            {
+                if (kv.Value.BuildingIndex != buildingIndex) continue;
+                ctx.Identity.TryGet(kv.Key, out var identity);
+                bool present = ctx.Behavior.TryGet(kv.Key, out var behavior)
+                    && behavior.Phase == ActivityPhase.Doing
+                    && behavior.TargetBuilding == buildingIndex;
+                detail.People.Add(new OccupantDetail
+                {
+                    Id = kv.Key.Value,
+                    Name = identity != null ? identity.Name : "?",
+                    Role = kv.Value.Role.ToString(),
+                    Activity = behavior != null ? behavior.Activity.ToString() : "?",
+                    Present = present,
+                });
+            }
+            detail.People.Sort((a, b) => a.Id.CompareTo(b.Id));
+            return detail;
+        }
+
         public static EntityDetail Inspect(SimulationContext ctx, EntityId id, int maxRelations = 5, int maxMemories = 8)
         {
             if (!ctx.Identity.TryGet(id, out var identity)) return null;

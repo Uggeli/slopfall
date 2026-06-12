@@ -27,6 +27,11 @@ namespace DaggerfallWorkshop.Sim
         {
             _ctx = ctx;
             ctx.Events.Subscribe<SeedClockInput>(OnSeed);
+            ctx.Events.Subscribe<SetTimeScaleInput>(e =>
+            {
+                if (e.TimeScale >= 0f) _timeScale = e.TimeScale;
+                if (_seeded) WriteRegistry();
+            });
         }
 
         void OnSeed(SeedClockInput seed)

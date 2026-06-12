@@ -8,6 +8,10 @@
   #hud { position: fixed; top: 0; left: 0; right: 0; padding: 6px 10px; background: rgba(10,10,14,.85);
          border-bottom: 1px solid #222; white-space: nowrap; z-index: 2; }
   #hud b { color: #fff; }
+  #speed { position: fixed; top: 34px; left: 10px; z-index: 2; }
+  #speed button { background: #1a1a24; color: #999; border: 1px solid #333; font: 12px monospace;
+                  padding: 2px 8px; margin-right: 3px; cursor: pointer; border-radius: 3px; }
+  #speed button.on { background: #2a3a55; color: #fff; border-color: #57a; }
   #panel { position: fixed; top: 40px; right: 0; width: 300px; bottom: 0; padding: 10px;
            background: rgba(12,12,18,.92); border-left: 1px solid #222; overflow-y: auto;
            display: none; z-index: 2; }
@@ -26,6 +30,13 @@
 </head>
 <body>
 <div id="hud">connecting…</div>
+<div id="speed">
+  <button data-s="0">⏸ pause</button>
+  <button data-s="60">60×</button>
+  <button data-s="120">120×</button>
+  <button data-s="600">600×</button>
+  <button data-s="3600">3600×</button>
+</div>
 <div id="panel"></div>
 <div id="legend">
   <span class="sw" style="background:#4a6cd4"></span>sleep
@@ -54,6 +65,15 @@ const canvas = document.getElementById("map");
 const ctx2d = canvas.getContext("2d");
 const hud = document.getElementById("hud");
 const panel = document.getElementById("panel");
+
+document.querySelectorAll("#speed button").forEach(btn => {
+  btn.onclick = () => ws.readyState === 1
+    && ws.send(JSON.stringify({ type: "speed", scale: Number(btn.dataset.s) }));
+});
+function markSpeed(scale) {
+  document.querySelectorAll("#speed button").forEach(btn =>
+    btn.classList.toggle("on", Number(btn.dataset.s) === scale));
+}
 
 let world = null, snap = null, detail = null;
 let cam = { x: 0, z: 0, scale: 2 };          // world meters -> px
@@ -104,8 +124,10 @@ canvas.addEventListener("wheel", e => {
 }, { passive: false });
 
 function clickAt(sx, sy) {
-  if (!entities.length) return;
+  if (!world) return;
   const wx = s2wX(sx), wz = s2wY(sy);
+
+  // Dudes first…
   const hitR = Math.max(3, 8 / cam.scale);
   let best = -1, bestD = hitR * hitR;
   for (const e of entities) {
@@ -113,7 +135,22 @@ function clickAt(sx, sy) {
     const d = dx * dx + dz * dz;
     if (d < bestD) { bestD = d; best = e[0]; }
   }
-  select(best);
+  if (best >= 0) { select(best); return; }
+
+  // …then buildings (door markers).
+  const bR = Math.max(4, 10 / cam.scale);
+  let bestB = -1, bestBD = bR * bR;
+  for (const b of world.buildings) {
+    const dx = b.x - wx, dz = b.z - wz;
+    const d = dx * dx + dz * dz;
+    if (d < bestBD) { bestBD = d; bestB = b.i; }
+  }
+  if (bestB >= 0) {
+    select(-1);
+    ws.readyState === 1 && ws.send(JSON.stringify({ type: "inspectBuilding", i: bestB }));
+    return;
+  }
+  select(-1);
 }
 
 function select(id) {
@@ -142,9 +179,12 @@ ws.onmessage = ev => {
     const now = performance.now();
     lerpMs = Math.min(400, Math.max(100, now - lerpStart));
     lerpStart = now;
+    markSpeed(msg.speed);
   } else if (msg.type === "detail") {
     detail = msg.detail;
     renderPanel();
+  } else if (msg.type === "building") {
+    renderBuildingPanel(msg.building);
   }
 };
 ws.onclose = () => { hud.textContent = "disconnected — refresh to retry"; };
@@ -170,9 +210,18 @@ function draw() {
       ctx2d.fillRect(w2sX(world.roads[i] * world.cellSize), w2sY(world.roads[i + 1] * world.cellSize), cs + 0.5, cs + 0.5);
   }
 
-  // buildings
+  // building footprints + walls (solid cells, run-length rows)
+  if (world.solids) {
+    const cs = world.cellSize * cam.scale;
+    ctx2d.fillStyle = night ? "#1d1d28" : "#2e2e3c";
+    for (let i = 0; i < world.solids.length; i += 3)
+      ctx2d.fillRect(w2sX(world.solids[i] * world.cellSize), w2sY(world.solids[i + 1] * world.cellSize),
+        world.solids[i + 2] * world.cellSize * cam.scale + 0.5, cs + 0.5);
+  }
+
+  // building door markers (kind-colored, on top of footprints)
   for (const b of world.buildings) {
-    const size = Math.max(2, 4 * cam.scale);
+    const size = Math.max(2, 3 * cam.scale);
     ctx2d.fillStyle = KIND_COLOR[b.kind] || (b.kind.startsWith("House") ? HOUSE_COLOR : WALL_COLOR);
     ctx2d.fillRect(w2sX(b.x) - size / 2, w2sY(b.z) - size / 2, size, size);
   }
@@ -221,6 +270,22 @@ function draw() {
       + `${snap.night ? "night" : "day"} · sun ${snap.sun.toFixed(2)} · ${snap.weather} `
       + `· pop ${entities.length} · walking ${walking} &nbsp;&nbsp;<span style="color:#888">${hist}</span>`;
   }
+}
+
+function renderBuildingPanel(b) {
+  if (!b) return;
+  panel.style.display = "block";
+  let html = `<h2>${b.kind} <span class="dim">#${b.index}</span></h2>`
+    + `<div class="dim">quality ${b.quality}` + (b.factionId ? ` · faction ${b.factionId}` : "") + `</div>`
+    + `<div class="sec">people of this building</div>`;
+  if (b.people.length === 0) html += `<div class="dim">nobody lives or works here</div>`;
+  for (const p of b.people) {
+    html += `<div class="rel">${p.present ? "● " : "○ "}#${p.id} ${p.name}`
+      + ` <span class="dim">${p.role.toLowerCase()} · ${p.activity ? p.activity.toLowerCase() : "?"}</span></div>`;
+  }
+  html += `<div class="dim" style="margin-top:6px">● inside now · ○ elsewhere</div>`;
+  html += `<div class="sec"><a href="#" onclick="select(-1);panel.style.display='none';return false" style="color:#9ad">close</a></div>`;
+  panel.innerHTML = html;
 }
 
 function renderPanel() {

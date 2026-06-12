@@ -93,7 +93,9 @@ namespace DaggerfallWorkshop.Sim
             }
 
             plan = new Plan { TargetX = behavior.TargetX, TargetZ = behavior.TargetZ };
-            if (grid != null && TownPathfinder.FindPath(grid, pos.X, pos.Z, behavior.TargetX, behavior.TargetZ, _scratch))
+            bool enterBuilding = behavior.TargetBuilding >= 0;
+            if (grid != null && TownPathfinder.FindPath(grid, pos.X, pos.Z,
+                behavior.TargetX, behavior.TargetZ, _scratch, enterBuilding))
             {
                 plan.Points.AddRange(_scratch);
             }

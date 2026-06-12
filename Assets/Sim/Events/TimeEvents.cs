@@ -27,6 +27,14 @@ namespace DaggerfallWorkshop.Sim
         public float TimeScale;
     }
 
+    /// Main/client → sim: change simulation speed at runtime. TimeScale 0
+    /// pauses the world clock (and with it needs drift, decisions, movement —
+    /// everything that meters itself by game time).
+    public sealed class SetTimeScaleInput : ISimEvent
+    {
+        public float TimeScale;
+    }
+
     public sealed class DawnSimEvent          : ISimEvent {}
     public sealed class DuskSimEvent          : ISimEvent {}
     public sealed class MiddaySimEvent        : ISimEvent {}
