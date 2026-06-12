@@ -6,6 +6,10 @@ namespace DaggerfallWorkshop.Sim
     /// TickIntervalSeconds * TimeScale, writes WorldClockRegistry, and emits
     /// sim-native transition events (hour / day / month / year / dawn / dusk / etc.).
     ///
+    /// Transition detection walks total-seconds boundaries, so a tick that
+    /// spans several hours (or days) fires every crossed marker exactly once —
+    /// nothing is skipped at high timescales.
+    ///
     /// Bootstrap: WorldClockMirror posts a SeedClockInput once DFU's WorldTime
     /// is ready. Until that arrives, this system is a no-op. After seeding,
     /// the sim is the source of truth; WorldClockMirror reverses direction and
@@ -15,9 +19,9 @@ namespace DaggerfallWorkshop.Sim
     {
         SimulationContext _ctx;
         readonly DaggerfallDateTime _clock = new DaggerfallDateTime();
+        readonly DaggerfallDateTime _scratch = new DaggerfallDateTime();
         float _timeScale = 12f;
         bool _seeded;
-        int _lastHour = -1, _lastDay = -1, _lastMonth = -1, _lastYear = -1;
 
         public void Init(SimulationContext ctx)
         {
@@ -34,11 +38,6 @@ namespace DaggerfallWorkshop.Sim
             _clock.Minute = seed.Minute;
             _clock.Second = seed.Second;
             if (seed.TimeScale > 0f) _timeScale = seed.TimeScale;
-
-            _lastHour = _clock.Hour;
-            _lastDay = _clock.Day;
-            _lastMonth = _clock.Month;
-            _lastYear = _clock.Year;
             _seeded = true;
 
             WriteRegistry();
@@ -50,48 +49,68 @@ namespace DaggerfallWorkshop.Sim
         {
             if (!_seeded) return;
 
+            ulong before = _clock.ToSeconds();
             float delta = (float)(_ctx.Time.TickIntervalSeconds * _timeScale);
             if (delta > 0f) _clock.RaiseTime(delta);
+            ulong after = _clock.ToSeconds();
 
             WriteRegistry();
 
             _ctx.Events.Emit(new TimeTickedEvent { Tick = tick, SimSeconds = _ctx.Time.Elapsed });
 
-            if (_clock.Hour != _lastHour)
+            EmitCrossedHours(before, after);
+            EmitCrossedDays(before, after);
+
+            ulong monthsBefore = before / (ulong)DaggerfallDateTime.SecondsPerMonth;
+            ulong monthsAfter = after / (ulong)DaggerfallDateTime.SecondsPerMonth;
+            for (ulong m = monthsBefore + 1; m <= monthsAfter; m++)
             {
-                if (_clock.Hour == DaggerfallDateTime.DawnHour)
+                _scratch.FromSeconds(m * (ulong)DaggerfallDateTime.SecondsPerMonth);
+                _ctx.Events.Emit(new NewMonthSimEvent { Month = _scratch.Month, Year = _scratch.Year });
+            }
+
+            ulong yearsBefore = before / (ulong)DaggerfallDateTime.SecondsPerYear;
+            ulong yearsAfter = after / (ulong)DaggerfallDateTime.SecondsPerYear;
+            for (ulong y = yearsBefore + 1; y <= yearsAfter; y++)
+                _ctx.Events.Emit(new NewYearSimEvent { Year = (int)y });
+        }
+
+        void EmitCrossedHours(ulong before, ulong after)
+        {
+            ulong hoursBefore = before / (ulong)DaggerfallDateTime.SecondsPerHour;
+            ulong hoursAfter = after / (ulong)DaggerfallDateTime.SecondsPerHour;
+
+            for (ulong h = hoursBefore + 1; h <= hoursAfter; h++)
+            {
+                _scratch.FromSeconds(h * (ulong)DaggerfallDateTime.SecondsPerHour);
+                int hour = _scratch.Hour;
+
+                if (hour == DaggerfallDateTime.DawnHour)
                     _ctx.Events.Emit(new DawnSimEvent());
-                if (_clock.Hour == DaggerfallDateTime.DuskHour)
+                if (hour == DaggerfallDateTime.DuskHour)
                     _ctx.Events.Emit(new DuskSimEvent());
-                if (_clock.Hour == DaggerfallDateTime.MiddayHour)
+                if (hour == DaggerfallDateTime.MiddayHour)
                     _ctx.Events.Emit(new MiddaySimEvent());
-                if (_clock.Hour == DaggerfallDateTime.MidnightHour)
+                if (hour == DaggerfallDateTime.MidnightHour)
                     _ctx.Events.Emit(new MidnightSimEvent());
-                if (_clock.Hour == DaggerfallDateTime.LightsOnHour)
+                if (hour == DaggerfallDateTime.LightsOnHour)
                     _ctx.Events.Emit(new CityLightsOnSimEvent());
-                if (_clock.Hour == DaggerfallDateTime.LightsOffHour)
+                if (hour == DaggerfallDateTime.LightsOffHour)
                     _ctx.Events.Emit(new CityLightsOffSimEvent());
 
-                _lastHour = _clock.Hour;
-                _ctx.Events.Emit(new NewHourSimEvent { Hour = _clock.Hour, Day = _clock.Day, Month = _clock.Month, Year = _clock.Year });
+                _ctx.Events.Emit(new NewHourSimEvent { Hour = hour, Day = _scratch.Day, Month = _scratch.Month, Year = _scratch.Year });
             }
+        }
 
-            if (_clock.Day != _lastDay)
-            {
-                _lastDay = _clock.Day;
-                _ctx.Events.Emit(new NewDaySimEvent { Day = _clock.Day, Month = _clock.Month, Year = _clock.Year });
-            }
+        void EmitCrossedDays(ulong before, ulong after)
+        {
+            ulong daysBefore = before / (ulong)DaggerfallDateTime.SecondsPerDay;
+            ulong daysAfter = after / (ulong)DaggerfallDateTime.SecondsPerDay;
 
-            if (_clock.Month != _lastMonth)
+            for (ulong d = daysBefore + 1; d <= daysAfter; d++)
             {
-                _lastMonth = _clock.Month;
-                _ctx.Events.Emit(new NewMonthSimEvent { Month = _clock.Month, Year = _clock.Year });
-            }
-
-            if (_clock.Year != _lastYear)
-            {
-                _lastYear = _clock.Year;
-                _ctx.Events.Emit(new NewYearSimEvent { Year = _clock.Year });
+                _scratch.FromSeconds(d * (ulong)DaggerfallDateTime.SecondsPerDay);
+                _ctx.Events.Emit(new NewDaySimEvent { Day = _scratch.Day, Month = _scratch.Month, Year = _scratch.Year });
             }
         }
 

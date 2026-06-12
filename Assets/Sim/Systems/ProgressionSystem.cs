@@ -55,8 +55,30 @@ namespace DaggerfallWorkshop.Sim
                 SkillPointsThisLevel = points,
             });
 
+            if (promotions > 0)
+                SyncIdentityLevel(e.Entity, level);
+
             for (int i = 0; i < promotions; i++)
                 _ctx.Events.Emit(new LevelUpEvent { Entity = e.Entity, NewLevel = level - (promotions - 1 - i) });
+        }
+
+        /// One-directional cross-registry write promised by ProgressionRegistry's
+        /// contract: Identity.Level mirrors ProgressionData.Level after a level-up.
+        /// Whole-row replacement, same as every other registry write.
+        void SyncIdentityLevel(EntityId entity, int level)
+        {
+            if (!_ctx.Identity.TryGet(entity, out var identity) || identity == null) return;
+            _ctx.Identity.Set(entity, new IdentityData
+            {
+                Name        = identity.Name,
+                Kind        = identity.Kind,
+                Race        = identity.Race,
+                Gender      = identity.Gender,
+                CareerIndex = identity.CareerIndex,
+                Level       = level,
+                FactionId   = identity.FactionId,
+                Team        = identity.Team,
+            });
         }
     }
 }

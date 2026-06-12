@@ -73,21 +73,37 @@ namespace Sim.Tests
         }
 
         [Fact]
-        public void KnownLimitation_HourJump_SkipsTransitionEvents()
+        public void HourJump_FiresEveryCrossedTransition()
         {
-            // TimeSystem compares only the post-jump hour against the marker
-            // hours. A tick spanning multiple hours (huge timescale or long
-            // tick) skips dawn/dusk/etc. entirely. This test pins the current
-            // behavior — when TimeSystem is fixed to walk skipped hours, flip
-            // these assertions.
+            // A tick spanning multiple hours must fire every crossed marker:
+            // 05:00 -> 07:00 -> 09:00 crosses dawn (6) and lights-off (8),
+            // and four hour boundaries (6, 7, 8, 9).
             var h = new SimHarness(tickIntervalSeconds: 1.0);
             var dawns = h.Collect<DawnSimEvent>();
+            var lightsOff = h.Collect<CityLightsOffSimEvent>();
+            var hours = h.Collect<NewHourSimEvent>();
 
             h.SeedClock(hour: 5, minute: 0, timeScale: 7200f);   // 2 hours per tick
-            h.Step(2);                                           // 05:00 -> 07:00 -> 09:00
+            h.Step(3);                                           // +1 tick for event latency
 
-            Assert.True(h.Ctx.WorldClock.Current.Hour > DaggerfallDateTime.DawnHour);
-            Assert.Empty(dawns);            // dawn was skipped — documented bug
+            Assert.Single(dawns);
+            Assert.Single(lightsOff);
+            Assert.Equal(4, hours.Count);
+            Assert.Equal(new[] { 6, 7, 8, 9 }, hours.ConvertAll(e => e.Hour).ToArray());
+        }
+
+        [Fact]
+        public void MultiDayJump_FiresEveryCrossedDay()
+        {
+            var h = new SimHarness(tickIntervalSeconds: 1.0);
+            var days = h.Collect<NewDaySimEvent>();
+
+            h.SeedClock(day: 3, hour: 0, minute: 30, timeScale: 172800f);  // 2 days per tick
+            h.Step(2);                                                     // 3rd 00:30 -> 5th 00:30
+
+            Assert.Equal(2, days.Count);
+            Assert.Equal(4, days[0].Day);
+            Assert.Equal(5, days[1].Day);
         }
 
         [Fact]

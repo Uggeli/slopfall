@@ -83,11 +83,10 @@ namespace Sim.Tests
         }
 
         [Fact]
-        public void KnownLimitation_IdentityLevel_NotSyncedByProgression()
+        public void IdentityLevel_SyncedAfterLevelUp()
         {
-            // ProgressionRegistry's doc comment claims IdentityRegistry.Level is
-            // kept in sync after level-up, but ProgressionSystem never writes
-            // Identity. Pins the gap; flip when the sync is implemented.
+            // ProgressionRegistry's contract: Identity.Level mirrors
+            // ProgressionData.Level after a level-up (one-directional write).
             var h = new SimHarness();
             var id = h.SpawnEntity();
 
@@ -97,7 +96,8 @@ namespace Sim.Tests
             Assert.True(h.Ctx.Progression.TryGet(id, out var prog));
             Assert.Equal(2, prog.Level);
             Assert.True(h.Ctx.Identity.TryGet(id, out var identity));
-            Assert.Equal(1, identity.Level);    // stale — documented gap
+            Assert.Equal(2, identity.Level);
+            Assert.Equal("TestEntity", identity.Name);   // rest of the row preserved
         }
     }
 }
