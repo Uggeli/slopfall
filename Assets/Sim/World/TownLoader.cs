@@ -205,6 +205,13 @@ namespace DaggerfallWorkshop.Sim
             ctx.Coin.Set(id, coin);
             needs.V[NeedAxis.CoinDef] = 1.0 - coin;
             ctx.Needs.Set(id, needs);
+
+            // Personality: sum of two draws biases toward the middle, so
+            // extremes exist but are rare.
+            var traits = new double[TraitIndex.Count];
+            for (int t = 0; t < TraitIndex.Count; t++)
+                traits[t] = (ctx.Random.NextDouble() + ctx.Random.NextDouble()) * 0.5;
+            ctx.Personality.Set(id, PersonalityData.Derive(traits));
         }
     }
 }

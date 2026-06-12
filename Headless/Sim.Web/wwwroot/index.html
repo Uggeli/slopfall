@@ -300,6 +300,7 @@ function renderPanel() {
     + `<div class="dim">${detail.role || "?"} · ${detail.activity || "?"} (${detail.phase || "?"})`
     + ` · home: ${detail.homeKind || "?"} q${detail.homeQuality}</div>`
     + `<div class="dim">purse: ${detail.money.toFixed(2)} coin</div>`
+    + (detail.character ? `<div style="color:#bba">“${detail.character}”</div>` : "")
     + `<div class="sec">needs (deficits)</div>`
     + needRow("hunger", detail.hunger, "#c75c5c")
     + needRow("tiredness", detail.energy, "#4a6cd4")

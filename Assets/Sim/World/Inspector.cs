@@ -30,6 +30,7 @@ namespace DaggerfallWorkshop.Sim
         public float X, Z;
         public double Hunger, Energy, Social, Coin;
         public double Money;        // actual coin, not the deficit
+        public string Character;    // human-readable trait extremes
         public int HomeBuilding = -1;
         public string HomeKind;
         public int HomeQuality;
@@ -123,6 +124,9 @@ namespace DaggerfallWorkshop.Sim
                 detail.Coin = needs.V[NeedAxis.CoinDef];
             }
             detail.Money = ctx.Coin.Get(id);
+
+            if (ctx.Personality.TryGet(id, out var person))
+                detail.Character = person.Describe();
 
             if (ctx.Residency.TryGet(id, out var residency))
             {

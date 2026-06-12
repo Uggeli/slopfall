@@ -64,6 +64,13 @@ namespace DaggerfallWorkshop.Sim
 
             bool isKeeper = _ctx.Residency.TryGet(target, out var res) && res.Role == ResidentRole.Keeper;
             double bar = isKeeper ? KeeperCharityBar : FriendBar;
+
+            // Warmth moves the bar: a warm-hearted target gives to near
+            // strangers, a cold one wants real friendship first — and a cold
+            // rich miser is where the town's grudges come from.
+            if (_ctx.Personality.TryGet(target, out var person))
+                bar += (0.5 - person.Trait(TraitIndex.Warmth)) * 0.5;
+
             bool grants = regardTowardAsker >= bar
                 && _ctx.Coin.Get(target) - AlmsAmount >= GiverKeepsAtLeast;
 
@@ -103,7 +110,6 @@ namespace DaggerfallWorkshop.Sim
         EntityId PickTarget(EntityId asker, out double regardTowardAsker)
         {
             EntityId best = EntityId.None;
-            double bestRegard = double.MinValue;
 
             if (_ctx.Relations.TryGet(asker, out var relations))
             {

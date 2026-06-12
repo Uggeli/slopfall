@@ -115,11 +115,40 @@ namespace Sim.Tests
         [Fact]
         public void Affinity_IsSymmetric_AndDeterministic()
         {
+            var h = new SimHarness();
             var a = new EntityId(12);
             var b = new EntityId(345);
-            Assert.Equal(SocialSystem.Affinity(a, b), SocialSystem.Affinity(b, a), 10);
-            Assert.Equal(SocialSystem.Affinity(a, b), SocialSystem.Affinity(a, b), 10);
-            Assert.InRange(SocialSystem.Affinity(a, b), -1.0, 1.2);
+            // No personalities -> hash fallback path.
+            Assert.Equal(SocialSystem.Affinity(h.Ctx, a, b), SocialSystem.Affinity(h.Ctx, b, a), 10);
+            Assert.Equal(SocialSystem.Affinity(h.Ctx, a, b), SocialSystem.Affinity(h.Ctx, a, b), 10);
+            Assert.InRange(SocialSystem.Affinity(h.Ctx, a, b), -1.0, 1.2);
+        }
+
+        [Fact]
+        public void Affinity_WarmSimilarClick_ColdOppositesGrate()
+        {
+            var h = new SimHarness();
+            var warm1 = new EntityId(1);
+            var warm2 = new EntityId(2);
+            var cold = new EntityId(3);
+
+            double[] Traits(double all, double warmth)
+            {
+                var t = new double[TraitIndex.Count];
+                for (int i = 0; i < t.Length; i++) t[i] = all;
+                t[TraitIndex.Warmth] = warmth;
+                return t;
+            }
+
+            h.Ctx.Personality.Set(warm1, PersonalityData.Derive(Traits(0.8, 0.9)));
+            h.Ctx.Personality.Set(warm2, PersonalityData.Derive(Traits(0.75, 0.85)));
+            h.Ctx.Personality.Set(cold, PersonalityData.Derive(Traits(0.1, 0.05)));
+
+            double click = SocialSystem.Affinity(h.Ctx, warm1, warm2);
+            double grate = SocialSystem.Affinity(h.Ctx, warm1, cold);
+            Assert.True(click > 0.4, "warm similar pair only " + click);
+            Assert.True(grate < 0, "warm/cold opposites still positive: " + grate);
+            Assert.Equal(SocialSystem.Affinity(h.Ctx, cold, warm1), grate, 10);
         }
 
         [Fact]

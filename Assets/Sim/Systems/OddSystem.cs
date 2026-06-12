@@ -119,9 +119,17 @@ namespace DaggerfallWorkshop.Sim
             if (!_ctx.Buildings.TryGet(residency.BuildingIndex, out var home)) return;
             if (!_ctx.Position.TryGet(id, out var pos)) return;
 
-            var w = ActivityCatalog.Weights;
+            // Personality shapes everything below; absent rows (unit harnesses)
+            // behave like the old global constants.
+            _ctx.Personality.TryGet(id, out var person);
+            var w = person != null ? person.Weights : ActivityCatalog.Weights;
+            double sociability = person != null ? person.Trait(TraitIndex.Sociability) : 0.5;
+            double industry = person != null ? person.Trait(TraitIndex.Industry) : 0.5;
+            double restlessness = person != null ? person.Trait(TraitIndex.Restlessness) : 0.5;
+            double chronotype = person != null ? person.Trait(TraitIndex.Chronotype) : 0.5;
+
             bool isKeeper = residency.Role == ResidentRole.Keeper;
-            bool night = IsNight(hour);
+            bool night = IsNightFor(hour, chronotype);
 
             // Hysteresis: the activity in progress defends its slot with a
             // multiplicative bonus, or hourly re-evaluation flickers between
@@ -139,12 +147,15 @@ namespace DaggerfallWorkshop.Sim
 
             // Wander — Object-Zero sibling; offset derived from (id, tick) so
             // decisions stay deterministic regardless of iteration order.
+            // Restless types crave it (this is what brings Wander back from
+            // extinction); homebodies never bother.
             {
                 uint h32 = Hash(id.Value, tick);
                 float dx = ((h32 & 0xFF) / 255f - 0.5f) * 60f;
                 float dz = (((h32 >> 8) & 0xFF) / 255f - 0.5f) * 60f;
                 double gate = night ? 0.3 : 1.0;
-                double s = OddScore.Compute(needs.V, ActivityCatalog.Wander.Delta, w, gate, ActivityCatalog.Wander.BaseUtility);
+                double baseUtility = ActivityCatalog.Wander.BaseUtility * (0.2 + restlessness * 16.0 * restlessness);
+                double s = OddScore.Compute(needs.V, ActivityCatalog.Wander.Delta, w, gate, baseUtility);
                 if (incumbent == ActivityKind.Wander) s *= Sticky;
                 if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Wander; bestBuilding = -1; bestX = pos.X + dx; bestZ = pos.Z + dz; }
             }
@@ -173,9 +184,13 @@ namespace DaggerfallWorkshop.Sim
             // a shopkeeper holds shop through the day even with a full purse,
             // rather than napping the moment coin pressure drops (routine as a
             // standing pull — Atoms' growth/duty drives will replace this).
+            // Industrious keepers feel it harder than idlers.
             if (isKeeper && hour >= 8 && hour < 18)
             {
-                double s = OddScore.Compute(needs.V, ActivityCatalog.Work.Delta, w, 1.3, 0.02);
+                // Soft trait band: weights already carry personality, so the
+                // gate multiplier stays gentle or traits double-dip.
+                double duty = 0.03 * (0.7 + 0.6 * industry);
+                double s = OddScore.Compute(needs.V, ActivityCatalog.Work.Delta, w, 1.3, duty);
                 if (incumbent == ActivityKind.Work) s *= Sticky;
                 if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Work; bestBuilding = residency.BuildingIndex; bestX = home.X; bestZ = home.Z; }
             }
@@ -199,7 +214,8 @@ namespace DaggerfallWorkshop.Sim
                     if (incumbent == ActivityKind.EatTavern && bestBuilding == _tavernIndices[t]) s *= Sticky;
                     if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.EatTavern; bestBuilding = _tavernIndices[t]; bestX = tav.X; bestZ = tav.Z; }
 
-                    double socialGate = ((hour >= 17) ? 1.5 : 1.0) * distFactor * lively * prepotency;
+                    double socialGate = ((hour >= 17) ? 1.5 : 1.0) * distFactor * lively * prepotency
+                        * (0.7 + 0.6 * sociability);
                     s = OddScore.Compute(needs.V, ActivityCatalog.Socialize.Delta, w, socialGate, 0);
                     if (incumbent == ActivityKind.Socialize) s *= Sticky;
                     if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Socialize; bestBuilding = _tavernIndices[t]; bestX = tav.X; bestZ = tav.Z; }
@@ -273,6 +289,17 @@ namespace DaggerfallWorkshop.Sim
         }
 
         static bool IsNight(int hour) => hour >= 21 || hour < 6;
+
+        /// Chronotype shifts the personal night window: larks (0) live
+        /// 19:30–04:30, owls (1) live 22:30–07:30, the center matches the old
+        /// global 21–06.
+        public static bool IsNightFor(int hour, double chronotype)
+        {
+            double shift = (chronotype - 0.5) * 3.0;            // -1.5 .. +1.5 h
+            double h = hour + 0.5;                               // mid-hour sample
+            double nightStart = 21 + shift, nightEnd = 6 + shift;
+            return h >= nightStart || h < nightEnd;
+        }
 
         static uint Hash(int idValue, long tick)
         {

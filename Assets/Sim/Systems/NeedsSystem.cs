@@ -30,6 +30,7 @@ namespace DaggerfallWorkshop.Sim
                     doing = SpecFor(behavior.Activity);
 
                 bool sleeping = doing != null && doing.Kind == ActivityKind.Sleep;
+                _ctx.Personality.TryGet(kv.Key, out var person);
 
                 for (int axis = 0; axis < NeedAxis.Count; axis++)
                 {
@@ -50,6 +51,7 @@ namespace DaggerfallWorkshop.Sim
                     // rest can't keep up with a day's drain, and sleepers wake
                     // for midnight snacks every hour.
                     double drift = ActivityCatalog.DriftPerHour[axis];
+                    if (person != null) drift *= person.DriftScale[axis];
                     if (sleeping)
                     {
                         if (axis == NeedAxis.EnergyDef || axis == NeedAxis.SocialDef) drift = 0;

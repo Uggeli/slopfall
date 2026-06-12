@@ -135,7 +135,7 @@ namespace DaggerfallWorkshop.Sim
 
                     bool wasMet = rel.Familiarity >= MetFamiliarity;
                     rel.Familiarity = Clamp01(rel.Familiarity + familiarityGain);
-                    rel.Regard = Clamp(rel.Regard + Affinity(self, other) * familiarityGain, -1, 1);
+                    rel.Regard = Clamp(rel.Regard + Affinity(_ctx, self, other) * familiarityGain, -1, 1);
 
                     if (!wasMet && rel.Familiarity >= MetFamiliarity)
                     {
@@ -242,16 +242,35 @@ namespace DaggerfallWorkshop.Sim
         static bool IsSocialActivity(ActivityKind kind) =>
             kind == ActivityKind.Socialize || kind == ActivityKind.EatTavern || kind == ActivityKind.Visit;
 
-        /// Symmetric, deterministic pair chemistry in [-1, 1]. Most pairs are
-        /// mildly positive (shared drinks beat solitude); a tail grates.
-        public static double Affinity(EntityId a, EntityId b)
+        /// Symmetric pair chemistry in roughly [-1, 1.1]: warmth from both
+        /// sides plus birds-of-a-feather similarity across the trait vector.
+        /// Two warm similar people click hard; two cold opposites grate.
+        /// Replaces the old id-hash stand-in; falls back to it for entities
+        /// without personalities (unit harnesses).
+        public static double Affinity(SimulationContext ctx, EntityId a, EntityId b)
+        {
+            if (!ctx.Personality.TryGet(a, out var pa) || !ctx.Personality.TryGet(b, out var pb))
+                return HashAffinity(a, b);
+
+            double warmth = (pa.Trait(TraitIndex.Warmth) + pb.Trait(TraitIndex.Warmth) - 1.0) * 0.7;
+
+            double dist = 0;
+            for (int t = 0; t < TraitIndex.Count; t++)
+                dist += System.Math.Abs(pa.Traits[t] - pb.Traits[t]);
+            dist /= TraitIndex.Count;                   // 0 identical .. 1 opposite
+            double similarity = (0.5 - dist) * 1.2;
+
+            return warmth + similarity + 0.15;          // mild baseline goodwill
+        }
+
+        static double HashAffinity(EntityId a, EntityId b)
         {
             int lo = a.Value < b.Value ? a.Value : b.Value;
             int hi = a.Value < b.Value ? b.Value : a.Value;
             uint x = (uint)(lo * 2654435761u) ^ (uint)(hi * 97u + 13);
             x ^= x >> 13; x *= 0x5bd1e995; x ^= x >> 15;
-            double h = x / (double)uint.MaxValue;     // 0..1
-            return h * 1.6 - 0.5;                      // -0.5 .. 1.1 -> mostly positive
+            double h = x / (double)uint.MaxValue;
+            return h * 1.6 - 0.5;
         }
 
         static double Clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);

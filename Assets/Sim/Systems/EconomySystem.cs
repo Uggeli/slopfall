@@ -13,7 +13,7 @@ namespace DaggerfallWorkshop.Sim
     /// keeps working unchanged on top of real money.
     public sealed class EconomySystem : ISystem
     {
-        public const double WagePerWorkMinute = 0.3 / 180.0;        // matches Work's promise
+        public const double WagePerWorkMinute = 0.4 / 180.0;        // matches Work's promise
         public const double TavernMealPerMinute = 0.08 / 45.0;      // matches EatTavern
         public const double TavernSocialPerMinute = 0.04 / 90.0;    // matches Socialize
         // Sized against the wage faucet (~13 keepers × ~5 work-hours/day):

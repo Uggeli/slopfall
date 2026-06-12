@@ -16,6 +16,9 @@
     <AssemblyName>DaggerfallSim.Data</AssemblyName>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Nullable>disable</Nullable>
+    <!-- CS0649: fields in DFU's own readers (e.g. DFRegion.LocationId) that
+         the original sources leave unassigned. Their code, their warning. -->
+    <NoWarn>$(NoWarn);0649</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

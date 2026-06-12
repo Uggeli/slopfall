@@ -45,7 +45,9 @@ namespace DaggerfallWorkshop.Sim
         {
             Kind = ActivityKind.Work,
             DurationMinutes = 180,
-            Delta = Deltas(coinDef: -0.3, energyDef: +0.1),
+            // Wage raised with personalities: restless/idle keepers skip
+            // shifts, so the diligent must carry the town's coin faucet.
+            Delta = Deltas(coinDef: -0.4, energyDef: +0.1),
         };
 
         public static readonly Spec EatHome = new Spec
