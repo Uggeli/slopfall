@@ -10,6 +10,7 @@ namespace DaggerfallWorkshop.Sim.Host
     ///
     /// Usage: dotnet run [--ticks N] [--timescale X] [--realtime]
     ///        dotnet run --probe [regionName [locationName]]
+    ///        dotnet run --town <regionName> <locationName> [--ticks N] [--timescale X]
     public static class Program
     {
         public static int Main(string[] args)
@@ -17,6 +18,7 @@ namespace DaggerfallWorkshop.Sim.Host
             int ticks = 600;            // 1 game-hour at default 10 Hz / scale 600
             float timeScale = 600f;     // 1 game-minute per tick
             bool realtime = false;
+            string townRegion = null, townLocation = null;
 
             if (args.Length > 0 && args[0] == "--probe")
             {
@@ -32,11 +34,15 @@ namespace DaggerfallWorkshop.Sim.Host
                     case "--ticks": ticks = int.Parse(args[++i]); break;
                     case "--timescale": timeScale = float.Parse(args[++i]); break;
                     case "--realtime": realtime = true; break;
+                    case "--town": townRegion = args[++i]; townLocation = args[++i]; break;
                     default:
                         Console.Error.WriteLine("unknown arg: " + args[i]);
                         return 2;
                 }
             }
+
+            if (townRegion != null)
+                return TownDemo.Run(townRegion, townLocation, ticks, timeScale);
 
             var events = new EventBus();
             var time = new SimulationTime(0.1);     // 10 Hz

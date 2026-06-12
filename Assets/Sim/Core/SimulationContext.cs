@@ -22,6 +22,8 @@ namespace DaggerfallWorkshop.Sim
         public StatusFlagsRegistry StatusFlags { get; }
         public StatsRegistry Stats { get; }
         public ProgressionRegistry Progression { get; }
+        public BuildingRegistry Buildings { get; }
+        public ResidencyRegistry Residency { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -41,6 +43,8 @@ namespace DaggerfallWorkshop.Sim
             StatusFlags = new StatusFlagsRegistry();
             Stats = new StatsRegistry();
             Progression = new ProgressionRegistry();
+            Buildings = new BuildingRegistry();
+            Residency = new ResidencyRegistry();
         }
     }
 }
