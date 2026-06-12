@@ -63,6 +63,8 @@ namespace Sim.Tests
                 Assert.Equal("world", world.RootElement.GetProperty("type").GetString());
                 Assert.Equal("Gothway Garden", world.RootElement.GetProperty("name").GetString());
                 Assert.Equal(175, world.RootElement.GetProperty("buildings").GetArrayLength());
+                Assert.True(world.RootElement.GetProperty("roads").GetArrayLength() > 600,
+                    "street underlay missing from world payload");
 
                 var snap = await ReceiveJson(ws);
                 Assert.Equal("snap", snap.RootElement.GetProperty("type").GetString());

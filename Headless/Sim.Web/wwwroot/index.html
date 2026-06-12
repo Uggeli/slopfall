@@ -58,7 +58,12 @@ const panel = document.getElementById("panel");
 let world = null, snap = null, detail = null;
 let cam = { x: 0, z: 0, scale: 2 };          // world meters -> px
 let selected = -1, inspectTimer = null;
-let entities = [];                            // [id,x,z,act,phase]
+let entities = [];                            // [id,x,z,act,phase] (latest snapshot)
+// Interpolation: render positions lerp from the previous snapshot to the
+// latest over the snapshot interval — the client-side smoothing the
+// sim's snapshot model always assumed.
+let prevPos = new Map(), currPos = new Map();
+let lerpStart = 0, lerpMs = 200;
 
 function resize() {
   canvas.width = window.innerWidth;
@@ -132,7 +137,11 @@ ws.onmessage = ev => {
   } else if (msg.type === "snap") {
     snap = msg;
     entities = msg.entities;
-    draw();
+    prevPos = currPos;
+    currPos = new Map(entities.map(e => [e[0], [e[1], e[2]]]));
+    const now = performance.now();
+    lerpMs = Math.min(400, Math.max(100, now - lerpStart));
+    lerpStart = now;
   } else if (msg.type === "detail") {
     detail = msg.detail;
     renderPanel();
@@ -153,6 +162,14 @@ function draw() {
   ctx2d.strokeStyle = "#1c1c26";
   ctx2d.strokeRect(w2sX(0), w2sY(0), tw * cam.scale, th * cam.scale);
 
+  // streets (road cells from the sim's walk grid)
+  if (world.roads) {
+    const cs = world.cellSize * cam.scale;
+    ctx2d.fillStyle = night ? "#16161c" : "#23232c";
+    for (let i = 0; i < world.roads.length; i += 2)
+      ctx2d.fillRect(w2sX(world.roads[i] * world.cellSize), w2sY(world.roads[i + 1] * world.cellSize), cs + 0.5, cs + 0.5);
+  }
+
   // buildings
   for (const b of world.buildings) {
     const size = Math.max(2, 4 * cam.scale);
@@ -160,25 +177,32 @@ function draw() {
     ctx2d.fillRect(w2sX(b.x) - size / 2, w2sY(b.z) - size / 2, size, size);
   }
 
-  // entities: doers first, walkers on top
+  // entities: doers first, walkers on top, positions lerped between snapshots
   if (entities.length) {
+    const t = Math.min(1, (performance.now() - lerpStart) / lerpMs);
+    const lerped = e => {
+      const c = currPos.get(e[0]), p = prevPos.get(e[0]) || c;
+      return [p[0] + (c[0] - p[0]) * t, p[1] + (c[1] - p[1]) * t];
+    };
     const r = Math.max(1.5, 1.6 * cam.scale * 0.8);
     for (const pass of [1, 0]) {
       for (const e of entities) {
         if ((e[4] === 0 ? 0 : 1) !== pass) continue;   // phase 0 = Moving drawn last
+        const [x, z] = lerped(e);
         ctx2d.fillStyle = e[4] === 0 ? "#ffffff" : ACT_COLOR[e[3]] || "#888";
         ctx2d.beginPath();
-        ctx2d.arc(w2sX(e[1]), w2sY(e[2]), e[4] === 0 ? r * 1.1 : r, 0, 7);
+        ctx2d.arc(w2sX(x), w2sY(z), e[4] === 0 ? r * 1.1 : r, 0, 7);
         ctx2d.fill();
       }
     }
     if (selected >= 0) {
       const sel = entities.find(e => e[0] === selected);
       if (sel) {
+        const [x, z] = lerped(sel);
         ctx2d.strokeStyle = "#fff";
         ctx2d.lineWidth = 1.5;
         ctx2d.beginPath();
-        ctx2d.arc(w2sX(sel[1]), w2sY(sel[2]), r * 2.2, 0, 7);
+        ctx2d.arc(w2sX(x), w2sY(z), r * 2.2, 0, 7);
         ctx2d.stroke();
       }
     }
@@ -239,6 +263,12 @@ function renderPanel() {
 }
 
 resize();
+
+// Continuous render loop — interpolation needs per-frame redraws.
+(function loop() {
+  draw();
+  requestAnimationFrame(loop);
+})();
 </script>
 </body>
 </html>

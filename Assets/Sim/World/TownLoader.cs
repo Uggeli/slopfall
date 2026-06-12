@@ -1,3 +1,4 @@
+using System;
 using DaggerfallConnect;
 using DaggerfallConnect.Arena2;
 
@@ -44,6 +45,17 @@ namespace DaggerfallWorkshop.Sim
                 BlocksHigh = height,
             };
 
+            int cells = TownGridData.CellsPerBlock;
+            var grid = new TownGridData
+            {
+                Width = width * cells,
+                Height = height * cells,
+                BlocksWide = width,
+                BlocksHigh = height,
+                Cost = new byte[width * cells * height * cells],
+                Gates = new BlockGates[width * height],
+            };
+
             for (int y = 0; y < height; y++)
             {
                 for (int x = 0; x < width; x++)
@@ -52,6 +64,14 @@ namespace DaggerfallWorkshop.Sim
                     var block = blocksFile.GetBlock(blockName);
                     if (block.Type != DFBlock.BlockTypes.Rmb || block.RmbBlock.SubRecords == null)
                         continue;
+
+                    // Walkability: per-template cost grid + gate flags (cached
+                    // by block name — same template everywhere in the world).
+                    var walk = BlockWalkability.For(blockName, block);
+                    grid.Gates[y * width + x] = walk.Gates;
+                    for (int row = 0; row < cells; row++)
+                        Array.Copy(walk.Cost, row * cells,
+                            grid.Cost, (y * cells + row) * grid.Width + x * cells, cells);
 
                     var buildingDataList = block.RmbBlock.FldHeader.BuildingDataList;
                     for (int i = 0; i < block.RmbBlock.SubRecords.Length; i++)
@@ -86,6 +106,7 @@ namespace DaggerfallWorkshop.Sim
                 }
             }
 
+            ctx.TownGrid.Set(grid);
             return result;
         }
 

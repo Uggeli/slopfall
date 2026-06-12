@@ -38,6 +38,20 @@ var jsonOptions = new JsonSerializerOptions
     IncludeFields = true,
 };
 
+// Road cells for the map underlay: flat [x0,z0,x1,z1,...] cell coords.
+var roadCells = new List<int>();
+var townGrid = boot.Ctx.TownGrid.Current;
+if (townGrid != null)
+{
+    for (int y = 0; y < townGrid.Height; y++)
+        for (int x = 0; x < townGrid.Width; x++)
+            if (townGrid.CostAt(x, y) == 1)
+            {
+                roadCells.Add(x);
+                roadCells.Add(y);
+            }
+}
+
 // Static world payload, built once — the same connect-handshake idea as Sim.Net.
 var worldJson = JsonSerializer.SerializeToUtf8Bytes(new
 {
@@ -47,6 +61,8 @@ var worldJson = JsonSerializer.SerializeToUtf8Bytes(new
     blocksWide = boot.Town.BlocksWide,
     blocksHigh = boot.Town.BlocksHigh,
     civilians = boot.Town.Civilians,
+    cellSize = TownGridData.CellSize,
+    roads = roadCells,
     buildings = boot.Ctx.Buildings.All
         .OrderBy(kv => kv.Key)
         .Select(kv => new

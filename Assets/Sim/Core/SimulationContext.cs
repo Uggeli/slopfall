@@ -29,6 +29,7 @@ namespace DaggerfallWorkshop.Sim
         public RelationsRegistry Relations { get; }
         public MemoryRegistry Memory { get; }
         public OccupancyRegistry Occupancy { get; }
+        public TownGridRegistry TownGrid { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -55,6 +56,7 @@ namespace DaggerfallWorkshop.Sim
             Relations = new RelationsRegistry();
             Memory = new MemoryRegistry();
             Occupancy = new OccupancyRegistry();
+            TownGrid = new TownGridRegistry();
         }
     }
 }
