@@ -167,6 +167,15 @@ namespace DaggerfallWorkshop.Sim
                 BuildingIndex = buildingIndex,
                 Role = role,
             });
+
+            // Seed the need poles mid-range so the first sim day starts varied
+            // rather than everyone rushing the same urgent deficit at once.
+            var needs = new NeedsData();
+            needs.V[NeedAxis.Hunger] = 0.2 + ctx.Random.NextDouble() * 0.3;
+            needs.V[NeedAxis.EnergyDef] = 0.1 + ctx.Random.NextDouble() * 0.3;
+            needs.V[NeedAxis.SocialDef] = 0.3 + ctx.Random.NextDouble() * 0.4;
+            needs.V[NeedAxis.CoinDef] = (role == ResidentRole.Keeper ? 0.3 : 0.5) + ctx.Random.NextDouble() * 0.3;
+            ctx.Needs.Set(id, needs);
         }
     }
 }

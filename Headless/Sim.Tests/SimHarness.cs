@@ -30,6 +30,9 @@ namespace Sim.Tests
             Loop.Register(new StatusFlagDeriveSystem());
             Loop.Register(new SkillAdvancementSystem());
             Loop.Register(new ProgressionSystem());
+            Loop.Register(new NeedsSystem());
+            Loop.Register(new OddSystem());
+            Loop.Register(new MovementSystem());
             Log = new EventLog();
             Loop.Register(Log);
         }

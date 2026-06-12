@@ -41,6 +41,10 @@ namespace DaggerfallWorkshop.Sim.Host
             loop.Register(new StatusFlagDeriveSystem());
             loop.Register(new SkillAdvancementSystem());
             loop.Register(new ProgressionSystem());
+            // ODD wedge: needs drift before decisions, decisions before motion.
+            loop.Register(new NeedsSystem());
+            loop.Register(new OddSystem());
+            loop.Register(new MovementSystem());
             var log = new EventLog();
             loop.Register(log);
 
@@ -66,6 +70,18 @@ namespace DaggerfallWorkshop.Sim.Host
                 Console.WriteLine("  " + kv.Key.ToString().PadRight(15) + " " + kv.Value);
             Console.WriteLine();
 
+            // Day-in-the-life tracing: one tavern keeper, one shop keeper, one
+            // resident, transitions stamped with the game clock.
+            var samples = PickSamples(ctx);
+            var timelines = new Dictionary<EntityId, List<string>>();
+            foreach (var s in samples) timelines[s] = new List<string>();
+            events.Subscribe<ActivityStartedEvent>(e =>
+            {
+                if (!timelines.TryGetValue(e.Entity, out var line)) return;
+                var c = ctx.WorldClock.Current;
+                line.Add(c.Hour.ToString("00") + ":" + c.Minute.ToString("00") + " → " + e.Activity);
+            });
+
             for (int i = 0; i < ticks; i++)
                 loop.Step();
 
@@ -75,25 +91,58 @@ namespace DaggerfallWorkshop.Sim.Host
                 + ", sun=" + ctx.Lighting.Current.SunIntensity.ToString("F2"));
             Console.WriteLine();
 
-            Console.WriteLine("sample civilians:");
-            int shown = 0;
-            foreach (var kv in ctx.Residency.All)
+            Console.WriteLine("a day in the life:");
+            foreach (var s in samples)
             {
-                if (shown++ >= 6) break;
-                ctx.Identity.TryGet(kv.Key, out var who);
-                ctx.Position.TryGet(kv.Key, out var pos);
-                ctx.Buildings.TryGet(kv.Value.BuildingIndex, out var home);
-                Console.WriteLine("  #" + kv.Key.Value + " " + who.Name
-                    + "  at " + pos + "  " + kv.Value.Role + " of building " + kv.Value.BuildingIndex
-                    + " (" + (home != null ? home.Kind.ToString() : "?") + ", quality " + (home != null ? home.Quality : 0) + ")");
+                ctx.Identity.TryGet(s, out var who);
+                ctx.Residency.TryGet(s, out var res);
+                Console.WriteLine("  #" + s.Value + " " + who.Name + " [" + res.Role + "]");
+                Console.WriteLine("    " + string.Join(",  ", timelines[s]));
             }
             Console.WriteLine();
 
-            Console.WriteLine("event log (newest first):");
-            foreach (var entry in log.Snapshot().Take(12))
-                Console.WriteLine("  [t" + entry.Tick.ToString("0000") + "] " + entry.Summary);
+            Console.WriteLine("population right now:");
+            var byActivity = new Dictionary<ActivityKind, int>();
+            foreach (var kv in ctx.Behavior.All)
+                byActivity[kv.Value.Activity] = (byActivity.TryGetValue(kv.Value.Activity, out var n) ? n : 0) + 1;
+            foreach (var kv in byActivity.OrderByDescending(kv => kv.Value))
+                Console.WriteLine("  " + kv.Key.ToString().PadRight(11) + " " + kv.Value);
+            Console.WriteLine();
+
+            var avg = new double[NeedAxis.Count];
+            int count = 0;
+            foreach (var kv in ctx.Needs.All)
+            {
+                for (int a = 0; a < NeedAxis.Count; a++) avg[a] += kv.Value.V[a];
+                count++;
+            }
+            Console.WriteLine("average needs (deficits, 0=satisfied): hunger="
+                + (avg[NeedAxis.Hunger] / count).ToString("F2")
+                + " energy=" + (avg[NeedAxis.EnergyDef] / count).ToString("F2")
+                + " social=" + (avg[NeedAxis.SocialDef] / count).ToString("F2")
+                + " coin=" + (avg[NeedAxis.CoinDef] / count).ToString("F2"));
 
             return 0;
+        }
+
+        static List<EntityId> PickSamples(SimulationContext ctx)
+        {
+            var samples = new List<EntityId>();
+            EntityId tavernKeeper = EntityId.None, shopKeeper = EntityId.None, resident = EntityId.None;
+            foreach (var kv in ctx.Residency.All)
+            {
+                ctx.Buildings.TryGet(kv.Value.BuildingIndex, out var b);
+                if (kv.Value.Role == ResidentRole.Keeper && b != null && b.Kind == BuildingKind.Tavern)
+                { if (tavernKeeper.IsNone) tavernKeeper = kv.Key; }
+                else if (kv.Value.Role == ResidentRole.Keeper)
+                { if (shopKeeper.IsNone) shopKeeper = kv.Key; }
+                else
+                { if (resident.IsNone) resident = kv.Key; }
+            }
+            if (!tavernKeeper.IsNone) samples.Add(tavernKeeper);
+            if (!shopKeeper.IsNone) samples.Add(shopKeeper);
+            if (!resident.IsNone) samples.Add(resident);
+            return samples;
         }
     }
 }
