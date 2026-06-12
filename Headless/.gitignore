@@ -1,0 +1,7 @@
+bin/
+obj/
+*.user
+
+# Root .gitignore excludes *.csproj/*.sln because Unity generates them at
+# repo root. The Headless projects are hand-written and must be tracked.
+!*.csproj

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Headless build of the sim core. Compiles the SAME sources that live under
+    Assets/Sim (single source of truth — no copies). LangVersion is pinned to
+    7.3 to match Unity 2019.4's compiler so the sources stay dual-compilable.
+    Bridge/ is excluded: it is the Unity integration layer and the only part
+    of Assets/Sim allowed to reference UnityEngine.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>DaggerfallWorkshop.Sim</RootNamespace>
+    <AssemblyName>DaggerfallSim</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../Assets/Sim/Core/**/*.cs" />
+    <Compile Include="../../Assets/Sim/Events/**/*.cs" />
+    <Compile Include="../../Assets/Sim/Registries/**/*.cs" />
+    <Compile Include="../../Assets/Sim/Systems/**/*.cs" />
+    <Compile Include="../../Assets/Sim/Threading/**/*.cs" />
+
+    <!-- Pure-C# DFU classes the sim depends on (calendar math + shared enums). -->
+    <Compile Include="../../Assets/Scripts/Utility/DaggerfallDateTime.cs" />
+    <Compile Include="../../Assets/Scripts/DaggerfallUnityEnums.cs" />
+
+    <!-- Shims satisfying DFU sources' using-directives without Unity. -->
+    <Compile Include="Shims/*.cs" />
+  </ItemGroup>
+
+</Project>
