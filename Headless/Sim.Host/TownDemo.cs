@@ -38,6 +38,12 @@ namespace DaggerfallWorkshop.Sim.Host
                 Console.WriteLine("  " + kv.Key.ToString().PadRight(15) + " " + kv.Value);
             Console.WriteLine();
 
+            int grants = 0, refusals = 0;
+            events.Subscribe<HelpGrantedEvent>(e => grants++);
+            events.Subscribe<HelpRefusedEvent>(e => refusals++);
+            double coinAtStart = 0;
+            foreach (var kv in ctx.Coin.All) coinAtStart += kv.Value;
+
             // Day-in-the-life tracing: one tavern keeper, one shop keeper, one
             // resident, transitions stamped with the game clock.
             var samples = PickSamples(ctx);
@@ -108,6 +114,16 @@ namespace DaggerfallWorkshop.Sim.Host
                     }
                 }
             }
+            double coinAtEnd = 0, richest = 0, poorest = double.MaxValue;
+            foreach (var kv in ctx.Coin.All)
+            {
+                coinAtEnd += kv.Value;
+                if (kv.Value > richest) richest = kv.Value;
+                if (kv.Value < poorest) poorest = kv.Value;
+            }
+            Console.WriteLine("economy: " + coinAtStart.ToString("F1") + " → " + coinAtEnd.ToString("F1")
+                + " coin (richest " + richest.ToString("F2") + ", poorest " + poorest.ToString("F2") + ")");
+            Console.WriteLine("charity: " + grants + " alms granted, " + refusals + " refused");
             Console.WriteLine("social fabric: " + acquaintances + " acquaintances, "
                 + friendships + " friendships (directed)");
             if (!bestA.IsNone)

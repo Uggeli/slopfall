@@ -195,7 +195,15 @@ namespace DaggerfallWorkshop.Sim
             needs.V[NeedAxis.Hunger] = 0.2 + ctx.Random.NextDouble() * 0.3;
             needs.V[NeedAxis.EnergyDef] = 0.1 + ctx.Random.NextDouble() * 0.3;
             needs.V[NeedAxis.SocialDef] = 0.3 + ctx.Random.NextDouble() * 0.4;
-            needs.V[NeedAxis.CoinDef] = (role == ResidentRole.Keeper ? 0.3 : 0.5) + ctx.Random.NextDouble() * 0.3;
+
+            // Real money: keepers start comfortable, residents start poor —
+            // poverty is structural until they find income, which is exactly
+            // the problem source the request system feeds on. CoinDef derives.
+            double coin = role == ResidentRole.Keeper
+                ? 0.5 + ctx.Random.NextDouble() * 0.3
+                : 0.15 + ctx.Random.NextDouble() * 0.25;
+            ctx.Coin.Set(id, coin);
+            needs.V[NeedAxis.CoinDef] = 1.0 - coin;
             ctx.Needs.Set(id, needs);
         }
     }

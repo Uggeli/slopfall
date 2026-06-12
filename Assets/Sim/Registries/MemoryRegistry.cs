@@ -7,6 +7,10 @@ namespace DaggerfallWorkshop.Sim
     {
         Met,            // first real acquaintance with Other, at Building
         BecameFriend,   // regard + familiarity crossed the friendship bar
+        ReceivedHelp,   // Other gave coin when asked
+        GaveHelp,       // gave coin to Other when asked
+        WasRefused,     // asked Other for help and was turned away
+        RefusedToHelp,  // turned Other away
     }
 
     public struct MemoryEntry

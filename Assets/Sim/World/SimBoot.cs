@@ -48,10 +48,12 @@ namespace DaggerfallWorkshop.Sim
             loop.Register(new StatusFlagDeriveSystem());
             loop.Register(new SkillAdvancementSystem());
             loop.Register(new ProgressionSystem());
+            loop.Register(new EconomySystem());     // coin moves before needs derive from it
             loop.Register(new NeedsSystem());
             loop.Register(new OddSystem());
             loop.Register(new MovementSystem());
             loop.Register(new SocialSystem());
+            loop.Register(new RequestSystem());     // reads relations after SocialSystem's tick
             var log = new EventLog();
             loop.Register(log);
 

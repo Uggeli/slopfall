@@ -85,7 +85,11 @@ namespace DaggerfallWorkshop.Sim
         public static readonly double[] Weights = { 1.2, 1.0, 0.6, 0.5 };
 
         /// Need drift per game HOUR — the poles ticking up (Atoms: Metabolism).
-        public static readonly double[] DriftPerHour = { 0.04, 0.05, 0.03, 0.01 };
+        /// CoinDef has no drift: it derives from real money (CoinRegistry);
+        /// the cost of living is an actual coin sink in EconomySystem. The
+        /// CoinDef deltas in the specs above remain as scoring PROMISES whose
+        /// real rates EconomySystem implements as transfers.
+        public static readonly double[] DriftPerHour = { 0.04, 0.05, 0.03, 0.0 };
 
         public const double VMax = 1.5;
 

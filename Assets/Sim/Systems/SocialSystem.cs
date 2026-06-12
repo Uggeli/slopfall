@@ -23,9 +23,39 @@ namespace DaggerfallWorkshop.Sim
 
         SimulationContext _ctx;
         readonly Dictionary<int, List<EntityId>> _groups = new Dictionary<int, List<EntityId>>();
+        readonly List<RelationImpulseEvent> _impulses = new List<RelationImpulseEvent>();
 
-        public void Init(SimulationContext ctx) { _ctx = ctx; }
-        public void ProcessEvents() { }
+        public void Init(SimulationContext ctx)
+        {
+            _ctx = ctx;
+            ctx.Events.Subscribe<RelationImpulseEvent>(e => _impulses.Add(e));
+        }
+
+        /// Apply regard/familiarity impulses from systems that don't own the
+        /// relations registry (gratitude and grudges from RequestSystem).
+        public void ProcessEvents()
+        {
+            for (int i = 0; i < _impulses.Count; i++)
+            {
+                var e = _impulses[i];
+                var next = CloneRelations(e.Who);
+                if (!next.Of.TryGetValue(e.Other, out var rel))
+                {
+                    rel = new RelationData();
+                    next.Of[e.Other] = rel;
+                }
+                rel.Regard = Clamp(rel.Regard + e.RegardDelta, -1, 1);
+                rel.Familiarity = Clamp01(rel.Familiarity + e.FamiliarityDelta);
+                _ctx.Relations.Set(e.Who, next);
+
+                if (e.RecordMemory)
+                    _ctx.Memory.Set(e.Who, Remember(e.Who, null, new MemoryEntry
+                    {
+                        Tick = _ctx.Time.Tick, Kind = e.Memory, Other = e.Other, Building = -1,
+                    }));
+            }
+            _impulses.Clear();
+        }
 
         public void Update(long tick)
         {
@@ -78,6 +108,18 @@ namespace DaggerfallWorkshop.Sim
                 var next = CloneRelations(self);
                 MemoryData memory = null;
 
+                // Gossip — listener-pull: every few ticks of shared time, hear
+                // about the teller's juiciest contact and lean toward their
+                // view of them, weighted by how well you know the teller.
+                // Opinions propagate through tavern networks; nobody needs to
+                // have met the person being discussed.
+                if (Hash(self.Value, tick) % 3 == 0)
+                {
+                    var teller = group[i == 0 ? (group.Count > 1 ? 1 : 0) : 0];
+                    if (teller != self)
+                        HearGossip(self, teller, next);
+                }
+
                 int partners = 0;
                 for (int j = 0; j < group.Count && partners < MaxPartners; j++)
                 {
@@ -119,6 +161,51 @@ namespace DaggerfallWorkshop.Sim
                 if (memory != null)
                     _ctx.Memory.Set(self, memory);
             }
+        }
+
+        /// The teller's strongest opinion (biggest |regard| about someone the
+        /// listener isn't, known well enough to gossip about) rubs off on the
+        /// listener, scaled by gossip strength and trust in the teller.
+        void HearGossip(EntityId listener, EntityId teller, RelationsData listenerNext)
+        {
+            const double GossipFactor = 0.15;
+            const double MinTellerFamiliarity = 0.2;
+
+            if (!_ctx.Relations.TryGet(teller, out var tellerRelations)) return;
+
+            EntityId about = EntityId.None;
+            double aboutRegard = 0;
+            foreach (var kv in tellerRelations.Of)
+            {
+                if (kv.Key == listener) continue;
+                if (kv.Value.Familiarity < MinTellerFamiliarity) continue;
+                if (System.Math.Abs(kv.Value.Regard) > System.Math.Abs(aboutRegard)
+                    || (System.Math.Abs(kv.Value.Regard) == System.Math.Abs(aboutRegard)
+                        && !about.IsNone && kv.Key.Value < about.Value))
+                {
+                    about = kv.Key;
+                    aboutRegard = kv.Value.Regard;
+                }
+            }
+            if (about.IsNone || System.Math.Abs(aboutRegard) < 0.1) return;
+
+            double trust = listenerNext.Of.TryGetValue(teller, out var rel) ? rel.Familiarity : 0;
+            if (trust <= 0) return;
+
+            if (!listenerNext.Of.TryGetValue(about, out var heard))
+            {
+                heard = new RelationData();
+                listenerNext.Of[about] = heard;
+            }
+            heard.Regard = Clamp(heard.Regard + aboutRegard * GossipFactor * trust, -1, 1);
+            heard.Familiarity = Clamp01(heard.Familiarity + 0.02);  // knows OF them now
+        }
+
+        static uint Hash(int idValue, long tick)
+        {
+            uint x = (uint)(idValue * 2654435761u) ^ (uint)(tick * 40503u);
+            x ^= x >> 13; x *= 0x5bd1e995; x ^= x >> 15;
+            return x;
         }
 
         RelationsData CloneRelations(EntityId id)

@@ -29,6 +29,7 @@ namespace DaggerfallWorkshop.Sim
         public string Phase;
         public float X, Z;
         public double Hunger, Energy, Social, Coin;
+        public double Money;        // actual coin, not the deficit
         public int HomeBuilding = -1;
         public string HomeKind;
         public int HomeQuality;
@@ -121,6 +122,7 @@ namespace DaggerfallWorkshop.Sim
                 detail.Social = needs.V[NeedAxis.SocialDef];
                 detail.Coin = needs.V[NeedAxis.CoinDef];
             }
+            detail.Money = ctx.Coin.Get(id);
 
             if (ctx.Residency.TryGet(id, out var residency))
             {

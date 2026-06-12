@@ -33,6 +33,16 @@ namespace DaggerfallWorkshop.Sim
 
                 for (int axis = 0; axis < NeedAxis.Count; axis++)
                 {
+                    // CoinDef is no longer a drifting pole — it derives from
+                    // actual money (EconomySystem's CoinRegistry), so poverty
+                    // pressure in scoring tracks a conserved quantity.
+                    if (axis == NeedAxis.CoinDef)
+                    {
+                        double deficit = 1.0 - _ctx.Coin.Get(kv.Key);
+                        next.V[axis] = deficit < 0 ? 0 : deficit;
+                        continue;
+                    }
+
                     double value = v[axis];
 
                     // Metabolism slows in sleep: tiredness and loneliness

@@ -299,6 +299,7 @@ function renderPanel() {
   let html = `<h2>#${detail.id} ${detail.name}</h2>`
     + `<div class="dim">${detail.role || "?"} · ${detail.activity || "?"} (${detail.phase || "?"})`
     + ` · home: ${detail.homeKind || "?"} q${detail.homeQuality}</div>`
+    + `<div class="dim">purse: ${detail.money.toFixed(2)} coin</div>`
     + `<div class="sec">needs (deficits)</div>`
     + needRow("hunger", detail.hunger, "#c75c5c")
     + needRow("tiredness", detail.energy, "#4a6cd4")
@@ -317,8 +318,10 @@ function renderPanel() {
 
   html += `<div class="sec">memories</div>`;
   if (detail.memories.length === 0) html += `<div class="dim">nothing memorable yet</div>`;
+  const VERBS = { Met: "met", BecameFriend: "became friends with", ReceivedHelp: "was helped by",
+                  GaveHelp: "helped", WasRefused: "was refused by", RefusedToHelp: "refused to help" };
   for (const m of detail.memories) {
-    const verb = m.kind === "Met" ? "met" : "became friends with";
+    const verb = VERBS[m.kind] || m.kind;
     html += `<div class="dim">t${m.tick}: ${verb} <span style="color:#ccc">${m.otherName}</span></div>`;
   }
 

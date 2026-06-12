@@ -16,4 +16,18 @@ namespace DaggerfallWorkshop.Sim
         public EntityId Who;
         public EntityId Other;
     }
+
+    /// Request that Who's directed relation toward Other shift — emitted by
+    /// systems that don't own RelationsRegistry (RequestSystem's gratitude and
+    /// resentment). SocialSystem, the owner, applies it and records the
+    /// memory. Keeps the single-writer rule intact.
+    public sealed class RelationImpulseEvent : ISimEvent
+    {
+        public EntityId Who;
+        public EntityId Other;
+        public double RegardDelta;
+        public double FamiliarityDelta;
+        public MemoryKind Memory;
+        public bool RecordMemory;
+    }
 }
