@@ -19,7 +19,7 @@ namespace DaggerfallWorkshop.Sim.Host
 
         public static int Run(string regionName, string locationName, float timeScale, int port)
         {
-            var boot = TownBoot.Create(regionName, locationName, timeScale);
+            var boot = SimBoot.CreateTown(DataProbe.Arena2Path, regionName, locationName, timeScale);
             var world = BuildWorldStatic(boot);
 
             var publisher = new SnapshotPublisher();
@@ -60,7 +60,7 @@ namespace DaggerfallWorkshop.Sim.Host
             return 0;
         }
 
-        public static WorldStatic BuildWorldStatic(TownBoot.Boot boot)
+        public static WorldStatic BuildWorldStatic(SimBootResult boot)
         {
             var world = new WorldStatic
             {

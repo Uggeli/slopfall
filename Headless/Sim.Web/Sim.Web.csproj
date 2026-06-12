@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Web spectator host: serves the single-page viewer and a WebSocket feed
+    (JSON frames - debuggable in browser devtools; the binary Sim.Net protocol
+    stays the contract for native clients). ASP.NET Core ships with the SDK as
+    a framework reference, so this adds no package downloads.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>DaggerfallWorkshop.Sim.Web</RootNamespace>
+    <AssemblyName>DaggerfallSim.Web</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Sim.Core/Sim.Core.csproj" />
+    <ProjectReference Include="../Sim.Data/Sim.Data.csproj" />
+    <ProjectReference Include="../Sim.World/Sim.World.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

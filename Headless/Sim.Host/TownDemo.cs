@@ -13,8 +13,8 @@ namespace DaggerfallWorkshop.Sim.Host
     {
         public static int Run(string regionName, string locationName, int ticks, float timeScale)
         {
-            TownBoot.Boot boot;
-            try { boot = TownBoot.Create(regionName, locationName, timeScale); }
+            SimBootResult boot;
+            try { boot = SimBoot.CreateTown(DataProbe.Arena2Path, regionName, locationName, timeScale); }
             catch (ArgumentException ex)
             {
                 Console.Error.WriteLine(ex.Message);

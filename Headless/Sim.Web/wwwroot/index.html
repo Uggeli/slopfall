@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>DFSim Spectator</title>
+<style>
+  body { margin: 0; background: #0c0c10; color: #ccc; font: 13px/1.45 monospace; overflow: hidden; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; padding: 6px 10px; background: rgba(10,10,14,.85);
+         border-bottom: 1px solid #222; white-space: nowrap; z-index: 2; }
+  #hud b { color: #fff; }
+  #panel { position: fixed; top: 40px; right: 0; width: 300px; bottom: 0; padding: 10px;
+           background: rgba(12,12,18,.92); border-left: 1px solid #222; overflow-y: auto;
+           display: none; z-index: 2; }
+  #panel h2 { margin: 0 0 2px; font-size: 14px; color: #fff; }
+  #panel .dim { color: #777; }
+  #panel .sec { margin-top: 10px; color: #9ad; font-weight: bold; }
+  .bar { height: 8px; background: #222; border-radius: 3px; margin: 2px 0 6px; }
+  .bar i { display: block; height: 100%; border-radius: 3px; }
+  .rel { margin: 2px 0; }
+  .friend { color: #fc6; }
+  canvas { display: block; cursor: grab; }
+  #legend { position: fixed; bottom: 0; left: 0; padding: 4px 10px; background: rgba(10,10,14,.85);
+            color: #666; z-index: 2; }
+  .sw { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 3px 0 10px; }
+</style>
+</head>
+<body>
+<div id="hud">connecting…</div>
+<div id="panel"></div>
+<div id="legend">
+  <span class="sw" style="background:#4a6cd4"></span>sleep
+  <span class="sw" style="background:#d4b04a"></span>work
+  <span class="sw" style="background:#5cb85c"></span>eat
+  <span class="sw" style="background:#c75cc7"></span>social
+  <span class="sw" style="background:#4ac3d4"></span>visit
+  <span class="sw" style="background:#ffffff"></span>walking
+  &nbsp;&nbsp;drag to pan · wheel to zoom · click a dude to inspect
+</div>
+<canvas id="map"></canvas>
+<script>
+"use strict";
+
+const ACT = ["none","idle","wander","sleep","work","eat home","eat tavern","socialize","visit"];
+const ACT_COLOR = ["#888","#999","#aaa","#4a6cd4","#d4b04a","#5cb85c","#5cb85c","#c75cc7","#4ac3d4"];
+const KIND_COLOR = {
+  Tavern:"#d4a017", Temple:"#3fbac2", GuildHall:"#b05cc7", Bank:"#7ec77e", Palace:"#eee",
+  Alchemist:"#3a8f8f", Armorer:"#3a8f8f", Bookseller:"#3a8f8f", ClothingStore:"#3a8f8f",
+  FurnitureStore:"#3a8f8f", GemStore:"#3a8f8f", GeneralStore:"#3a8f8f", Library:"#3a8f8f",
+  PawnShop:"#3a8f8f", WeaponSmith:"#3a8f8f",
+};
+const HOUSE_COLOR = "#3a3a44", WALL_COLOR = "#26262e";
+
+const canvas = document.getElementById("map");
+const ctx2d = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+const panel = document.getElementById("panel");
+
+let world = null, snap = null, detail = null;
+let cam = { x: 0, z: 0, scale: 2 };          // world meters -> px
+let selected = -1, inspectTimer = null;
+let entities = [];                            // [id,x,z,act,phase]
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  draw();
+}
+window.addEventListener("resize", resize);
+
+// --- transforms ---
+const w2sX = wx => (wx - cam.x) * cam.scale + canvas.width / 2;
+const w2sY = wz => (wz - cam.z) * cam.scale + canvas.height / 2;
+const s2wX = sx => (sx - canvas.width / 2) / cam.scale + cam.x;
+const s2wY = sy => (sy - canvas.height / 2) / cam.scale + cam.z;
+
+// --- input ---
+let dragging = false, lastMx = 0, lastMy = 0, moved = 0;
+canvas.addEventListener("mousedown", e => { dragging = true; moved = 0; lastMx = e.clientX; lastMy = e.clientY; });
+window.addEventListener("mouseup", e => {
+  if (dragging && moved < 5) clickAt(e.clientX, e.clientY);
+  dragging = false;
+});
+window.addEventListener("mousemove", e => {
+  if (!dragging) return;
+  const dx = e.clientX - lastMx, dy = e.clientY - lastMy;
+  moved += Math.abs(dx) + Math.abs(dy);
+  cam.x -= dx / cam.scale; cam.z -= dy / cam.scale;
+  lastMx = e.clientX; lastMy = e.clientY;
+  draw();
+});
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const wx = s2wX(e.clientX), wz = s2wY(e.clientY);
+  cam.scale *= e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  cam.scale = Math.max(0.5, Math.min(30, cam.scale));
+  cam.x = wx - (e.clientX - canvas.width / 2) / cam.scale;
+  cam.z = wz - (e.clientY - canvas.height / 2) / cam.scale;
+  draw();
+}, { passive: false });
+
+function clickAt(sx, sy) {
+  if (!entities.length) return;
+  const wx = s2wX(sx), wz = s2wY(sy);
+  const hitR = Math.max(3, 8 / cam.scale);
+  let best = -1, bestD = hitR * hitR;
+  for (const e of entities) {
+    const dx = e[1] - wx, dz = e[2] - wz;
+    const d = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = e[0]; }
+  }
+  select(best);
+}
+
+function select(id) {
+  selected = id;
+  clearInterval(inspectTimer);
+  if (id < 0) { panel.style.display = "none"; detail = null; draw(); return; }
+  const ask = () => ws.readyState === 1 && ws.send(JSON.stringify({ type: "inspect", id }));
+  ask();
+  inspectTimer = setInterval(ask, 1000);     // live panel while selected
+}
+
+// --- websocket ---
+const ws = new WebSocket(`ws://${location.host}/ws`);
+ws.onmessage = ev => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === "world") {
+    world = msg;
+    const w = world.blocksWide * 102.4, h = world.blocksHigh * 102.4;
+    cam = { x: w / 2, z: h / 2, scale: Math.min(window.innerWidth / w, window.innerHeight / h) * 0.9 };
+    resize();
+  } else if (msg.type === "snap") {
+    snap = msg;
+    entities = msg.entities;
+    draw();
+  } else if (msg.type === "detail") {
+    detail = msg.detail;
+    renderPanel();
+  }
+};
+ws.onclose = () => { hud.textContent = "disconnected — refresh to retry"; };
+
+// --- rendering ---
+function draw() {
+  if (!world) return;
+  const W = canvas.width, H = canvas.height;
+  const night = snap && snap.night;
+  ctx2d.fillStyle = night ? "#07070c" : "#101018";
+  ctx2d.fillRect(0, 0, W, H);
+
+  // town bounds
+  const tw = world.blocksWide * 102.4, th = world.blocksHigh * 102.4;
+  ctx2d.strokeStyle = "#1c1c26";
+  ctx2d.strokeRect(w2sX(0), w2sY(0), tw * cam.scale, th * cam.scale);
+
+  // buildings
+  for (const b of world.buildings) {
+    const size = Math.max(2, 4 * cam.scale);
+    ctx2d.fillStyle = KIND_COLOR[b.kind] || (b.kind.startsWith("House") ? HOUSE_COLOR : WALL_COLOR);
+    ctx2d.fillRect(w2sX(b.x) - size / 2, w2sY(b.z) - size / 2, size, size);
+  }
+
+  // entities: doers first, walkers on top
+  if (entities.length) {
+    const r = Math.max(1.5, 1.6 * cam.scale * 0.8);
+    for (const pass of [1, 0]) {
+      for (const e of entities) {
+        if ((e[4] === 0 ? 0 : 1) !== pass) continue;   // phase 0 = Moving drawn last
+        ctx2d.fillStyle = e[4] === 0 ? "#ffffff" : ACT_COLOR[e[3]] || "#888";
+        ctx2d.beginPath();
+        ctx2d.arc(w2sX(e[1]), w2sY(e[2]), e[4] === 0 ? r * 1.1 : r, 0, 7);
+        ctx2d.fill();
+      }
+    }
+    if (selected >= 0) {
+      const sel = entities.find(e => e[0] === selected);
+      if (sel) {
+        ctx2d.strokeStyle = "#fff";
+        ctx2d.lineWidth = 1.5;
+        ctx2d.beginPath();
+        ctx2d.arc(w2sX(sel[1]), w2sY(sel[2]), r * 2.2, 0, 7);
+        ctx2d.stroke();
+      }
+    }
+  }
+
+  // hud
+  if (snap) {
+    const counts = {};
+    let walking = 0;
+    for (const e of entities) { counts[e[3]] = (counts[e[3]] || 0) + 1; if (e[4] === 0) walking++; }
+    const hist = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${ACT[k]} ${n}`).join(" · ");
+    hud.innerHTML = `<b>${world.region} / ${world.name}</b> &nbsp; `
+      + `${String(snap.hour).padStart(2, "0")}:${String(snap.minute).padStart(2, "0")} `
+      + `${snap.night ? "night" : "day"} · sun ${snap.sun.toFixed(2)} · ${snap.weather} `
+      + `· pop ${entities.length} · walking ${walking} &nbsp;&nbsp;<span style="color:#888">${hist}</span>`;
+  }
+}
+
+function renderPanel() {
+  if (!detail) return;
+  panel.style.display = "block";
+  const bar = (v, color) =>
+    `<div class="bar"><i style="width:${Math.min(100, v * 100).toFixed(0)}%;background:${color}"></i></div>`;
+  const needRow = (label, v, color) =>
+    `<div>${label} <span class="dim">${v.toFixed(2)}</span>${bar(v, color)}</div>`;
+
+  let html = `<h2>#${detail.id} ${detail.name}</h2>`
+    + `<div class="dim">${detail.role || "?"} · ${detail.activity || "?"} (${detail.phase || "?"})`
+    + ` · home: ${detail.homeKind || "?"} q${detail.homeQuality}</div>`
+    + `<div class="sec">needs (deficits)</div>`
+    + needRow("hunger", detail.hunger, "#c75c5c")
+    + needRow("tiredness", detail.energy, "#4a6cd4")
+    + needRow("loneliness", detail.social, "#c75cc7")
+    + needRow("poverty", detail.coin, "#d4b04a");
+
+  html += `<div class="sec">relations</div>`;
+  if (detail.relations.length === 0) html += `<div class="dim">knows no one yet</div>`;
+  for (const r of detail.relations) {
+    const tone = r.regard >= 0 ? "#7ec77e" : "#c75c5c";
+    html += `<div class="rel${r.friend ? " friend" : ""}">`
+      + `${r.friend ? "★ " : ""}#${r.otherId} ${r.otherName}`
+      + ` <span class="dim">fam ${r.familiarity.toFixed(2)}</span>`
+      + ` <span style="color:${tone}">regard ${r.regard >= 0 ? "+" : ""}${r.regard.toFixed(2)}</span></div>`;
+  }
+
+  html += `<div class="sec">memories</div>`;
+  if (detail.memories.length === 0) html += `<div class="dim">nothing memorable yet</div>`;
+  for (const m of detail.memories) {
+    const verb = m.kind === "Met" ? "met" : "became friends with";
+    html += `<div class="dim">t${m.tick}: ${verb} <span style="color:#ccc">${m.otherName}</span></div>`;
+  }
+
+  html += `<div class="sec"><a href="#" onclick="select(-1);return false" style="color:#9ad">close</a></div>`;
+  panel.innerHTML = html;
+  draw();
+}
+
+resize();
+</script>
+</body>
+</html>

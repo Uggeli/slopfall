@@ -2,25 +2,30 @@ using System;
 using DaggerfallConnect;
 using DaggerfallConnect.Arena2;
 
-namespace DaggerfallWorkshop.Sim.Host
+namespace DaggerfallWorkshop.Sim
 {
-    /// Shared bring-up for town-backed host modes: full system stack, town
-    /// loaded from ARENA2, clock seeded at dawn-ish, sunny weather.
-    public static class TownBoot
+    public sealed class SimBootResult
     {
-        public sealed class Boot
-        {
-            public SimulationContext Ctx;
-            public TickLoop Loop;
-            public EventLog Log;
-            public TownLoadResult Town;
-        }
+        public SimulationContext Ctx;
+        public TickLoop Loop;
+        public EventLog Log;
+        public TownLoadResult Town;
+    }
 
-        public static Boot Create(string regionName, string locationName, float timeScale, int seed = 12345)
+    /// Standard town-sim bring-up shared by every host (console, TCP server,
+    /// web spectator, future Unity/Godot drivers): full system stack, town
+    /// loaded from ARENA2, clock seeded at dawn-ish, sunny weather.
+    public static class SimBoot
+    {
+        public static string DefaultArena2Path =>
+            Environment.GetEnvironmentVariable("DAGGERFALL_ARENA2")
+            ?? "/home/sakkivi/omat/daggerfall-gamedata/arena2";
+
+        public static SimBootResult CreateTown(string arena2Path, string regionName, string locationName,
+            float timeScale, int seed = 12345)
         {
-            string arena2 = DataProbe.Arena2Path;
-            var maps = new MapsFile(System.IO.Path.Combine(arena2, "MAPS.BSA"), FileUsage.UseMemory, true);
-            var blocks = new BlocksFile(System.IO.Path.Combine(arena2, "BLOCKS.BSA"), FileUsage.UseMemory, true);
+            var maps = new MapsFile(System.IO.Path.Combine(arena2Path, "MAPS.BSA"), FileUsage.UseMemory, true);
+            var blocks = new BlocksFile(System.IO.Path.Combine(arena2Path, "BLOCKS.BSA"), FileUsage.UseMemory, true);
 
             var location = maps.GetLocation(regionName, locationName);
             if (!location.Loaded)
@@ -59,7 +64,7 @@ namespace DaggerfallWorkshop.Sim.Host
             });
             ctx.Weather.Set(new WeatherData { Kind = WeatherKind.Sunny });
 
-            return new Boot { Ctx = ctx, Loop = loop, Log = log, Town = town };
+            return new SimBootResult { Ctx = ctx, Loop = loop, Log = log, Town = town };
         }
     }
 }

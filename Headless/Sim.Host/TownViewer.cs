@@ -28,7 +28,7 @@ namespace DaggerfallWorkshop.Sim.Host
 
         public static int RunLocal(string regionName, string locationName, float timeScale, int frames)
         {
-            var boot = TownBoot.Create(regionName, locationName, timeScale);
+            var boot = SimBoot.CreateTown(DataProbe.Arena2Path, regionName, locationName, timeScale);
             var world = SimServer.BuildWorldStatic(boot);
 
             if (frames > 0)
