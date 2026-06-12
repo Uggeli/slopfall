@@ -12,6 +12,8 @@ namespace DaggerfallWorkshop.Sim.Host
     ///        dotnet run --probe [regionName [locationName]]
     ///        dotnet run --town <regionName> <locationName> [--ticks N] [--timescale X]
     ///        dotnet run --view <regionName> <locationName> [--timescale X] [--frames N]
+    ///        dotnet run --serve <regionName> <locationName> [--port N] [--timescale X]
+    ///        dotnet run --connect <host:port> [--frames N]
     public static class Program
     {
         public static int Main(string[] args)
@@ -20,8 +22,11 @@ namespace DaggerfallWorkshop.Sim.Host
             float timeScale = 600f;     // 1 game-minute per tick
             bool realtime = false;
             int frames = 0;
+            int port = 7777;
             string townRegion = null, townLocation = null;
             string viewRegion = null, viewLocation = null;
+            string serveRegion = null, serveLocation = null;
+            string connect = null;
 
             if (args.Length > 0 && args[0] == "--probe")
             {
@@ -39,6 +44,9 @@ namespace DaggerfallWorkshop.Sim.Host
                     case "--realtime": realtime = true; break;
                     case "--town": townRegion = args[++i]; townLocation = args[++i]; break;
                     case "--view": viewRegion = args[++i]; viewLocation = args[++i]; break;
+                    case "--serve": serveRegion = args[++i]; serveLocation = args[++i]; break;
+                    case "--connect": connect = args[++i]; break;
+                    case "--port": port = int.Parse(args[++i]); break;
                     case "--frames": frames = int.Parse(args[++i]); break;
                     default:
                         Console.Error.WriteLine("unknown arg: " + args[i]);
@@ -46,8 +54,16 @@ namespace DaggerfallWorkshop.Sim.Host
                 }
             }
 
+            if (serveRegion != null)
+                return SimServer.Run(serveRegion, serveLocation, timeScale, port);
+            if (connect != null)
+            {
+                var parts = connect.Split(':');
+                int connectPort = parts.Length > 1 ? int.Parse(parts[1]) : port;
+                return TownViewer.RunRemote(parts[0], connectPort, frames);
+            }
             if (viewRegion != null)
-                return TownViewer.Run(viewRegion, viewLocation, timeScale, frames);
+                return TownViewer.RunLocal(viewRegion, viewLocation, timeScale, frames);
             if (townRegion != null)
                 return TownDemo.Run(townRegion, townLocation, ticks, timeScale);
 

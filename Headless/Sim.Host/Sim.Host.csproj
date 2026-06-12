@@ -12,6 +12,7 @@
     <ProjectReference Include="../Sim.Core/Sim.Core.csproj" />
     <ProjectReference Include="..\Sim.Data\Sim.Data.csproj" />
     <ProjectReference Include="..\Sim.World\Sim.World.csproj" />
+    <ProjectReference Include="..\Sim.Net\Sim.Net.csproj" />
   </ItemGroup>
 
 </Project>

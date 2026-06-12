@@ -1,18 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using DaggerfallWorkshop.Sim.Net;
 
 namespace DaggerfallWorkshop.Sim.Host
 {
-    /// Top-down TUI town view — the first sim CLIENT. Reads only what a
-    /// remote client would receive: RenderSnapshot per tick (entities, clock,
-    /// light) plus static world data fetched once at connect (buildings).
-    /// It never touches live registries after boot, so the data path it
-    /// exercises is exactly the future network payload.
+    /// Top-down TUI town view — the first sim client. One renderer, two
+    /// transports: RunLocal boots the sim in-process; RunRemote consumes the
+    /// same WorldStatic + RenderSnapshot stream over TCP. Both read only what
+    /// the wire carries, so local mode exercises the network contract too.
     ///
-    /// Interactive: sim runs on its own thread at real pace, view refreshes
-    /// from SnapshotPublisher.Latest, q quits.
+    /// Interactive: view refreshes from the latest snapshot, q quits.
     /// --frames N: synchronous, prints N frames to stdout and exits —
     /// CI/agent-friendly.
     public static class TownViewer
@@ -26,88 +26,143 @@ namespace DaggerfallWorkshop.Sim.Host
             public int Priority;
         }
 
-        public static int Run(string regionName, string locationName, float timeScale, int frames)
+        public static int RunLocal(string regionName, string locationName, float timeScale, int frames)
         {
             var boot = TownBoot.Create(regionName, locationName, timeScale);
+            var world = SimServer.BuildWorldStatic(boot);
 
-            // --- "Connect handshake": static world data, fetched once. ---
-            float worldW = boot.Town.BlocksWide * 4096f * TownLoader.GlobalScale;
-            float worldH = boot.Town.BlocksHigh * 4096f * TownLoader.GlobalScale;
-            var buildings = new List<KeyValuePair<int, BuildingRow>>(boot.Ctx.Buildings.All);
-
-            bool interactive = frames <= 0;
-            int cols, rows;
-            if (interactive)
+            if (frames > 0)
             {
-                cols = Math.Min(Console.WindowWidth - 2, 130);
-                rows = Math.Min(Console.WindowHeight - 5, 50);
-            }
-            else
-            {
-                cols = 100; rows = 28;
+                const int ticksPerFrame = 60;
+                return Frames(world, frames, () =>
+                {
+                    for (int i = 0; i < ticksPerFrame; i++)
+                        boot.Loop.Step();
+                    return SnapshotBuilder.Build(boot.Ctx, 0);
+                });
             }
 
-            var baseLayer = RenderBuildings(buildings, worldW, worldH, cols, rows);
-
-            if (interactive)
-                return RunInteractive(boot, baseLayer, worldW, worldH, cols, rows);
-            return RunFrames(boot, baseLayer, worldW, worldH, cols, rows, frames);
-        }
-
-        static int RunInteractive(TownBoot.Boot boot, BuildingGlyph[,] baseLayer,
-            float worldW, float worldH, int cols, int rows)
-        {
             var publisher = new SnapshotPublisher();
             var thread = new SimThread(boot.Loop, boot.Ctx, publisher);
             thread.Start();
+            try
+            {
+                return Interactive(world, () => publisher.Latest, () => thread.LastException);
+            }
+            finally
+            {
+                thread.Stop();
+            }
+        }
+
+        public static int RunRemote(string host, int port, int frames)
+        {
+            using (var client = new TcpClient())
+            {
+                client.Connect(host, port);
+                client.NoDelay = true;
+                var stream = client.GetStream();
+
+                Protocol.ReadHandshake(stream);
+                byte type = Protocol.ReadFrame(stream, out var payload);
+                if (type != Protocol.FrameWorldStatic)
+                    throw new System.IO.InvalidDataException("expected world static, got frame type " + type);
+                var world = Protocol.ReadWorldStatic(payload);
+                Console.Error.WriteLine("connected: " + world.RegionName + " / " + world.Name
+                    + " (" + world.Buildings.Count + " buildings)");
+
+                if (frames > 0)
+                {
+                    return Frames(world, frames, () =>
+                    {
+                        while (true)
+                        {
+                            byte t = Protocol.ReadFrame(stream, out var p);
+                            if (t == Protocol.FrameSnapshot) return Protocol.ReadSnapshot(p);
+                        }
+                    });
+                }
+
+                // Interactive: reader thread feeds a local publisher — the
+                // same single-slot pattern the sim thread uses in-process.
+                var publisher = new SnapshotPublisher();
+                Exception readError = null;
+                var reader = new Thread(() =>
+                {
+                    try
+                    {
+                        while (true)
+                        {
+                            byte t = Protocol.ReadFrame(stream, out var p);
+                            if (t == Protocol.FrameSnapshot)
+                                publisher.Publish(Protocol.ReadSnapshot(p));
+                        }
+                    }
+                    catch (Exception ex) { readError = ex; }
+                }) { IsBackground = true };
+                reader.Start();
+
+                return Interactive(world, () => publisher.Latest, () => readError);
+            }
+        }
+
+        static int Interactive(WorldStatic world, Func<RenderSnapshot> latest, Func<Exception> fault)
+        {
+            int cols = Math.Min(Console.WindowWidth - 2, 130);
+            int rows = Math.Min(Console.WindowHeight - 5, 50);
+            float worldW = world.BlocksWide * 4096f * TownLoader.GlobalScale;
+            float worldH = world.BlocksHigh * 4096f * TownLoader.GlobalScale;
+            var baseLayer = RenderBuildings(world.Buildings, worldW, worldH, cols, rows);
 
             Console.CursorVisible = false;
             Console.Clear();
             long lastTick = -1;
+            bool canReadKeys = !Console.IsInputRedirected;
             try
             {
                 while (true)
                 {
-                    if (Console.KeyAvailable)
+                    if (canReadKeys && Console.KeyAvailable)
                     {
                         var key = Console.ReadKey(true).Key;
                         if (key == ConsoleKey.Q || key == ConsoleKey.Escape) break;
                     }
-                    if (thread.LastException != null)
+                    var error = fault();
+                    if (error != null)
                     {
-                        Console.Error.WriteLine("sim thread crashed: " + thread.LastException);
+                        Console.Error.WriteLine("\nsource failed: " + error.Message);
                         return 1;
                     }
 
-                    var snap = publisher.Latest;
+                    var snap = latest();
                     if (snap != null && snap.Tick != lastTick)
                     {
                         lastTick = snap.Tick;
                         Console.SetCursorPosition(0, 0);
-                        Console.Write(RenderFrame(boot, snap, baseLayer, worldW, worldH, cols, rows));
+                        Console.Write(RenderFrame(world, snap, baseLayer, worldW, worldH, cols, rows));
                     }
                     Thread.Sleep(50);
                 }
             }
             finally
             {
-                thread.Stop();
                 Console.CursorVisible = true;
                 Console.WriteLine();
             }
             return 0;
         }
 
-        static int RunFrames(TownBoot.Boot boot, BuildingGlyph[,] baseLayer,
-            float worldW, float worldH, int cols, int rows, int frames)
+        static int Frames(WorldStatic world, int frames, Func<RenderSnapshot> next)
         {
-            const int ticksPerFrame = 60;
+            const int cols = 100, rows = 28;
+            float worldW = world.BlocksWide * 4096f * TownLoader.GlobalScale;
+            float worldH = world.BlocksHigh * 4096f * TownLoader.GlobalScale;
+            var baseLayer = RenderBuildings(world.Buildings, worldW, worldH, cols, rows);
+
             for (int f = 0; f < frames; f++)
             {
-                for (int i = 0; i < ticksPerFrame; i++)
-                    boot.Loop.Step();
-                var snap = SnapshotBuilder.Build(boot.Ctx, 0);
-                Console.Write(RenderFrame(boot, snap, baseLayer, worldW, worldH, cols, rows));
+                var snap = next();
+                Console.Write(RenderFrame(world, snap, baseLayer, worldW, worldH, cols, rows));
                 Console.WriteLine();
             }
             return 0;
@@ -129,7 +184,7 @@ namespace DaggerfallWorkshop.Sim.Host
             return layer;
         }
 
-        static string RenderFrame(TownBoot.Boot boot, RenderSnapshot snap, BuildingGlyph[,] baseLayer,
+        static string RenderFrame(WorldStatic world, RenderSnapshot snap, BuildingGlyph[,] baseLayer,
             float worldW, float worldH, int cols, int rows)
         {
             // Entity overlay: walkers drawn last so motion is always visible.
@@ -162,7 +217,7 @@ namespace DaggerfallWorkshop.Sim.Host
 
             var sb = new StringBuilder(cols * rows * 4);
 
-            sb.Append("\x1b[1m").Append(boot.Town.RegionName).Append(" / ").Append(boot.Town.Name).Append(Reset)
+            sb.Append("\x1b[1m").Append(world.RegionName).Append(" / ").Append(world.Name).Append(Reset)
               .Append("   ").Append(snap.Hour.ToString("00")).Append(':').Append(snap.Minute.ToString("00"))
               .Append(snap.IsNight ? "  night" : "  day").Append("  sun ").Append(snap.SunIntensity.ToString("F2"))
               .Append("  ").Append(snap.Weather)
@@ -170,7 +225,7 @@ namespace DaggerfallWorkshop.Sim.Host
               .Append("  pop ").Append(snap.Entities.Length)
               .Append("\x1b[K\n");
 
-            sb.Append(HistogramLine(byActivity, snap.Entities.Length))
+            sb.Append(HistogramLine(byActivity))
               .Append("\x1b[97mwalking ").Append(walking).Append(Reset).Append("\x1b[K\n");
 
             for (int y = 0; y < rows; y++)
@@ -193,7 +248,7 @@ namespace DaggerfallWorkshop.Sim.Host
             return sb.ToString();
         }
 
-        static string HistogramLine(Dictionary<ActivityKind, int> byActivity, int total)
+        static string HistogramLine(Dictionary<ActivityKind, int> byActivity)
         {
             var sb = new StringBuilder();
             AppendCount(sb, byActivity, ActivityKind.Sleep, "sleep");
