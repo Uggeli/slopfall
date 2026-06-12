@@ -136,10 +136,14 @@ namespace DaggerfallWorkshop.Sim.Host
             var overlay = new char[cols, rows];
             var overlayColor = new string[cols, rows];
             var byActivity = new Dictionary<ActivityKind, int>();
+            int walking = 0;
 
             for (int i = 0; i < snap.Entities.Length; i++)
+            {
                 byActivity[snap.Entities[i].Activity] =
                     (byActivity.TryGetValue(snap.Entities[i].Activity, out var n) ? n : 0) + 1;
+                if (snap.Entities[i].Phase == ActivityPhase.Moving) walking++;
+            }
 
             for (int pass = 0; pass < 2; pass++)
             {
@@ -166,7 +170,8 @@ namespace DaggerfallWorkshop.Sim.Host
               .Append("  pop ").Append(snap.Entities.Length)
               .Append("\x1b[K\n");
 
-            sb.Append(HistogramLine(byActivity, snap.Entities.Length)).Append("\x1b[K\n");
+            sb.Append(HistogramLine(byActivity, snap.Entities.Length))
+              .Append("\x1b[97mwalking ").Append(walking).Append(Reset).Append("\x1b[K\n");
 
             for (int y = 0; y < rows; y++)
             {

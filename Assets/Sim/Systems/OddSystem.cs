@@ -77,7 +77,11 @@ namespace DaggerfallWorkshop.Sim
                     {
                         double remaining = behavior.RemainingGameMinutes - gameMinutes;
                         double since = behavior.SinceDecisionGameMinutes + gameMinutes;
-                        if (remaining <= 0 || since >= MaxCommitGameMinutes)
+                        // Per-entity cap (48..79 min): a population that decides
+                        // on one shared clock moves in lockstep waves; staggered
+                        // caps spread re-decisions into a constant trickle.
+                        double cap = 48 + (Hash(id.Value, 0) & 0x1F);
+                        if (remaining <= 0 || since >= cap)
                         {
                             decide = true;
                         }
@@ -167,10 +171,13 @@ namespace DaggerfallWorkshop.Sim
                 if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.EatHome; bestBuilding = residency.BuildingIndex; bestX = home.X; bestZ = home.Z; }
             }
 
-            // Work — keepers only, business hours.
+            // Work — keepers only, business hours. The base utility is duty:
+            // a shopkeeper holds shop through the day even with a full purse,
+            // rather than napping the moment coin pressure drops (routine as a
+            // standing pull — Atoms' growth/duty drives will replace this).
             if (isKeeper && hour >= 8 && hour < 18)
             {
-                double s = OddScore.Compute(needs.V, ActivityCatalog.Work.Delta, w, 1.3, 0);
+                double s = OddScore.Compute(needs.V, ActivityCatalog.Work.Delta, w, 1.3, 0.02);
                 if (incumbent == ActivityKind.Work) s *= Sticky;
                 if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Work; bestBuilding = residency.BuildingIndex; bestX = home.X; bestZ = home.Z; }
             }
@@ -201,6 +208,10 @@ namespace DaggerfallWorkshop.Sim
             bool atSpot = resume
                 || (ddx * ddx + ddz * ddz) <= ArriveImmediatelyDistance * ArriveImmediatelyDistance;
 
+            // ±15% deterministic duration jitter — uniform durations re-align
+            // the whole town to shared activity boundaries within a few hours.
+            double duration = bestSpec.DurationMinutes * (0.85 + 0.3 * Hash01(id.Value, tick));
+
             _ctx.Behavior.Set(id, new BehaviorData
             {
                 Activity = bestSpec.Kind,
@@ -208,7 +219,7 @@ namespace DaggerfallWorkshop.Sim
                 TargetBuilding = bestBuilding,
                 TargetX = resume ? current.TargetX : bestX,
                 TargetZ = resume ? current.TargetZ : bestZ,
-                RemainingGameMinutes = resume ? current.RemainingGameMinutes : bestSpec.DurationMinutes,
+                RemainingGameMinutes = resume ? current.RemainingGameMinutes : duration,
                 SinceDecisionGameMinutes = 0,
             });
 
@@ -224,6 +235,8 @@ namespace DaggerfallWorkshop.Sim
             x ^= x >> 13; x *= 0x5bd1e995; x ^= x >> 15;
             return x;
         }
+
+        static double Hash01(int idValue, long tick) => Hash(idValue, tick) / (double)uint.MaxValue;
 
         int NearestTavern(float x, float z)
         {
