@@ -14,6 +14,8 @@ namespace DaggerfallWorkshop.Sim
         EatTavern,   // tavern, serves Hunger well, costs coin
         Socialize,   // tavern, serves SocialDef, evening-boosted
         Visit,       // growth drive: spend time at a landmark; engagement is the reward
+        Chat,        // interrupt: stopped on the street to greet a passing friend
+        SeekHelp,    // embodied request: walking to someone to ask for alms
     }
 
     public enum ActivityPhase

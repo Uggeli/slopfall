@@ -71,6 +71,8 @@ namespace Sim.Tests
                 h.Ctx.Needs.Set(mark, new NeedsData());
                 h.Ctx.Coin.Set(mark, 1.0);
                 h.Ctx.Residency.Set(mark, new ResidencyData { BuildingIndex = 3, Role = ResidentRole.Keeper });
+                h.Ctx.Position.Set(pauper, 0f, 0f, 0f, 0f);
+                h.Ctx.Position.Set(mark, 10f, 0f, 0f, 0f);
 
                 var traits = new double[TraitIndex.Count];
                 for (int i = 0; i < traits.Length; i++) traits[i] = 0.5;
@@ -83,12 +85,12 @@ namespace Sim.Tests
 
             var warm = Make(0.9, out var p1, out var m1);
             var granted = warm.Collect<HelpGrantedEvent>();
-            warm.Step(5);
+            warm.Step(10);
             Assert.Single(granted);
 
             var cold = Make(0.05, out var p2, out var m2);
             var refused = cold.Collect<HelpRefusedEvent>();
-            cold.Step(5);
+            cold.Step(10);
             Assert.Single(refused);
         }
     }

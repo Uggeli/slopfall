@@ -82,6 +82,23 @@ namespace DaggerfallWorkshop.Sim
             BaseUtility = 0.05,
         };
 
+        /// Street greeting between friends — entered by interrupt (rung 2),
+        /// never chosen by the marketplace.
+        public static readonly Spec Chat = new Spec
+        {
+            Kind = ActivityKind.Chat,
+            DurationMinutes = 8,
+            Delta = Deltas(socialDef: -0.15),
+        };
+
+        /// Walking to a mark to ask for alms — entered via RequestSystem,
+        /// never chosen by the marketplace. The "conversation" on arrival.
+        public static readonly Spec SeekHelp = new Spec
+        {
+            Kind = ActivityKind.SeekHelp,
+            DurationMinutes = 5,
+        };
+
         /// Per-axis scoring weights, ported from ODD's WeightsRegistry idea as
         /// global defaults; per-agent weights become personality later.
         public static readonly double[] Weights = { 1.2, 1.0, 0.6, 0.5 };

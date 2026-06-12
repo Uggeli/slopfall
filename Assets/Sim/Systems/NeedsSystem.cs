@@ -6,10 +6,32 @@ namespace DaggerfallWorkshop.Sim
     /// after TownLoader seeds it.
     public sealed class NeedsSystem : ISystem
     {
-        SimulationContext _ctx;
+        /// Social discomfort from sharing the street with someone resented —
+        /// the felt side of a directed emotion (Atoms: the residual).
+        const double DislikeDiscomfort = 0.03;
 
-        public void Init(SimulationContext ctx) { _ctx = ctx; }
-        public void ProcessEvents() { }
+        SimulationContext _ctx;
+        readonly System.Collections.Generic.List<EntityId> _discomforts = new System.Collections.Generic.List<EntityId>();
+
+        public void Init(SimulationContext ctx)
+        {
+            _ctx = ctx;
+            ctx.Events.Subscribe<DislikeNearbyEvent>(e => _discomforts.Add(e.Who));
+        }
+
+        public void ProcessEvents()
+        {
+            for (int i = 0; i < _discomforts.Count; i++)
+            {
+                if (!_ctx.Needs.TryGet(_discomforts[i], out var needs)) continue;
+                var next = new NeedsData();
+                System.Array.Copy(needs.V, next.V, NeedAxis.Count);
+                next.V[NeedAxis.SocialDef] = System.Math.Min(ActivityCatalog.VMax,
+                    next.V[NeedAxis.SocialDef] + DislikeDiscomfort);
+                _ctx.Needs.Set(_discomforts[i], next);
+            }
+            _discomforts.Clear();
+        }
 
         public void Update(long tick)
         {
@@ -98,6 +120,8 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.EatTavern: return ActivityCatalog.EatTavern;
                 case ActivityKind.Socialize: return ActivityCatalog.Socialize;
                 case ActivityKind.Visit:     return ActivityCatalog.Visit;
+                case ActivityKind.Chat:      return ActivityCatalog.Chat;
+                case ActivityKind.SeekHelp:  return ActivityCatalog.SeekHelp;
                 default:                     return null;
             }
         }

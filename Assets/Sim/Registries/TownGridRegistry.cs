@@ -30,6 +30,7 @@ namespace DaggerfallWorkshop.Sim
 
         public int Width, Height;           // cells
         public int BlocksWide, BlocksHigh;
+        public int RegionIndex;             // classic region of the loaded town (holidays)
         public byte[] Cost;                 // Width * Height
         public BlockGates[] Gates;          // BlocksWide * BlocksHigh
 

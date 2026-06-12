@@ -30,10 +30,13 @@ namespace Sim.Tests
             Loop.Register(new StatusFlagDeriveSystem());
             Loop.Register(new SkillAdvancementSystem());
             Loop.Register(new ProgressionSystem());
+            // No WeatherDriverSystem here: tests own the weather they set.
+            Loop.Register(new HolidaySystem());
             Loop.Register(new EconomySystem());
             Loop.Register(new NeedsSystem());
             Loop.Register(new OddSystem());
             Loop.Register(new MovementSystem());
+            Loop.Register(new PerceptionSystem());
             Loop.Register(new SocialSystem());
             Loop.Register(new RequestSystem());
             Log = new EventLog();

@@ -22,13 +22,55 @@ namespace DaggerfallWorkshop.Sim
         public const double KeeperCharityBar = -0.1;    // keepers tolerate strangers
         const double AskCooldownGameMinutes = 360;      // 6h between asks
 
+        const float SpeakingDistance = 15f;
+        const double JourneyTimeoutGameMinutes = 180;
+        const double FailedJourneyRetryGameMinutes = 90;
+
+        sealed class PendingAsk
+        {
+            public EntityId Target;
+            public double Deadline;
+        }
+
         SimulationContext _ctx;
         readonly Dictionary<EntityId, double> _nextAskAtGameMinutes = new Dictionary<EntityId, double>();
+        readonly Dictionary<EntityId, PendingAsk> _pending = new Dictionary<EntityId, PendingAsk>();
         readonly List<EntityId> _askers = new List<EntityId>();
+        readonly List<EntityId> _arrivals = new List<EntityId>();
+        readonly List<EntityId> _expired = new List<EntityId>();
         double _gameMinutes;
 
-        public void Init(SimulationContext ctx) { _ctx = ctx; }
-        public void ProcessEvents() { }
+        public void Init(SimulationContext ctx)
+        {
+            _ctx = ctx;
+            ctx.Events.Subscribe<ArrivedAtTargetEvent>(e => _arrivals.Add(e.Entity));
+        }
+
+        /// Resolve asks whose asker just reached their mark.
+        public void ProcessEvents()
+        {
+            for (int i = 0; i < _arrivals.Count; i++)
+            {
+                var asker = _arrivals[i];
+                if (!_pending.TryGetValue(asker, out var pending)) continue;
+                if (!_ctx.Behavior.TryGet(asker, out var b) || b.Activity != ActivityKind.SeekHelp)
+                    continue;       // something interrupted the journey; expiry will clean up
+
+                _pending.Remove(asker);
+
+                bool inRange = _ctx.Position.TryGet(asker, out var pos)
+                    && _ctx.Position.TryGet(pending.Target, out var targetPos)
+                    && Sq(targetPos.X - pos.X) + Sq(targetPos.Z - pos.Z) <= SpeakingDistance * SpeakingDistance;
+
+                if (inRange)
+                    Resolve(asker, pending.Target);
+                else
+                    _nextAskAtGameMinutes[asker] = _gameMinutes + FailedJourneyRetryGameMinutes;
+            }
+            _arrivals.Clear();
+        }
+
+        static float Sq(float v) => v * v;
 
         public void Update(long tick)
         {
@@ -38,12 +80,26 @@ namespace DaggerfallWorkshop.Sim
             if (dt <= 0) return;
             _gameMinutes += dt;
 
+            // Expire stale journeys (interrupted en route, target unreachable).
+            _expired.Clear();
+            foreach (var kv in _pending)
+                if (_gameMinutes > kv.Value.Deadline) _expired.Add(kv.Key);
+            for (int i = 0; i < _expired.Count; i++)
+            {
+                _pending.Remove(_expired[i]);
+                _nextAskAtGameMinutes[_expired[i]] = _gameMinutes + FailedJourneyRetryGameMinutes;
+            }
+
+            // Asking is a daytime errand — nobody knocks on doors at 03:00.
+            if (clock.Hour < 8 || clock.Hour >= 20) return;
+
             // Collect this tick's askers, sorted for determinism (transfers
             // couple agents, so processing order matters).
             _askers.Clear();
             foreach (var kv in _ctx.Needs.All)
             {
                 if (kv.Value.V[NeedAxis.CoinDef] < PovertyThreshold) continue;
+                if (_pending.ContainsKey(kv.Key)) continue;
                 if (_nextAskAtGameMinutes.TryGetValue(kv.Key, out var at) && _gameMinutes < at) continue;
                 _askers.Add(kv.Key);
             }
@@ -53,14 +109,35 @@ namespace DaggerfallWorkshop.Sim
             foreach (var asker in _askers)
             {
                 _nextAskAtGameMinutes[asker] = _gameMinutes + AskCooldownGameMinutes;
-                Ask(asker);
+                BeginJourney(asker);
             }
         }
 
-        void Ask(EntityId asker)
+        /// Embodied asking: pick the mark, then WALK to them — the ask
+        /// happens on arrival (ProcessEvents), in speaking distance, visible
+        /// on any map as a little pilgrimage of need.
+        void BeginJourney(EntityId asker)
         {
-            var target = PickTarget(asker, out double regardTowardAsker);
+            var target = PickTarget(asker);
             if (target.IsNone) return;      // nobody worth asking — stay hungry, stay proud
+            if (!_ctx.Position.TryGet(target, out var targetPos)) return;
+
+            _pending[asker] = new PendingAsk { Target = target, Deadline = _gameMinutes + JourneyTimeoutGameMinutes };
+            _ctx.Events.Emit(new AskJourneyEvent
+            {
+                Asker = asker,
+                Target = target,
+                TargetX = targetPos.X,
+                TargetZ = targetPos.Z,
+            });
+        }
+
+        void Resolve(EntityId asker, EntityId target)
+        {
+            double regardTowardAsker = 0;
+            if (_ctx.Relations.TryGet(target, out var theirRelations)
+                && theirRelations.Of.TryGetValue(asker, out var rel))
+                regardTowardAsker = rel.Regard;
 
             bool isKeeper = _ctx.Residency.TryGet(target, out var res) && res.Role == ResidentRole.Keeper;
             double bar = isKeeper ? KeeperCharityBar : FriendBar;
@@ -107,7 +184,7 @@ namespace DaggerfallWorkshop.Sim
 
         /// Warmest wealthy contact first; falling back to the richest keeper
         /// in town (strangers can be asked — keepers half-expect it).
-        EntityId PickTarget(EntityId asker, out double regardTowardAsker)
+        EntityId PickTarget(EntityId asker)
         {
             EntityId best = EntityId.None;
 
@@ -142,10 +219,6 @@ namespace DaggerfallWorkshop.Sim
                 }
             }
 
-            regardTowardAsker = 0;
-            if (!best.IsNone && _ctx.Relations.TryGet(best, out var theirRelations)
-                && theirRelations.Of.TryGetValue(asker, out var rel))
-                regardTowardAsker = rel.Regard;
             return best;
         }
     }

@@ -52,6 +52,7 @@ namespace DaggerfallWorkshop.Sim
                 Height = height * cells,
                 BlocksWide = width,
                 BlocksHigh = height,
+                RegionIndex = location.RegionIndex,
                 Cost = new byte[width * cells * height * cells],
                 Gates = new BlockGates[width * height],
             };

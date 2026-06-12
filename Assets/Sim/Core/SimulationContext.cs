@@ -32,6 +32,7 @@ namespace DaggerfallWorkshop.Sim
         public TownGridRegistry TownGrid { get; }
         public CoinRegistry Coin { get; }
         public PersonalityRegistry Personality { get; }
+        public HolidayRegistry Holiday { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -61,6 +62,7 @@ namespace DaggerfallWorkshop.Sim
             TownGrid = new TownGridRegistry();
             Coin = new CoinRegistry();
             Personality = new PersonalityRegistry();
+            Holiday = new HolidayRegistry();
         }
     }
 }

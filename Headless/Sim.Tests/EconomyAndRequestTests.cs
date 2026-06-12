@@ -87,6 +87,11 @@ namespace Sim.Tests
             h.Ctx.Needs.Set(mark, new NeedsData());
             h.Ctx.Coin.Set(mark, 1.0);
 
+            // Embodied asking: the pauper walks to the mark, so both need
+            // somewhere to stand.
+            h.Ctx.Position.Set(pauper, 0f, 0f, 0f, 0f);
+            h.Ctx.Position.Set(mark, 10f, 0f, 0f, 0f);
+
             if (markIsKeeper)
                 h.Ctx.Residency.Set(mark, new ResidencyData { BuildingIndex = 3, Role = ResidentRole.Keeper });
 
@@ -108,7 +113,7 @@ namespace Sim.Tests
             var h = Harness(out var pauper, out var mark, markIsKeeper: false, markRegardForPauper: 0.5);
             var granted = h.Collect<HelpGrantedEvent>();
 
-            h.Step(5);          // ask → transfer + impulses land over a few ticks
+            h.Step(10);         // journey decided → walk over → ask → impulses land
 
             Assert.Single(granted);
             Assert.Equal(pauper, granted[0].Asker);
@@ -132,7 +137,7 @@ namespace Sim.Tests
             var h = Harness(out var pauper, out var mark, markIsKeeper: false, markRegardForPauper: -0.5);
             var refused = h.Collect<HelpRefusedEvent>();
 
-            h.Step(5);
+            h.Step(10);
 
             Assert.Single(refused);
             Assert.Equal(0.0, h.Ctx.Coin.Get(pauper), 3);
@@ -160,10 +165,12 @@ namespace Sim.Tests
             h.Ctx.Needs.Set(keeper, new NeedsData());
             h.Ctx.Coin.Set(keeper, 1.0);
             h.Ctx.Residency.Set(keeper, new ResidencyData { BuildingIndex = 3, Role = ResidentRole.Keeper });
+            h.Ctx.Position.Set(pauper, 0f, 0f, 0f, 0f);
+            h.Ctx.Position.Set(keeper, 10f, 0f, 0f, 0f);
             h.SeedClock(hour: 12, timeScale: 60f);
             var granted = h.Collect<HelpGrantedEvent>();
 
-            h.Step(5);
+            h.Step(10);
 
             Assert.Single(granted);
             Assert.Equal(keeper, granted[0].Giver);

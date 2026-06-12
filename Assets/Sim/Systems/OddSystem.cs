@@ -23,6 +23,8 @@ namespace DaggerfallWorkshop.Sim
 
         SimulationContext _ctx;
         readonly List<EntityId> _arrivals = new List<EntityId>();
+        readonly List<GreetingEvent> _greetings = new List<GreetingEvent>();
+        readonly List<AskJourneyEvent> _askJourneys = new List<AskJourneyEvent>();
         bool _reDecideAll;
 
         // Place caches — BuildingRegistry is immutable after town load.
@@ -35,6 +37,8 @@ namespace DaggerfallWorkshop.Sim
             ctx.Events.Subscribe<ArrivedAtTargetEvent>(e => _arrivals.Add(e.Entity));
             ctx.Events.Subscribe<DawnSimEvent>(e => _reDecideAll = true);
             ctx.Events.Subscribe<DuskSimEvent>(e => _reDecideAll = true);
+            ctx.Events.Subscribe<GreetingEvent>(e => _greetings.Add(e));
+            ctx.Events.Subscribe<AskJourneyEvent>(e => _askJourneys.Add(e));
         }
 
         public void ProcessEvents()
@@ -55,6 +59,52 @@ namespace DaggerfallWorkshop.Sim
                 }
             }
             _arrivals.Clear();
+
+            // Rung-2 interrupts: a friend on the street trumps the errand —
+            // both stop for a quick chat where they stand, then re-decide.
+            for (int i = 0; i < _greetings.Count; i++)
+            {
+                InterruptIntoChat(_greetings[i].A);
+                InterruptIntoChat(_greetings[i].B);
+            }
+            _greetings.Clear();
+
+            // Embodied asking: put the pauper on the road to their mark.
+            for (int i = 0; i < _askJourneys.Count; i++)
+            {
+                var e = _askJourneys[i];
+                _ctx.Behavior.Set(e.Asker, new BehaviorData
+                {
+                    Activity = ActivityKind.SeekHelp,
+                    Phase = ActivityPhase.Moving,
+                    TargetBuilding = -1,                // stop on the street beside them
+                    TargetX = e.TargetX,
+                    TargetZ = e.TargetZ,
+                    RemainingGameMinutes = ActivityCatalog.SeekHelp.DurationMinutes,
+                });
+            }
+            _askJourneys.Clear();
+        }
+
+        void InterruptIntoChat(EntityId id)
+        {
+            if (!_ctx.Behavior.TryGet(id, out var b)) return;
+            bool interruptible = b.Phase == ActivityPhase.Moving
+                || b.Activity == ActivityKind.Wander
+                || b.Activity == ActivityKind.Visit
+                || b.Activity == ActivityKind.Idle;
+            if (!interruptible) return;
+            if (!_ctx.Position.TryGet(id, out var pos)) return;
+
+            _ctx.Behavior.Set(id, new BehaviorData
+            {
+                Activity = ActivityKind.Chat,
+                Phase = ActivityPhase.Doing,
+                TargetBuilding = -1,
+                TargetX = pos.X,
+                TargetZ = pos.Z,
+                RemainingGameMinutes = ActivityCatalog.Chat.DurationMinutes,
+            });
         }
 
         public void Update(long tick)
@@ -131,6 +181,15 @@ namespace DaggerfallWorkshop.Sim
             bool isKeeper = residency.Role == ResidentRole.Keeper;
             bool night = IsNightFor(hour, chronotype);
 
+            // Variety gates: foul weather empties the streets and fills the
+            // taverns; festival days close the shops and double the revelry.
+            var weather = _ctx.Weather.Current.Kind;
+            bool wet = weather == WeatherKind.Rain || weather == WeatherKind.Thunder || weather == WeatherKind.Snow;
+            bool gloomy = weather == WeatherKind.Overcast || weather == WeatherKind.Fog;
+            double outdoor = wet ? 0.25 : (gloomy ? 0.7 : 1.0);
+            double cozy = wet ? 1.3 : 1.0;
+            bool holiday = _ctx.Holiday.CurrentId > 0;
+
             // Hysteresis: the activity in progress defends its slot with a
             // multiplicative bonus, or hourly re-evaluation flickers between
             // whichever deficit is momentarily largest (Atoms: enter-high /
@@ -140,10 +199,15 @@ namespace DaggerfallWorkshop.Sim
             const double Sticky = 1.4;
 
             // --- Candidate generation (the marketplace). ---
+            // Idle is the Object-Zero floor. In foul weather it becomes
+            // shelter: idle AT HOME with a strong pull, so storms genuinely
+            // empty the streets instead of merely discouraging them.
             ActivityCatalog.Spec bestSpec = ActivityCatalog.Idle;
             int bestBuilding = residency.BuildingIndex;
-            float bestX = pos.X, bestZ = pos.Z;
-            double bestScore = OddScore.Compute(needs.V, ActivityCatalog.Idle.Delta, w, 1.0, ActivityCatalog.Idle.BaseUtility);
+            float bestX = wet ? home.X : pos.X;
+            float bestZ = wet ? home.Z : pos.Z;
+            double bestScore = OddScore.Compute(needs.V, ActivityCatalog.Idle.Delta, w, 1.0,
+                wet ? 0.03 : ActivityCatalog.Idle.BaseUtility);
 
             // Wander — Object-Zero sibling; offset derived from (id, tick) so
             // decisions stay deterministic regardless of iteration order.
@@ -153,8 +217,8 @@ namespace DaggerfallWorkshop.Sim
                 uint h32 = Hash(id.Value, tick);
                 float dx = ((h32 & 0xFF) / 255f - 0.5f) * 60f;
                 float dz = (((h32 >> 8) & 0xFF) / 255f - 0.5f) * 60f;
-                double gate = night ? 0.3 : 1.0;
-                double baseUtility = ActivityCatalog.Wander.BaseUtility * (0.2 + restlessness * 16.0 * restlessness);
+                double gate = (night ? 0.3 : 1.0) * outdoor;
+                double baseUtility = ActivityCatalog.Wander.BaseUtility * (0.2 + restlessness * 16.0 * restlessness) * outdoor;
                 double s = OddScore.Compute(needs.V, ActivityCatalog.Wander.Delta, w, gate, baseUtility);
                 if (incumbent == ActivityKind.Wander) s *= Sticky;
                 if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Wander; bestBuilding = -1; bestX = pos.X + dx; bestZ = pos.Z + dz; }
@@ -185,7 +249,7 @@ namespace DaggerfallWorkshop.Sim
             // rather than napping the moment coin pressure drops (routine as a
             // standing pull — Atoms' growth/duty drives will replace this).
             // Industrious keepers feel it harder than idlers.
-            if (isKeeper && hour >= 8 && hour < 18)
+            if (isKeeper && hour >= 8 && hour < 18 && !holiday)
             {
                 // Soft trait band: weights already carry personality, so the
                 // gate multiplier stays gentle or traits double-dip.
@@ -215,7 +279,7 @@ namespace DaggerfallWorkshop.Sim
                     if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.EatTavern; bestBuilding = _tavernIndices[t]; bestX = tav.X; bestZ = tav.Z; }
 
                     double socialGate = ((hour >= 17) ? 1.5 : 1.0) * distFactor * lively * prepotency
-                        * (0.7 + 0.6 * sociability);
+                        * (0.7 + 0.6 * sociability) * cozy * (holiday ? 1.5 : 1.0);
                     s = OddScore.Compute(needs.V, ActivityCatalog.Socialize.Delta, w, socialGate, 0);
                     if (incumbent == ActivityKind.Socialize) s *= Sticky;
                     if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Socialize; bestBuilding = _tavernIndices[t]; bestX = tav.X; bestZ = tav.Z; }
@@ -236,8 +300,9 @@ namespace DaggerfallWorkshop.Sim
                         float vdx = spot.X - pos.X, vdz = spot.Z - pos.Z;
                         double dist = System.Math.Sqrt(vdx * vdx + vdz * vdz);
                         double distFactor = 1.0 / (1.0 + dist / 200.0);
-                        double s = OddScore.Compute(needs.V, ActivityCatalog.Visit.Delta, w, prepotency * distFactor,
-                            ActivityCatalog.Visit.BaseUtility * prepotency * distFactor);
+                        double visitGate = prepotency * distFactor * outdoor * (holiday ? 1.3 : 1.0);
+                        double s = OddScore.Compute(needs.V, ActivityCatalog.Visit.Delta, w, visitGate,
+                            ActivityCatalog.Visit.BaseUtility * visitGate);
                         if (incumbent == ActivityKind.Visit) s *= Sticky;
                         if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Visit; bestBuilding = _landmarkIndices[pick]; bestX = spot.X; bestZ = spot.Z; }
                     }

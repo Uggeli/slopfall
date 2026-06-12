@@ -278,6 +278,8 @@ namespace DaggerfallWorkshop.Sim.Host
                 case ActivityKind.EatTavern: return 'e';
                 case ActivityKind.Socialize: return 's';
                 case ActivityKind.Visit: return 'v';
+                case ActivityKind.Chat: return 'c';
+                case ActivityKind.SeekHelp: return '!';
                 default: return '.';
             }
         }
@@ -292,6 +294,8 @@ namespace DaggerfallWorkshop.Sim.Host
                 case ActivityKind.EatTavern: return "\x1b[32m";   // green
                 case ActivityKind.Socialize: return "\x1b[35m";   // magenta
                 case ActivityKind.Visit: return "\x1b[36m";       // cyan
+                case ActivityKind.Chat: return "\x1b[95m";        // bright magenta
+                case ActivityKind.SeekHelp: return "\x1b[91m";    // bright red
                 default: return "\x1b[37m";                       // light gray
             }
         }
