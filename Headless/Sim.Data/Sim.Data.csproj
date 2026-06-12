@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Headless build of DaggerfallConnect's layout readers — the pure-C# file
+    parsers DFU inherited from the original standalone library. Same
+    single-source-of-truth rule as Sim.Core: sources compile in place from
+    Assets/Scripts/API, with Shims/ satisfying the few engine touchpoints
+    (mod world-data injection, quest-aware dungeon sizing). Visual importers
+    (textures, meshes) stay client-side and are deliberately NOT here.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <RootNamespace>DaggerfallConnect</RootNamespace>
+    <AssemblyName>DaggerfallSim.Data</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../Assets/Scripts/API/FileProxy.cs" />
+    <Compile Include="../../Assets/Scripts/API/BsaFile.cs" />
+    <Compile Include="../../Assets/Scripts/API/MapsFile.cs" />
+    <Compile Include="../../Assets/Scripts/API/BlocksFile.cs" />
+    <Compile Include="../../Assets/Scripts/API/WoodsFile.cs" />
+    <Compile Include="../../Assets/Scripts/API/PakFile.cs" />
+    <Compile Include="../../Assets/Scripts/API/DFBlock.cs" />
+    <Compile Include="../../Assets/Scripts/API/DFLocation.cs" />
+    <Compile Include="../../Assets/Scripts/API/DFRegion.cs" />
+    <Compile Include="../../Assets/Scripts/API/DFPosition.cs" />
+    <Compile Include="../../Assets/Scripts/API/DFSize.cs" />
+    <Compile Include="../../Assets/Scripts/API/DFRandom.cs" />
+    <Compile Include="../../Assets/Scripts/API/DFBitmap.cs" />
+    <Compile Include="../../Assets/Scripts/API/DFPalette.cs" />
+    <Compile Include="../../Assets/Scripts/API/PatchList.cs" />
+    <Compile Include="../../Assets/Scripts/API/DFColor.cs" />
+    <Compile Include="../../Assets/Scripts/API/FactionFile.cs" />
+    <Compile Include="Shims/*.cs" />
+  </ItemGroup>
+
+</Project>

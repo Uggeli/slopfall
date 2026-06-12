@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Sim.Core/Sim.Core.csproj" />
+    <ProjectReference Include="..\Sim.Data\Sim.Data.csproj" />
   </ItemGroup>
 
 </Project>

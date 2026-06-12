@@ -9,6 +9,7 @@ namespace DaggerfallWorkshop.Sim.Host
     /// event log. This is the seed of the eventual dedicated server binary.
     ///
     /// Usage: dotnet run [--ticks N] [--timescale X] [--realtime]
+    ///        dotnet run --probe [regionName [locationName]]
     public static class Program
     {
         public static int Main(string[] args)
@@ -16,6 +17,13 @@ namespace DaggerfallWorkshop.Sim.Host
             int ticks = 600;            // 1 game-hour at default 10 Hz / scale 600
             float timeScale = 600f;     // 1 game-minute per tick
             bool realtime = false;
+
+            if (args.Length > 0 && args[0] == "--probe")
+            {
+                string region = args.Length > 1 ? args[1] : null;
+                string location = args.Length > 2 ? args[2] : null;
+                return DataProbe.Run(region, location);
+            }
 
             for (int i = 0; i < args.Length; i++)
             {
