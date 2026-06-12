@@ -79,13 +79,7 @@ namespace DaggerfallWorkshop.Sim
 
         void PublishSnapshot()
         {
-            var snap = new RenderSnapshot
-            {
-                Tick = _ctx.Time.Tick,
-                SimSeconds = _ctx.Time.Elapsed,
-                WallClockSeconds = _wallClock.Elapsed.TotalSeconds,
-            };
-            _publisher.Publish(snap);
+            _publisher.Publish(SnapshotBuilder.Build(_ctx, _wallClock.Elapsed.TotalSeconds));
         }
     }
 }

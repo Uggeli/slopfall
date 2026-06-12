@@ -11,6 +11,7 @@ namespace DaggerfallWorkshop.Sim.Host
     /// Usage: dotnet run [--ticks N] [--timescale X] [--realtime]
     ///        dotnet run --probe [regionName [locationName]]
     ///        dotnet run --town <regionName> <locationName> [--ticks N] [--timescale X]
+    ///        dotnet run --view <regionName> <locationName> [--timescale X] [--frames N]
     public static class Program
     {
         public static int Main(string[] args)
@@ -18,7 +19,9 @@ namespace DaggerfallWorkshop.Sim.Host
             int ticks = 600;            // 1 game-hour at default 10 Hz / scale 600
             float timeScale = 600f;     // 1 game-minute per tick
             bool realtime = false;
+            int frames = 0;
             string townRegion = null, townLocation = null;
+            string viewRegion = null, viewLocation = null;
 
             if (args.Length > 0 && args[0] == "--probe")
             {
@@ -35,12 +38,16 @@ namespace DaggerfallWorkshop.Sim.Host
                     case "--timescale": timeScale = float.Parse(args[++i]); break;
                     case "--realtime": realtime = true; break;
                     case "--town": townRegion = args[++i]; townLocation = args[++i]; break;
+                    case "--view": viewRegion = args[++i]; viewLocation = args[++i]; break;
+                    case "--frames": frames = int.Parse(args[++i]); break;
                     default:
                         Console.Error.WriteLine("unknown arg: " + args[i]);
                         return 2;
                 }
             }
 
+            if (viewRegion != null)
+                return TownViewer.Run(viewRegion, viewLocation, timeScale, frames);
             if (townRegion != null)
                 return TownDemo.Run(townRegion, townLocation, ticks, timeScale);
 
