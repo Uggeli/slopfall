@@ -69,6 +69,17 @@ namespace DaggerfallWorkshop.Sim
             Delta = Deltas(socialDef: -0.6, coinDef: +0.04, hunger: +0.05),
         };
 
+        /// Growth drive (Atoms B-need): no setpoint, engaging is the reward.
+        /// BaseUtility carries the whole score — the tiny SocialDef delta just
+        /// reflects being out among people. Prepotency-gated in OddSystem.
+        public static readonly Spec Visit = new Spec
+        {
+            Kind = ActivityKind.Visit,
+            DurationMinutes = 45,
+            Delta = Deltas(socialDef: -0.1, energyDef: +0.02),
+            BaseUtility = 0.05,
+        };
+
         /// Per-axis scoring weights, ported from ODD's WeightsRegistry idea as
         /// global defaults; per-agent weights become personality later.
         public static readonly double[] Weights = { 1.2, 1.0, 0.6, 0.5 };

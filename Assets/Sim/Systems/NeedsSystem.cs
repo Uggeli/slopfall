@@ -48,7 +48,16 @@ namespace DaggerfallWorkshop.Sim
                     value += drift * gameHours;
 
                     if (doing != null && doing.DurationMinutes > 0)
-                        value += doing.Delta[axis] / doing.DurationMinutes * gameMinutes;
+                    {
+                        double delta = doing.Delta[axis] / doing.DurationMinutes * gameMinutes;
+
+                        // Social relief must be earned by actual company:
+                        // drinking alone in an empty tavern barely helps.
+                        if (axis == NeedAxis.SocialDef && delta < 0 && IsCompanyActivity(doing.Kind))
+                            delta *= CompanyFactor(_ctx.Occupancy.CompanyOf(kv.Key));
+
+                        value += delta;
+                    }
 
                     if (value < 0) value = 0;
                     if (value > ActivityCatalog.VMax) value = ActivityCatalog.VMax;
@@ -58,6 +67,12 @@ namespace DaggerfallWorkshop.Sim
                 _ctx.Needs.Set(kv.Key, next);
             }
         }
+
+        static bool IsCompanyActivity(ActivityKind kind) =>
+            kind == ActivityKind.Socialize || kind == ActivityKind.EatTavern || kind == ActivityKind.Visit;
+
+        static double CompanyFactor(int company) =>
+            company <= 0 ? 0.2 : (company == 1 ? 0.6 : 1.0);
 
         internal static ActivityCatalog.Spec SpecFor(ActivityKind kind)
         {
@@ -70,6 +85,7 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.EatHome:   return ActivityCatalog.EatHome;
                 case ActivityKind.EatTavern: return ActivityCatalog.EatTavern;
                 case ActivityKind.Socialize: return ActivityCatalog.Socialize;
+                case ActivityKind.Visit:     return ActivityCatalog.Visit;
                 default:                     return null;
             }
         }

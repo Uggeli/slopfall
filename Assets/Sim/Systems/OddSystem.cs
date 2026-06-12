@@ -25,8 +25,9 @@ namespace DaggerfallWorkshop.Sim
         readonly List<EntityId> _arrivals = new List<EntityId>();
         bool _reDecideAll;
 
-        // Tavern lookup cache — BuildingRegistry is immutable after town load.
+        // Place caches — BuildingRegistry is immutable after town load.
         List<int> _tavernIndices;
+        List<int> _landmarkIndices;
 
         public void Init(SimulationContext ctx)
         {
@@ -121,9 +122,6 @@ namespace DaggerfallWorkshop.Sim
             var w = ActivityCatalog.Weights;
             bool isKeeper = residency.Role == ResidentRole.Keeper;
             bool night = IsNight(hour);
-            int tavern = NearestTavern(pos.X, pos.Z);
-            BuildingRow tavernRow = null;
-            if (tavern >= 0) _ctx.Buildings.TryGet(tavern, out tavernRow);
 
             // Hysteresis: the activity in progress defends its slot with a
             // multiplicative bonus, or hourly re-evaluation flickers between
@@ -182,17 +180,52 @@ namespace DaggerfallWorkshop.Sim
                 if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Work; bestBuilding = residency.BuildingIndex; bestX = home.X; bestZ = home.Z; }
             }
 
-            // Tavern offerings, while open.
-            if (tavernRow != null && hour >= 6 && hour < 23)
-            {
-                double s = OddScore.Compute(needs.V, ActivityCatalog.EatTavern.Delta, w, 1.0, 0);
-                if (incumbent == ActivityKind.EatTavern) s *= Sticky;
-                if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.EatTavern; bestBuilding = tavern; bestX = tavernRow.X; bestZ = tavernRow.Z; }
+            double prepotency = PrepotencyGate(needs.V);
 
-                double socialGate = (hour >= 17) ? 1.5 : 1.0;
-                s = OddScore.Compute(needs.V, ActivityCatalog.Socialize.Delta, w, socialGate, 0);
-                if (incumbent == ActivityKind.Socialize) s *= Sticky;
-                if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Socialize; bestBuilding = tavern; bestX = tavernRow.X; bestZ = tavernRow.Z; }
+            // Tavern offerings, while open — every tavern competes, scored by
+            // distance and liveliness, so regulars and a "popular pub" emerge.
+            if (hour >= 6 && hour < 23)
+            {
+                EnsureTaverns();
+                for (int t = 0; t < _tavernIndices.Count; t++)
+                {
+                    if (!_ctx.Buildings.TryGet(_tavernIndices[t], out var tav)) continue;
+                    float tdx = tav.X - pos.X, tdz = tav.Z - pos.Z;
+                    double dist = System.Math.Sqrt(tdx * tdx + tdz * tdz);
+                    double distFactor = 1.0 / (1.0 + dist / 150.0);
+                    double lively = 1.0 + 0.04 * System.Math.Min(_ctx.Occupancy.PlaceCount(_tavernIndices[t]), 8);
+
+                    double s = OddScore.Compute(needs.V, ActivityCatalog.EatTavern.Delta, w, distFactor, 0);
+                    if (incumbent == ActivityKind.EatTavern && bestBuilding == _tavernIndices[t]) s *= Sticky;
+                    if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.EatTavern; bestBuilding = _tavernIndices[t]; bestX = tav.X; bestZ = tav.Z; }
+
+                    double socialGate = ((hour >= 17) ? 1.5 : 1.0) * distFactor * lively * prepotency;
+                    s = OddScore.Compute(needs.V, ActivityCatalog.Socialize.Delta, w, socialGate, 0);
+                    if (incumbent == ActivityKind.Socialize) s *= Sticky;
+                    if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Socialize; bestBuilding = _tavernIndices[t]; bestX = tav.X; bestZ = tav.Z; }
+                }
+            }
+
+            // Visit — the growth drive. No deficit served; engagement is the
+            // reward. Hard prepotency cull plus daylight-ish hours.
+            if (prepotency > 0 && hour >= 7 && hour < 21)
+            {
+                EnsureLandmarks();
+                if (_landmarkIndices.Count > 0)
+                {
+                    // Rotate the landmark per entity per ~2h block, hash-picked.
+                    int pick = (int)(Hash(id.Value, tick / 1200) % (uint)_landmarkIndices.Count);
+                    if (_ctx.Buildings.TryGet(_landmarkIndices[pick], out var spot))
+                    {
+                        float vdx = spot.X - pos.X, vdz = spot.Z - pos.Z;
+                        double dist = System.Math.Sqrt(vdx * vdx + vdz * vdz);
+                        double distFactor = 1.0 / (1.0 + dist / 200.0);
+                        double s = OddScore.Compute(needs.V, ActivityCatalog.Visit.Delta, w, prepotency * distFactor,
+                            ActivityCatalog.Visit.BaseUtility * prepotency * distFactor);
+                        if (incumbent == ActivityKind.Visit) s *= Sticky;
+                        if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Visit; bestBuilding = _landmarkIndices[pick]; bestX = spot.X; bestZ = spot.Z; }
+                    }
+                }
             }
 
             // --- Commit. ---
@@ -227,6 +260,18 @@ namespace DaggerfallWorkshop.Sim
                 _ctx.Events.Emit(new ActivityStartedEvent { Entity = id, Activity = bestSpec.Kind, TargetBuilding = bestBuilding });
         }
 
+        /// Prepotency (Atoms, two-regime): leisure only wins when deficiency
+        /// drives are quiet — graded suppression as the loudest deficiency
+        /// rises, hard cull at the threshold ("a starving bunny can't binky").
+        /// Hysteresis deferred; hourly decisions + sticky damp the boundary
+        /// flicker for now.
+        public static double PrepotencyGate(double[] v)
+        {
+            double loudest = v[NeedAxis.Hunger] > v[NeedAxis.EnergyDef]
+                ? v[NeedAxis.Hunger] : v[NeedAxis.EnergyDef];
+            return loudest >= 0.8 ? 0 : 1.0 - loudest / 0.8;
+        }
+
         static bool IsNight(int hour) => hour >= 21 || hour < 6;
 
         static uint Hash(int idValue, long tick)
@@ -238,27 +283,35 @@ namespace DaggerfallWorkshop.Sim
 
         static double Hash01(int idValue, long tick) => Hash(idValue, tick) / (double)uint.MaxValue;
 
-        int NearestTavern(float x, float z)
+        void EnsureTaverns()
         {
-            if (_tavernIndices == null)
-            {
-                _tavernIndices = new List<int>();
-                foreach (var kv in _ctx.Buildings.All)
-                    if (kv.Value.Kind == BuildingKind.Tavern)
-                        _tavernIndices.Add(kv.Key);
-                _tavernIndices.Sort();      // deterministic order
-            }
+            if (_tavernIndices != null) return;
+            _tavernIndices = new List<int>();
+            foreach (var kv in _ctx.Buildings.All)
+                if (kv.Value.Kind == BuildingKind.Tavern)
+                    _tavernIndices.Add(kv.Key);
+            _tavernIndices.Sort();      // deterministic order
+        }
 
-            int best = -1;
-            float bestD2 = float.MaxValue;
-            for (int i = 0; i < _tavernIndices.Count; i++)
+        void EnsureLandmarks()
+        {
+            if (_landmarkIndices != null) return;
+            _landmarkIndices = new List<int>();
+            foreach (var kv in _ctx.Buildings.All)
             {
-                if (!_ctx.Buildings.TryGet(_tavernIndices[i], out var b)) continue;
-                float dx = b.X - x, dz = b.Z - z;
-                float d2 = dx * dx + dz * dz;
-                if (d2 < bestD2) { bestD2 = d2; best = _tavernIndices[i]; }
+                switch (kv.Value.Kind)
+                {
+                    case BuildingKind.Temple:
+                    case BuildingKind.GuildHall:
+                    case BuildingKind.Bank:
+                    case BuildingKind.GeneralStore:
+                    case BuildingKind.Library:
+                    case BuildingKind.Palace:
+                        _landmarkIndices.Add(kv.Key);
+                        break;
+                }
             }
-            return best;
+            _landmarkIndices.Sort();
         }
     }
 }

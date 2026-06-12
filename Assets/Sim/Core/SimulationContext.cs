@@ -26,6 +26,9 @@ namespace DaggerfallWorkshop.Sim
         public ResidencyRegistry Residency { get; }
         public NeedsRegistry Needs { get; }
         public BehaviorRegistry Behavior { get; }
+        public RelationsRegistry Relations { get; }
+        public MemoryRegistry Memory { get; }
+        public OccupancyRegistry Occupancy { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -49,6 +52,9 @@ namespace DaggerfallWorkshop.Sim
             Residency = new ResidencyRegistry();
             Needs = new NeedsRegistry();
             Behavior = new BehaviorRegistry();
+            Relations = new RelationsRegistry();
+            Memory = new MemoryRegistry();
+            Occupancy = new OccupancyRegistry();
         }
     }
 }

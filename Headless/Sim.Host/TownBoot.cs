@@ -46,6 +46,7 @@ namespace DaggerfallWorkshop.Sim.Host
             loop.Register(new NeedsSystem());
             loop.Register(new OddSystem());
             loop.Register(new MovementSystem());
+            loop.Register(new SocialSystem());
             var log = new EventLog();
             loop.Register(log);
 

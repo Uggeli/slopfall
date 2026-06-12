@@ -13,6 +13,7 @@ namespace DaggerfallWorkshop.Sim
         EatHome,     // home, serves Hunger weakly, free
         EatTavern,   // tavern, serves Hunger well, costs coin
         Socialize,   // tavern, serves SocialDef, evening-boosted
+        Visit,       // growth drive: spend time at a landmark; engagement is the reward
     }
 
     public enum ActivityPhase

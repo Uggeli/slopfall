@@ -89,6 +89,35 @@ namespace DaggerfallWorkshop.Sim.Host
                 + " energy=" + (avg[NeedAxis.EnergyDef] / count).ToString("F2")
                 + " social=" + (avg[NeedAxis.SocialDef] / count).ToString("F2")
                 + " coin=" + (avg[NeedAxis.CoinDef] / count).ToString("F2"));
+            Console.WriteLine();
+
+            // Social fabric: how much society did one day produce?
+            int acquaintances = 0, friendships = 0;
+            EntityId bestA = EntityId.None, bestB = EntityId.None;
+            double bestRegard = double.MinValue;
+            foreach (var kv in ctx.Relations.All)
+            {
+                foreach (var rel in kv.Value.Of)
+                {
+                    if (rel.Value.Familiarity >= 0.05) acquaintances++;
+                    if (rel.Value.FriendAnnounced) friendships++;
+                    if (rel.Value.Regard > bestRegard)
+                    {
+                        bestRegard = rel.Value.Regard;
+                        bestA = kv.Key; bestB = rel.Key;
+                    }
+                }
+            }
+            Console.WriteLine("social fabric: " + acquaintances + " acquaintances, "
+                + friendships + " friendships (directed)");
+            if (!bestA.IsNone)
+            {
+                ctx.Identity.TryGet(bestA, out var ia);
+                ctx.Identity.TryGet(bestB, out var ib);
+                Console.WriteLine("warmest regard: #" + bestA.Value + " " + (ia != null ? ia.Name : "?")
+                    + " → #" + bestB.Value + " " + (ib != null ? ib.Name : "?")
+                    + " (" + bestRegard.ToString("F2") + ")");
+            }
 
             return 0;
         }

@@ -188,7 +188,7 @@ namespace DaggerfallWorkshop.Sim.Host
             }
 
             sb.Append("\x1b[2mT tavern  + temple  G guild  B bank  $ shop  # house  ░ wall   ")
-              .Append("z sleep  w work  e eat  s social  . idle/wander  o walking   q quit")
+              .Append("z sleep  w work  e eat  s social  v visit  . idle/wander  o walking   q quit")
               .Append(Reset).Append("\x1b[K");
             return sb.ToString();
         }
@@ -201,6 +201,7 @@ namespace DaggerfallWorkshop.Sim.Host
             AppendCount(sb, byActivity, ActivityKind.EatHome, "eat-home");
             AppendCount(sb, byActivity, ActivityKind.EatTavern, "eat-tav");
             AppendCount(sb, byActivity, ActivityKind.Socialize, "social");
+            AppendCount(sb, byActivity, ActivityKind.Visit, "visit");
             AppendCount(sb, byActivity, ActivityKind.Wander, "wander");
             AppendCount(sb, byActivity, ActivityKind.Idle, "idle");
             return sb.ToString();
@@ -221,6 +222,7 @@ namespace DaggerfallWorkshop.Sim.Host
                 case ActivityKind.EatHome:
                 case ActivityKind.EatTavern: return 'e';
                 case ActivityKind.Socialize: return 's';
+                case ActivityKind.Visit: return 'v';
                 default: return '.';
             }
         }
@@ -234,6 +236,7 @@ namespace DaggerfallWorkshop.Sim.Host
                 case ActivityKind.EatHome:
                 case ActivityKind.EatTavern: return "\x1b[32m";   // green
                 case ActivityKind.Socialize: return "\x1b[35m";   // magenta
+                case ActivityKind.Visit: return "\x1b[36m";       // cyan
                 default: return "\x1b[37m";                       // light gray
             }
         }
