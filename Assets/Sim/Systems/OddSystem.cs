@@ -18,94 +18,19 @@ namespace DaggerfallWorkshop.Sim
     /// ArrivedAtTargetEvent; this system flips Moving → Doing.
     public sealed class OddSystem : ISystem
     {
-        const float ArriveImmediatelyDistance = 3f;     // meters
-        const double MaxCommitGameMinutes = 60;         // re-evaluate at least hourly
-
         SimulationContext _ctx;
-        readonly List<EntityId> _arrivals = new List<EntityId>();
-        readonly List<GreetingEvent> _greetings = new List<GreetingEvent>();
-        readonly List<AskJourneyEvent> _askJourneys = new List<AskJourneyEvent>();
         bool _reDecideAll;
-
-        // Place caches — BuildingRegistry is immutable after town load.
-        List<int> _tavernIndices;
-        List<int> _landmarkIndices;
 
         public void Init(SimulationContext ctx)
         {
             _ctx = ctx;
-            ctx.Events.Subscribe<ArrivedAtTargetEvent>(e => _arrivals.Add(e.Entity));
             ctx.Events.Subscribe<DawnSimEvent>(e => _reDecideAll = true);
             ctx.Events.Subscribe<DuskSimEvent>(e => _reDecideAll = true);
-            ctx.Events.Subscribe<GreetingEvent>(e => _greetings.Add(e));
-            ctx.Events.Subscribe<AskJourneyEvent>(e => _askJourneys.Add(e));
         }
 
-        public void ProcessEvents()
-        {
-            for (int i = 0; i < _arrivals.Count; i++)
-            {
-                if (_ctx.Behavior.TryGet(_arrivals[i], out var b) && b.Phase == ActivityPhase.Moving)
-                {
-                    _ctx.Behavior.Set(_arrivals[i], new BehaviorData
-                    {
-                        Activity = b.Activity,
-                        Phase = ActivityPhase.Doing,
-                        TargetBuilding = b.TargetBuilding,
-                        TargetX = b.TargetX,
-                        TargetZ = b.TargetZ,
-                        RemainingGameMinutes = b.RemainingGameMinutes,
-                    });
-                }
-            }
-            _arrivals.Clear();
-
-            // Rung-2 interrupts: a friend on the street trumps the errand —
-            // both stop for a quick chat where they stand, then re-decide.
-            for (int i = 0; i < _greetings.Count; i++)
-            {
-                InterruptIntoChat(_greetings[i].A);
-                InterruptIntoChat(_greetings[i].B);
-            }
-            _greetings.Clear();
-
-            // Embodied asking: put the pauper on the road to their mark.
-            for (int i = 0; i < _askJourneys.Count; i++)
-            {
-                var e = _askJourneys[i];
-                _ctx.Behavior.Set(e.Asker, new BehaviorData
-                {
-                    Activity = ActivityKind.SeekHelp,
-                    Phase = ActivityPhase.Moving,
-                    TargetBuilding = -1,                // stop on the street beside them
-                    TargetX = e.TargetX,
-                    TargetZ = e.TargetZ,
-                    RemainingGameMinutes = ActivityCatalog.SeekHelp.DurationMinutes,
-                });
-            }
-            _askJourneys.Clear();
-        }
-
-        void InterruptIntoChat(EntityId id)
-        {
-            if (!_ctx.Behavior.TryGet(id, out var b)) return;
-            bool interruptible = b.Phase == ActivityPhase.Moving
-                || b.Activity == ActivityKind.Wander
-                || b.Activity == ActivityKind.Visit
-                || b.Activity == ActivityKind.Idle;
-            if (!interruptible) return;
-            if (!_ctx.Position.TryGet(id, out var pos)) return;
-
-            _ctx.Behavior.Set(id, new BehaviorData
-            {
-                Activity = ActivityKind.Chat,
-                Phase = ActivityPhase.Doing,
-                TargetBuilding = -1,
-                TargetX = pos.X,
-                TargetZ = pos.Z,
-                RemainingGameMinutes = ActivityCatalog.Chat.DurationMinutes,
-            });
-        }
+        // Decisions only — arrivals, interrupts, and the activity clock are
+        // ExecutionSystem's now (the sole writer of BehaviorRegistry).
+        public void ProcessEvents() { }
 
         public void Update(long tick)
         {
@@ -120,36 +45,22 @@ namespace DaggerfallWorkshop.Sim
             {
                 var id = kv.Key;
                 bool decide = reDecideAll;
+                double currentRemaining = 0;
 
                 BehaviorData behavior;
                 if (_ctx.Behavior.TryGet(id, out behavior))
                 {
                     if (behavior.Phase == ActivityPhase.Doing)
                     {
-                        double remaining = behavior.RemainingGameMinutes - gameMinutes;
+                        // ExecutionSystem advances the activity clock; here we
+                        // only read it to decide whether to re-evaluate. Per-entity
+                        // cap (48..79 min) staggers re-decisions into a trickle
+                        // instead of town-wide lockstep waves.
+                        currentRemaining = behavior.RemainingGameMinutes - gameMinutes;
                         double since = behavior.SinceDecisionGameMinutes + gameMinutes;
-                        // Per-entity cap (48..79 min): a population that decides
-                        // on one shared clock moves in lockstep waves; staggered
-                        // caps spread re-decisions into a constant trickle.
                         double cap = 48 + (Hash(id.Value, 0) & 0x1F);
-                        if (remaining <= 0 || since >= cap)
-                        {
+                        if (currentRemaining <= 0 || since >= cap)
                             decide = true;
-                        }
-                        else if (!decide)
-                        {
-                            _ctx.Behavior.Set(id, new BehaviorData
-                            {
-                                Activity = behavior.Activity,
-                                Phase = ActivityPhase.Doing,
-                                TargetBuilding = behavior.TargetBuilding,
-                                TargetX = behavior.TargetX,
-                                TargetZ = behavior.TargetZ,
-                                RemainingGameMinutes = remaining,
-                                SinceDecisionGameMinutes = since,
-                            });
-                        }
-                        if (decide) behavior.RemainingGameMinutes = remaining;
                     }
                     // Moving entities keep walking unless dawn/dusk re-decides.
                 }
@@ -159,11 +70,11 @@ namespace DaggerfallWorkshop.Sim
                 }
 
                 if (decide)
-                    Decide(id, kv.Value, behavior, clock.Hour, tick);
+                    Decide(id, kv.Value, behavior, currentRemaining, clock.Hour, tick);
             }
         }
 
-        void Decide(EntityId id, ResidencyData residency, BehaviorData current, int hour, long tick)
+        void Decide(EntityId id, ResidencyData residency, BehaviorData current, double currentRemaining, int hour, long tick)
         {
             if (!_ctx.Needs.TryGet(id, out var needs)) return;
             if (!_ctx.Buildings.TryGet(residency.BuildingIndex, out var home)) return;
@@ -173,12 +84,7 @@ namespace DaggerfallWorkshop.Sim
             // behave like the old global constants.
             _ctx.Personality.TryGet(id, out var person);
             var w = person != null ? person.Weights : ActivityCatalog.Weights;
-            double sociability = person != null ? person.Trait(TraitIndex.Sociability) : 0.5;
-            double industry = person != null ? person.Trait(TraitIndex.Industry) : 0.5;
-            double restlessness = person != null ? person.Trait(TraitIndex.Restlessness) : 0.5;
             double chronotype = person != null ? person.Trait(TraitIndex.Chronotype) : 0.5;
-
-            bool isKeeper = residency.Role == ResidentRole.Keeper;
             bool night = IsNightFor(hour, chronotype);
 
             // Variety gates: foul weather empties the streets and fills the
@@ -196,149 +102,127 @@ namespace DaggerfallWorkshop.Sim
             // exit-low; a challenger must clearly beat the incumbent).
             ActivityKind incumbent = (current != null && current.Phase == ActivityPhase.Doing)
                 ? current.Activity : ActivityKind.None;
+            int incumbentBuilding = current != null ? current.TargetBuilding : -2;
             const double Sticky = 1.4;
 
-            // --- Candidate generation (the marketplace). ---
-            // Idle is the Object-Zero floor. In foul weather it becomes
-            // shelter: idle AT HOME with a strong pull, so storms genuinely
-            // empty the streets instead of merely discouraging them.
-            ActivityCatalog.Spec bestSpec = ActivityCatalog.Idle;
-            int bestBuilding = residency.BuildingIndex;
-            float bestX = wet ? home.X : pos.X;
-            float bestZ = wet ? home.Z : pos.Z;
-            double bestScore = OddScore.Compute(needs.V, ActivityCatalog.Idle.Delta, w, 1.0,
-                wet ? 0.03 : ActivityCatalog.Idle.BaseUtility);
+            // --- The marketplace: Collect (ActionDiscovery, precondition-filtered),
+            // Score each ad uniformly with V, argmax. No hand-built candidate
+            // blocks and no per-verb branching: a new action is a catalog row. ---
+            var sc = new ScoreContext
+            {
+                Needs = needs.V, W = w, Person = person,
+                Hour = hour, Night = night, Wet = wet, Holiday = holiday,
+                Outdoor = outdoor, Cozy = cozy, Prepotency = PrepotencyGate(needs.V),
+                Px = pos.X, Pz = pos.Z,
+            };
 
-            // Wander — Object-Zero sibling; offset derived from (id, tick) so
-            // decisions stay deterministic regardless of iteration order.
-            // Restless types crave it (this is what brings Wander back from
-            // extinction); homebodies never bother.
+            var ads = ActionDiscovery.GatherAds(_ctx, id);
+            Ad best = default;
+            double bestScore = double.NegativeInfinity;
+            bool any = false;
+            for (int i = 0; i < ads.Count; i++)
+            {
+                var ad = ads[i];
+                double s = V(ad, sc);
+                if (s <= 0) continue;
+                if (ad.Verb == incumbent && ad.Building == incumbentBuilding) s *= Sticky;
+                if (!any || s > bestScore) { any = true; bestScore = s; best = ad; }
+            }
+
+            ActivityKind bestKind = any ? best.Verb : ActivityKind.Idle;   // Idle always advertises, so `any` holds
+            int bestBuilding = any ? best.Building : residency.BuildingIndex;
+            float bestX = any ? best.X : pos.X;
+            float bestZ = any ? best.Z : pos.Z;
+
+            // Two activities whose "where" is a decision detail, not a fixed
+            // place: Wander ambles to a deterministic random offset; Idle becomes
+            // shelter-at-home when it's foul out (storms empty the streets).
+            if (bestKind == ActivityKind.Wander)
             {
                 uint h32 = Hash(id.Value, tick);
-                float dx = ((h32 & 0xFF) / 255f - 0.5f) * 60f;
-                float dz = (((h32 >> 8) & 0xFF) / 255f - 0.5f) * 60f;
-                double gate = (night ? 0.3 : 1.0) * outdoor;
-                double baseUtility = ActivityCatalog.Wander.BaseUtility * (0.2 + restlessness * 16.0 * restlessness) * outdoor;
-                double s = OddScore.Compute(needs.V, ActivityCatalog.Wander.Delta, w, gate, baseUtility);
-                if (incumbent == ActivityKind.Wander) s *= Sticky;
-                if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Wander; bestBuilding = -1; bestX = pos.X + dx; bestZ = pos.Z + dz; }
+                bestX = pos.X + ((h32 & 0xFF) / 255f - 0.5f) * 60f;
+                bestZ = pos.Z + (((h32 >> 8) & 0xFF) / 255f - 0.5f) * 60f;
+                bestBuilding = -1;
             }
-
-            // Sleep at home (keepers live above the shop). The night base
-            // utility is circadian pressure: once EnergyDef hits zero the gap
-            // vanishes, and without it nothing holds a rested sleeper in bed
-            // until morning.
+            else if (bestKind == ActivityKind.Idle && wet)
             {
-                double gate = night ? 2.0 : 0.12;
-                double circadian = night ? 0.06 : 0;
-                double s = OddScore.Compute(needs.V, ActivityCatalog.Sleep.Delta, w, gate, circadian);
-                if (incumbent == ActivityKind.Sleep) s *= Sticky;
-                if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Sleep; bestBuilding = residency.BuildingIndex; bestX = home.X; bestZ = home.Z; }
+                bestX = home.X; bestZ = home.Z; bestBuilding = residency.BuildingIndex;
             }
 
-            // Eat at home — kitchens mostly cold in the small hours.
-            {
-                double gate = night ? 0.15 : 1.0;
-                double s = OddScore.Compute(needs.V, ActivityCatalog.EatHome.Delta, w, gate, 0);
-                if (incumbent == ActivityKind.EatHome) s *= Sticky;
-                if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.EatHome; bestBuilding = residency.BuildingIndex; bestX = home.X; bestZ = home.Z; }
-            }
+            var bestSpec = ActivityCatalog.SpecFor(bestKind);
 
-            // Work — keepers only, business hours. The base utility is duty:
-            // a shopkeeper holds shop through the day even with a full purse,
-            // rather than napping the moment coin pressure drops (routine as a
-            // standing pull — Atoms' growth/duty drives will replace this).
-            // Industrious keepers feel it harder than idlers.
-            if (isKeeper && hour >= 8 && hour < 18 && !holiday)
-            {
-                // Soft trait band: weights already carry personality, so the
-                // gate multiplier stays gentle or traits double-dip.
-                double duty = 0.03 * (0.7 + 0.6 * industry);
-                double s = OddScore.Compute(needs.V, ActivityCatalog.Work.Delta, w, 1.3, duty);
-                if (incumbent == ActivityKind.Work) s *= Sticky;
-                if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Work; bestBuilding = residency.BuildingIndex; bestX = home.X; bestZ = home.Z; }
-            }
-
-            double prepotency = PrepotencyGate(needs.V);
-
-            // Tavern offerings, while open — every tavern competes, scored by
-            // distance and liveliness, so regulars and a "popular pub" emerge.
-            if (hour >= 6 && hour < 23)
-            {
-                EnsureTaverns();
-                for (int t = 0; t < _tavernIndices.Count; t++)
-                {
-                    if (!_ctx.Buildings.TryGet(_tavernIndices[t], out var tav)) continue;
-                    float tdx = tav.X - pos.X, tdz = tav.Z - pos.Z;
-                    double dist = System.Math.Sqrt(tdx * tdx + tdz * tdz);
-                    double distFactor = 1.0 / (1.0 + dist / 150.0);
-                    double lively = 1.0 + 0.04 * System.Math.Min(_ctx.Occupancy.PlaceCount(_tavernIndices[t]), 8);
-
-                    double s = OddScore.Compute(needs.V, ActivityCatalog.EatTavern.Delta, w, distFactor, 0);
-                    if (incumbent == ActivityKind.EatTavern && bestBuilding == _tavernIndices[t]) s *= Sticky;
-                    if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.EatTavern; bestBuilding = _tavernIndices[t]; bestX = tav.X; bestZ = tav.Z; }
-
-                    double socialGate = ((hour >= 17) ? 1.5 : 1.0) * distFactor * lively * prepotency
-                        * (0.7 + 0.6 * sociability) * cozy * (holiday ? 1.5 : 1.0);
-                    s = OddScore.Compute(needs.V, ActivityCatalog.Socialize.Delta, w, socialGate, 0);
-                    if (incumbent == ActivityKind.Socialize) s *= Sticky;
-                    if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Socialize; bestBuilding = _tavernIndices[t]; bestX = tav.X; bestZ = tav.Z; }
-                }
-            }
-
-            // Visit — the growth drive. No deficit served; engagement is the
-            // reward. Hard prepotency cull plus daylight-ish hours.
-            if (prepotency > 0 && hour >= 7 && hour < 21)
-            {
-                EnsureLandmarks();
-                if (_landmarkIndices.Count > 0)
-                {
-                    // Rotate the landmark per entity per ~2h block, hash-picked.
-                    int pick = (int)(Hash(id.Value, tick / 1200) % (uint)_landmarkIndices.Count);
-                    if (_ctx.Buildings.TryGet(_landmarkIndices[pick], out var spot))
-                    {
-                        float vdx = spot.X - pos.X, vdz = spot.Z - pos.Z;
-                        double dist = System.Math.Sqrt(vdx * vdx + vdz * vdz);
-                        double distFactor = 1.0 / (1.0 + dist / 200.0);
-                        double visitGate = prepotency * distFactor * outdoor * (holiday ? 1.3 : 1.0);
-                        double s = OddScore.Compute(needs.V, ActivityCatalog.Visit.Delta, w, visitGate,
-                            ActivityCatalog.Visit.BaseUtility * visitGate);
-                        if (incumbent == ActivityKind.Visit) s *= Sticky;
-                        if (s > bestScore) { bestScore = s; bestSpec = ActivityCatalog.Visit; bestBuilding = _landmarkIndices[pick]; bestX = spot.X; bestZ = spot.Z; }
-                    }
-                }
-            }
-
-            // --- Commit. ---
+            // --- Commit the choice as an Intent; ExecutionSystem reifies it. ---
             // Same activity still winning mid-flight = a resume, not a restart:
             // keep the remaining duration and don't re-announce it.
             bool resume = current != null
-                && current.Activity == bestSpec.Kind
+                && current.Activity == bestKind
                 && current.Phase == ActivityPhase.Doing
-                && current.RemainingGameMinutes > 0
+                && currentRemaining > 0
                 && current.TargetBuilding == bestBuilding;
-
-            float ddx = bestX - pos.X, ddz = bestZ - pos.Z;
-            bool atSpot = resume
-                || (ddx * ddx + ddz * ddz) <= ArriveImmediatelyDistance * ArriveImmediatelyDistance;
 
             // ±15% deterministic duration jitter — uniform durations re-align
             // the whole town to shared activity boundaries within a few hours.
             double duration = bestSpec.DurationMinutes * (0.85 + 0.3 * Hash01(id.Value, tick));
 
-            _ctx.Behavior.Set(id, new BehaviorData
+            _ctx.Intent.Set(id, new IntentData
             {
-                Activity = bestSpec.Kind,
-                Phase = atSpot ? ActivityPhase.Doing : ActivityPhase.Moving,
-                TargetBuilding = bestBuilding,
-                TargetX = resume ? current.TargetX : bestX,
-                TargetZ = resume ? current.TargetZ : bestZ,
-                RemainingGameMinutes = resume ? current.RemainingGameMinutes : duration,
-                SinceDecisionGameMinutes = 0,
+                Activity = bestKind,
+                Building = bestBuilding,
+                X = bestX,
+                Z = bestZ,
+                Resume = resume,
+                Duration = duration,
             });
+        }
 
-            if (!resume)
-                _ctx.Events.Emit(new ActivityStartedEvent { Entity = id, Activity = bestSpec.Kind, TargetBuilding = bestBuilding });
+        /// Per-decision context for V — the agent's drives, personality, and the
+        /// world's modulators, computed once.
+        struct ScoreContext
+        {
+            public double[] Needs, W;
+            public PersonalityData Person;
+            public int Hour;
+            public bool Night, Wet, Holiday;
+            public double Outdoor, Cozy, Prepotency;
+            public float Px, Pz;
+        }
+
+        /// V — the value function. Uniform over EVERY ad: read the activity's
+        /// modulator data (Ad.Spec), build one gate from the applicable
+        /// modulators, score gap×gate (+ base). No per-verb branching — an ad is
+        /// an ad. Hard gates already filtered the ad in (preconditions, Collect).
+        double V(Ad ad, ScoreContext c)
+        {
+            var s = ad.Spec;
+            double traitFactor = s.Trait >= 0
+                ? s.TraitBias + s.TraitScale * System.Math.Pow(TraitOf(c, s.Trait), s.TraitExp)
+                : 1.0;
+
+            double gate = s.BaseGate
+                * (c.Night ? s.NightGate : s.DayGate)
+                * (s.DistanceScale > 0 ? DistFactor(ad, c, s.DistanceScale) : 1.0)
+                * (s.Outdoor ? c.Outdoor : 1.0)
+                * (s.Social ? Liveliness(ad) * (c.Hour >= 17 ? 1.5 : 1.0) * c.Cozy : 1.0)
+                * (s.Prepotent ? c.Prepotency : 1.0)
+                * (c.Holiday && s.HolidayFactor != 1.0 ? s.HolidayFactor : 1.0)
+                * (s.TraitOnBase ? 1.0 : traitFactor);
+
+            double baseRaw = s.BaseUtility * (s.TraitOnBase ? traitFactor : 1.0);
+            double baseTotal = baseRaw + (c.Night ? s.NightBase : 0) + (c.Wet ? s.WetBase : 0);
+            double effectiveBase = s.Growth ? baseTotal * gate : baseTotal;   // growth: base carries the score
+            return OddScore.Compute(c.Needs, s.Delta, c.W, gate, effectiveBase);
+        }
+
+        double Liveliness(Ad ad)
+            => ad.Building < 0 ? 1.0 : 1.0 + 0.04 * System.Math.Min(_ctx.Occupancy.PlaceCount(ad.Building), 8);
+
+        static double TraitOf(ScoreContext c, int idx) => c.Person != null ? c.Person.Trait(idx) : 0.5;
+
+        static double DistFactor(Ad ad, ScoreContext c, double scale)
+        {
+            float dx = ad.X - c.Px, dz = ad.Z - c.Pz;
+            double dist = System.Math.Sqrt(dx * dx + dz * dz);
+            return 1.0 / (1.0 + dist / scale);
         }
 
         /// Prepotency (Atoms, two-regime): leisure only wins when deficiency
@@ -374,36 +258,5 @@ namespace DaggerfallWorkshop.Sim
         }
 
         static double Hash01(int idValue, long tick) => Hash(idValue, tick) / (double)uint.MaxValue;
-
-        void EnsureTaverns()
-        {
-            if (_tavernIndices != null) return;
-            _tavernIndices = new List<int>();
-            foreach (var kv in _ctx.Buildings.All)
-                if (kv.Value.Kind == BuildingKind.Tavern)
-                    _tavernIndices.Add(kv.Key);
-            _tavernIndices.Sort();      // deterministic order
-        }
-
-        void EnsureLandmarks()
-        {
-            if (_landmarkIndices != null) return;
-            _landmarkIndices = new List<int>();
-            foreach (var kv in _ctx.Buildings.All)
-            {
-                switch (kv.Value.Kind)
-                {
-                    case BuildingKind.Temple:
-                    case BuildingKind.GuildHall:
-                    case BuildingKind.Bank:
-                    case BuildingKind.GeneralStore:
-                    case BuildingKind.Library:
-                    case BuildingKind.Palace:
-                        _landmarkIndices.Add(kv.Key);
-                        break;
-                }
-            }
-            _landmarkIndices.Sort();
-        }
     }
 }

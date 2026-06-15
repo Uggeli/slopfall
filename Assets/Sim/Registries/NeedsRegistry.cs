@@ -14,7 +14,8 @@ namespace DaggerfallWorkshop.Sim
         public const int EnergyDef = 1;   // tiredness
         public const int SocialDef = 2;   // loneliness
         public const int CoinDef   = 3;   // poverty pressure
-        public const int Count     = 4;
+        public const int GoodsDef  = 4;   // household provisions running low → drives shopping
+        public const int Count     = 5;
     }
 
     public sealed class NeedsData

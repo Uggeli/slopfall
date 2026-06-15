@@ -39,6 +39,7 @@ namespace DaggerfallWorkshop.Sim
                 * (0.5 + traits[TraitIndex.Sociability]);
             p.Weights[NeedAxis.CoinDef] = ActivityCatalog.Weights[NeedAxis.CoinDef]
                 * (0.5 + traits[TraitIndex.Industry]);
+            p.Weights[NeedAxis.GoodsDef] = ActivityCatalog.Weights[NeedAxis.GoodsDef];
 
             for (int i = 0; i < NeedAxis.Count; i++) p.DriftScale[i] = 1.0;
             p.DriftScale[NeedAxis.SocialDef] = 0.5 + traits[TraitIndex.Sociability];

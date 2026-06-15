@@ -162,7 +162,8 @@ namespace Sim.Tests
             }
             // Pre-personality the whole town slept by ~21:30. Now larks are
             // long gone while owls keep the taverns open.
-            Assert.InRange(asleep, total / 4, total - 20);
+            Assert.True(asleep >= total / 4 && asleep <= total - 20,
+                "asleep=" + asleep + "/" + total + " at 22:00 (want a spread, not all/none)");
         }
     }
 }

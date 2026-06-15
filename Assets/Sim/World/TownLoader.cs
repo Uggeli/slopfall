@@ -30,6 +30,7 @@ namespace DaggerfallWorkshop.Sim
     public static class TownLoader
     {
         public const float GlobalScale = 0.025f;    // matches MeshReader.GlobalScale
+        const double InitialStock = 20.0;            // units a shop/tavern holds at load; G2 replenishes
 
         public static TownLoadResult Load(SimulationContext ctx, in DFLocation location, BlocksFile blocksFile)
         {
@@ -108,7 +109,90 @@ namespace DaggerfallWorkshop.Sim
             }
 
             ctx.TownGrid.Set(grid);
+            SeedTownKnowledge(ctx);
+            SeedEmployment(ctx);
+            SeedGuards(ctx);
+            SeedStock(ctx);
             return result;
+        }
+
+        /// Put a few townsfolk on the public payroll (guards): salaried from the
+        /// Town treasury (E3), not a keeper, so they don't take private Labor — the
+        /// norm-loop seed and the channel that recirculates coin into spending. The
+        /// crown reimburses the treasury for their pay each tick (G6), so a small
+        /// opening buffer is plenty. Patrol behaviour + the KnightlyGuard faction
+        /// are later; here a guard is a salaried resident.
+        static void SeedGuards(SimulationContext ctx)
+        {
+            var residents = new System.Collections.Generic.List<EntityId>();
+            foreach (var kv in ctx.Residency.All)
+                if (kv.Value.Role == ResidentRole.Resident) residents.Add(kv.Key);
+            if (residents.Count == 0) return;
+            residents.Sort((a, b) => a.Value.CompareTo(b.Value));   // deterministic pick
+
+            int guards = residents.Count / 50;                      // ~1 guard per 50 residents
+            if (guards < 2) guards = 2;
+            if (guards > residents.Count) guards = residents.Count;
+
+            for (int i = 0; i < guards; i++)
+            {
+                var id = residents[i];
+                ctx.Employment.Set(id, new EmploymentData { Employer = EntityId.None, PublicOwner = OwnerId.Town });
+                if (ctx.Identity.TryGet(id, out var ident) && ident != null) ident.Name = "Town Guard";
+            }
+
+            // A day's payroll as an opening buffer; the crown tops it up continuously.
+            ctx.Treasury.Set(OwnerId.Town,
+                guards * EconomySystem.GuardWagePerMinute * 1440.0);
+        }
+
+        /// Stock the shops and taverns so the town opens with goods to sell —
+        /// the starting inventory the supply chain then replenishes (imports +
+        /// craft, G2). Flat seed for now; scaling by building Quality is a tuning
+        /// lever for later, not something to guess at before the loop is closed.
+        static void SeedStock(SimulationContext ctx)
+        {
+            foreach (var kv in ctx.Buildings.All)
+            {
+                var goods = GoodsCatalog.Stocks(kv.Value.Kind);
+                for (int i = 0; i < goods.Length; i++)
+                    ctx.Stock.Set(kv.Key, goods[i], InitialStock);
+            }
+        }
+
+        /// Assign each resident an employer (a keeper) round-robin, so their
+        /// Labor wage is paid by a real business — coin recirculates instead of
+        /// being minted. Proper job-matching (skills, nearby business) is later;
+        /// this is the employment relationship the wage transfer needs.
+        static void SeedEmployment(SimulationContext ctx)
+        {
+            var keepers = new System.Collections.Generic.List<EntityId>();
+            var residents = new System.Collections.Generic.List<EntityId>();
+            foreach (var kv in ctx.Residency.All)
+                (kv.Value.Role == ResidentRole.Keeper ? keepers : residents).Add(kv.Key);
+            if (keepers.Count == 0) return;
+
+            keepers.Sort((a, b) => a.Value.CompareTo(b.Value));        // deterministic assignment
+            residents.Sort((a, b) => a.Value.CompareTo(b.Value));
+            for (int i = 0; i < residents.Count; i++)
+                ctx.Employment.Set(residents[i], new EmploymentData { Employer = keepers[i % keepers.Count] });
+        }
+
+        /// A town's residents know its layout — they've lived here. So every
+        /// town agent starts with the whole building list in PlaceMemory; a
+        /// resident is never blind to the tavern down the street. Sensing
+        /// (SenseSystem) is then about live perception — who's near right now —
+        /// not learning where places are. Discovery (other towns, the player,
+        /// wandering creatures) comes later, for agents without this grant.
+        static void SeedTownKnowledge(SimulationContext ctx)
+        {
+            var buildings = new System.Collections.Generic.List<int>();
+            foreach (var kv in ctx.Buildings.All)
+                if (kv.Value.Kind != BuildingKind.None) buildings.Add(kv.Key);
+
+            foreach (var res in ctx.Residency.All)
+                for (int i = 0; i < buildings.Count; i++)
+                    ctx.PlaceMemory.Learn(res.Key, buildings[i]);
         }
 
         static int SpawnCivilians(SimulationContext ctx, int buildingIndex, BuildingRow row, string blockName)
@@ -196,6 +280,7 @@ namespace DaggerfallWorkshop.Sim
             needs.V[NeedAxis.Hunger] = 0.2 + ctx.Random.NextDouble() * 0.3;
             needs.V[NeedAxis.EnergyDef] = 0.1 + ctx.Random.NextDouble() * 0.3;
             needs.V[NeedAxis.SocialDef] = 0.3 + ctx.Random.NextDouble() * 0.4;
+            needs.V[NeedAxis.GoodsDef] = 0.2 + ctx.Random.NextDouble() * 0.3;
 
             // Real money: keepers start comfortable, residents start poor —
             // poverty is structural until they find income, which is exactly

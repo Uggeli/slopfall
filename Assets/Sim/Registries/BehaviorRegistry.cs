@@ -10,10 +10,12 @@ namespace DaggerfallWorkshop.Sim
         Wander,      // Object-Zero fallback: amble nearby
         Sleep,       // home, serves EnergyDef, night-gated
         Work,        // own workplace (keepers), serves CoinDef, hours-gated
+        Labor,       // residents' day-work at home, serves CoinDef, hours-gated
         EatHome,     // home, serves Hunger weakly, free
         EatTavern,   // tavern, serves Hunger well, costs coin
         Socialize,   // tavern, serves SocialDef, evening-boosted
         Visit,       // growth drive: spend time at a landmark; engagement is the reward
+        Buy,         // shop: refill household goods, pays the shopkeeper (revenue)
         Chat,        // interrupt: stopped on the street to greet a passing friend
         SeekHelp,    // embodied request: walking to someone to ask for alms
     }

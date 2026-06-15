@@ -35,7 +35,9 @@ namespace Sim.Tests
             Loop.Register(new EconomySystem());
             Loop.Register(new NeedsSystem());
             Loop.Register(new OddSystem());
+            Loop.Register(new ExecutionSystem());
             Loop.Register(new MovementSystem());
+            Loop.Register(new SenseSystem());
             Loop.Register(new PerceptionSystem());
             Loop.Register(new SocialSystem());
             Loop.Register(new RequestSystem());

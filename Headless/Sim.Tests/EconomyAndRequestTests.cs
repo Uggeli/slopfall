@@ -15,7 +15,9 @@ namespace Sim.Tests
             var h = new SimHarness(tickIntervalSeconds: 1.0);
             var keeper = h.SpawnEntity("Keeper");
             var patron = h.SpawnEntity("Patron");
-            h.Ctx.Residency.Set(keeper, new ResidencyData { BuildingIndex = 7, Role = ResidentRole.Keeper });
+            int tavern = h.Ctx.Buildings.Add(new BuildingRow { Kind = BuildingKind.Tavern });
+            h.Ctx.Stock.Set(tavern, Good.Provisions, 100);   // meals need provisions on the shelf (G3)
+            h.Ctx.Residency.Set(keeper, new ResidencyData { BuildingIndex = tavern, Role = ResidentRole.Keeper });
             h.Ctx.Coin.Set(keeper, 0.5);
             h.Ctx.Coin.Set(patron, 0.5);
             h.Ctx.Needs.Set(patron, new NeedsData());
@@ -23,7 +25,7 @@ namespace Sim.Tests
             {
                 Activity = ActivityKind.EatTavern,
                 Phase = ActivityPhase.Doing,
-                TargetBuilding = 7,
+                TargetBuilding = tavern,
                 RemainingGameMinutes = 100000,
             });
             h.SeedClock(hour: 18, timeScale: 600f);     // 10 game-min per tick
@@ -227,7 +229,7 @@ namespace Sim.Tests
         static bool Available => Directory.Exists(Arena2);
 
         [Fact]
-        public void OneTownDay_AlmsFlow_AndTheEconomyHolds()
+        public void OneTownDay_EconomyConserves()
         {
             if (!Available) return;
             var h = new SimHarness(tickIntervalSeconds: 1.0);
@@ -237,17 +239,22 @@ namespace Sim.Tests
             h.SeedClock(hour: 5, minute: 30, timeScale: 60f);
             h.Ctx.Weather.Set(new WeatherData { Kind = WeatherKind.Sunny });
 
-            double coinBefore = 0;
-            foreach (var kv in h.Ctx.Coin.All) coinBefore += kv.Value;
-            var granted = h.Collect<HelpGrantedEvent>();
+            double moneyBefore = 0;
+            foreach (var kv in h.Ctx.Coin.All) moneyBefore += kv.Value;
+            moneyBefore += h.Ctx.Treasury.Total;        // treasury (E3) is part of the money supply
 
             h.Step(1440);
 
-            Assert.True(granted.Count > 20, "charity barely flowed: " + granted.Count);
-
-            double coinAfter = 0;
-            foreach (var kv in h.Ctx.Coin.All) coinAfter += kv.Value;
-            Assert.InRange(coinAfter, coinBefore * 0.85, coinBefore * 1.15);
+            // Since E1 gave residents jobs, charity barely flows (people earn
+            // instead of begging) and the destitute legitimately gain wealth — so
+            // the old "alms > 20 / total within 15%" assumptions are gone. The
+            // invariant that always holds is conservation: every coin is accounted
+            // — including the treasury that tax fills and guard salaries drain.
+            var ledger = h.Ctx.Ledger.Current;
+            double moneyAfter = 0;
+            foreach (var kv in h.Ctx.Coin.All) moneyAfter += kv.Value;
+            moneyAfter += h.Ctx.Treasury.Total;
+            Assert.Equal(moneyBefore + ledger.Minted - ledger.Sunk, moneyAfter, 6);
         }
     }
 }

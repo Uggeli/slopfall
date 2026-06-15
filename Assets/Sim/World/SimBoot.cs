@@ -52,9 +52,11 @@ namespace DaggerfallWorkshop.Sim
             loop.Register(new HolidaySystem());
             loop.Register(new EconomySystem());     // coin moves before needs derive from it
             loop.Register(new NeedsSystem());
-            loop.Register(new OddSystem());
+            loop.Register(new OddSystem());          // decides → writes Intent
+            loop.Register(new ExecutionSystem());    // reifies Intent → Behavior (sole writer)
             loop.Register(new MovementSystem());
-            loop.Register(new PerceptionSystem());  // senses settled positions
+            loop.Register(new SenseSystem());        // raw senses: who's near (grid LOS)
+            loop.Register(new PerceptionSystem());   // refine senses → percepts/interrupts
             loop.Register(new SocialSystem());
             loop.Register(new RequestSystem());     // reads relations after SocialSystem's tick
             var log = new EventLog();

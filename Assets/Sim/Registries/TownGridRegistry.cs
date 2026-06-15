@@ -42,6 +42,28 @@ namespace DaggerfallWorkshop.Sim
         public int CellY(float worldZ) => (int)(worldZ / CellSize);
         public float WorldX(int cellX) => (cellX + 0.5f) * CellSize;
         public float WorldZ(int cellY) => (cellY + 0.5f) * CellSize;
+
+        /// Grid line-of-sight: true if no wall sits strictly between the two
+        /// world points. Bresenham over cells, blocked by any non-walkable
+        /// (or out-of-bounds) cell. Endpoints aren't tested — an agent may
+        /// stand on a doorway/edge cell. Headless stand-in for a raycast.
+        public bool LineClear(float ax, float az, float bx, float bz)
+        {
+            int x0 = CellX(ax), y0 = CellY(az), x1 = CellX(bx), y1 = CellY(bz);
+            int dx = Math.Abs(x1 - x0), dy = Math.Abs(y1 - y0);
+            int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+            int err = dx - dy;
+            int x = x0, y = y0;
+            while (x != x1 || y != y1)
+            {
+                int e2 = 2 * err;
+                if (e2 > -dy) { err -= dy; x += sx; }
+                if (e2 < dx) { err += dx; y += sy; }
+                if (x == x1 && y == y1) break;      // reached target — don't test the endpoint
+                if (!Walkable(x, y)) return false;  // a wall (or off-map) blocks sight
+            }
+            return true;
+        }
     }
 
     /// Single-global town walkability. Written once by TownLoader at load.

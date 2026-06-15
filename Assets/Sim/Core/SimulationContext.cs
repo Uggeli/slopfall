@@ -31,8 +31,15 @@ namespace DaggerfallWorkshop.Sim
         public OccupancyRegistry Occupancy { get; }
         public TownGridRegistry TownGrid { get; }
         public CoinRegistry Coin { get; }
+        public LedgerRegistry Ledger { get; }
         public PersonalityRegistry Personality { get; }
         public HolidayRegistry Holiday { get; }
+        public PlaceMemoryRegistry PlaceMemory { get; }
+        public SensedRegistry Sensed { get; }
+        public IntentRegistry Intent { get; }
+        public EmploymentRegistry Employment { get; }
+        public StockRegistry Stock { get; }
+        public TreasuryRegistry Treasury { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -61,8 +68,15 @@ namespace DaggerfallWorkshop.Sim
             Occupancy = new OccupancyRegistry();
             TownGrid = new TownGridRegistry();
             Coin = new CoinRegistry();
+            Ledger = new LedgerRegistry();
             Personality = new PersonalityRegistry();
             Holiday = new HolidayRegistry();
+            PlaceMemory = new PlaceMemoryRegistry();
+            Sensed = new SensedRegistry();
+            Intent = new IntentRegistry();
+            Employment = new EmploymentRegistry();
+            Stock = new StockRegistry();
+            Treasury = new TreasuryRegistry();
         }
     }
 }

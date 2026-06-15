@@ -11,6 +11,7 @@ namespace DaggerfallWorkshop.Sim.Host
     /// Usage: dotnet run [--ticks N] [--timescale X] [--realtime]
     ///        dotnet run --probe [regionName [locationName]]
     ///        dotnet run --town <regionName> <locationName> [--ticks N] [--timescale X]
+    ///        dotnet run --soak <regionName> <locationName> [--days N]
     ///        dotnet run --view <regionName> <locationName> [--timescale X] [--frames N]
     ///        dotnet run --serve <regionName> <locationName> [--port N] [--timescale X]
     ///        dotnet run --connect <host:port> [--frames N]
@@ -24,6 +25,8 @@ namespace DaggerfallWorkshop.Sim.Host
             int frames = 0;
             int port = 7777;
             string townRegion = null, townLocation = null;
+            string soakRegion = null, soakLocation = null;
+            int days = 7;
             string viewRegion = null, viewLocation = null;
             string serveRegion = null, serveLocation = null;
             string connect = null;
@@ -43,6 +46,8 @@ namespace DaggerfallWorkshop.Sim.Host
                     case "--timescale": timeScale = float.Parse(args[++i]); break;
                     case "--realtime": realtime = true; break;
                     case "--town": townRegion = args[++i]; townLocation = args[++i]; break;
+                    case "--soak": soakRegion = args[++i]; soakLocation = args[++i]; break;
+                    case "--days": days = int.Parse(args[++i]); break;
                     case "--view": viewRegion = args[++i]; viewLocation = args[++i]; break;
                     case "--serve": serveRegion = args[++i]; serveLocation = args[++i]; break;
                     case "--connect": connect = args[++i]; break;
@@ -64,6 +69,8 @@ namespace DaggerfallWorkshop.Sim.Host
             }
             if (viewRegion != null)
                 return TownViewer.RunLocal(viewRegion, viewLocation, timeScale, frames);
+            if (soakRegion != null)
+                return Soak.Run(soakRegion, soakLocation, days);
             if (townRegion != null)
                 return TownDemo.Run(townRegion, townLocation, ticks, timeScale);
 

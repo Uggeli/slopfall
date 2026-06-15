@@ -49,7 +49,7 @@ namespace DaggerfallWorkshop.Sim
                 ActivityCatalog.Spec doing = null;
                 if (_ctx.Behavior.TryGet(kv.Key, out var behavior)
                     && behavior.Phase == ActivityPhase.Doing)
-                    doing = SpecFor(behavior.Activity);
+                    doing = ActivityCatalog.SpecFor(behavior.Activity);
 
                 bool sleeping = doing != null && doing.Kind == ActivityKind.Sleep;
                 _ctx.Personality.TryGet(kv.Key, out var person);
@@ -90,6 +90,13 @@ namespace DaggerfallWorkshop.Sim
                         if (axis == NeedAxis.SocialDef && delta < 0 && IsCompanyActivity(doing.Kind))
                             delta *= CompanyFactor(_ctx.Occupancy.CompanyOf(kv.Key));
 
+                        // A purchase's relief is contingent on real goods: an empty
+                        // shelf satisfies nothing (G3). EconomySystem drew the stock
+                        // just now, so this reads the same gate the sale obeyed.
+                        if (axis == doing.SaleReliefAxis && delta < 0
+                            && !SellerHasStock(behavior.TargetBuilding, doing))
+                            delta = 0;
+
                         value += delta;
                     }
 
@@ -108,22 +115,14 @@ namespace DaggerfallWorkshop.Sim
         static double CompanyFactor(int company) =>
             company <= 0 ? 0.2 : (company == 1 ? 0.6 : 1.0);
 
-        internal static ActivityCatalog.Spec SpecFor(ActivityKind kind)
+        /// Does the seller still have the good this sale draws? Mirrors the gate
+        /// EconomySystem.PaySale obeyed (which ran earlier this tick), so a relief
+        /// only lands when a real good backed it.
+        bool SellerHasStock(int building, ActivityCatalog.Spec spec)
         {
-            switch (kind)
-            {
-                case ActivityKind.Idle:      return ActivityCatalog.Idle;
-                case ActivityKind.Wander:    return ActivityCatalog.Wander;
-                case ActivityKind.Sleep:     return ActivityCatalog.Sleep;
-                case ActivityKind.Work:      return ActivityCatalog.Work;
-                case ActivityKind.EatHome:   return ActivityCatalog.EatHome;
-                case ActivityKind.EatTavern: return ActivityCatalog.EatTavern;
-                case ActivityKind.Socialize: return ActivityCatalog.Socialize;
-                case ActivityKind.Visit:     return ActivityCatalog.Visit;
-                case ActivityKind.Chat:      return ActivityCatalog.Chat;
-                case ActivityKind.SeekHelp:  return ActivityCatalog.SeekHelp;
-                default:                     return null;
-            }
+            if (building < 0 || !_ctx.Buildings.TryGet(building, out var b) || b == null) return false;
+            if (!GoodsCatalog.SaleGoodFor(b.Kind, spec.Kind, out var good)) return false;
+            return _ctx.Stock.Get(building, good) > 0;
         }
     }
 }
