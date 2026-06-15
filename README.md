@@ -1,108 +1,143 @@
-![image](https://github.com/Interkarma/daggerfall-unity/assets/10426244/4f176f9d-6332-47b3-a4d7-317ed8d6b38b)
+# Slopfall — a living-world simulation rewrite of Daggerfall Unity
 
-# What is Daggerfall Unity?
+> A fork of [Daggerfall Unity](https://github.com/Interkarma/daggerfall-unity) that rebuilds
+> the town and NPC layer as a **headless, data-oriented simulation**. Civilians have needs,
+> daily routines, opinions of one another, money, episodic memory, and the first emergent
+> quests — and the whole thing runs as a plain .NET console app, with Unity demoted from
+> *the program* to *one possible renderer*.
 
-Daggerfall Unity is an open source recreation of Daggerfall in the Unity engine created by [Daggerfall Workshop](http://www.dfworkshop.net).
+The active work lives on the **`sim-rewrite`** branch.
 
-Experience the adventure and intrigue of Daggerfall with all of its original charm along with hundreds of fixes, quality of life enhancements, and extensive mod support.
+---
 
-## Classic Daggerfall Plus
+## What this is
 
-+ Cross-platform without emulation (Windows/Linux/Mac)
-+ Retro graphics are boosted by modern engine and lighting
-+ High resolution widescreen with classic style
-+ Optionally play in retro mode 320x200 or 640x400 with VGA palettes
-+ Optionally overhaul the graphics and gameplay with mods
-+ Huge draw distances even without mods
-+ Smooth first-person controls
-+ Quality of life enhancements
-+ Extensive mod support with an active creator community
-+ Translation support via community mods
+Classic Daggerfall Unity simulates a town only while you're looking at it. This fork pulls the
+town's life out into a standalone simulation that:
 
-# Get Daggerfall Unity
+- **Runs without Unity.** The sim core compiles into a normal .NET solution (`Headless/`) and
+  ticks a real Daggerfall location loaded straight from the original `ARENA2` game data — no
+  engine, no renderer, no scene required. This is deliberate: the machine this was built on
+  can't run the Unity editor, so the sim is **headless-first** and the engine is an optional
+  consumer of its state.
+- **Is data-oriented.** State lives in flat **registries**; logic lives in **systems** that are
+  each the *sole writer* of their registries and communicate only through an **event bus**.
+  No `Update()` spaghetti, no hidden cross-references — the same discipline that makes a
+  dedicated server or an engine swap tractable.
+- **Grows minds, not scripts.** NPC behaviour is driven by a need/drive model (a "wedge" ported
+  from the [ODD](https://en.wikipedia.org/wiki/Overview,_design_concepts,_and_details) lineage,
+  converging on the *Atoms* cognitive architecture): deficit poles that drift, traits that bias
+  choices, perception that can interrupt a plan, and an argmax "marketplace" that decides what
+  to do next. See [`docs/behavior.md`](docs/behavior.md) for the honest scorecard and roadmap.
 
-Daggerfall Unity requires a free copy of DOS Daggerfall to run. This provides all necessary game assets such as textures, 3D models, and sound effects.
+What already emerges from this: civilians walk real streets via hierarchical pathfinding, keep
+need-driven daily schedules, form opinions through shared time in taverns, gossip those opinions
+through the social graph, earn and spend coin, become friends, and ask each other for help when
+they can't help themselves — the seed of an emergent quest system.
 
-You can get a free copy of DOS Daggerfall from [Steam](https://store.steampowered.com/app/1812390/The_Elder_Scrolls_II_Daggerfall/) and a free copy of Daggerfall Unity from the [Releases](https://github.com/Interkarma/daggerfall-unity/releases) page. Then simply unzip the latest version of Daggerfall Unity to its own folder and point it to the DOS version. Daggerfall Unity will take care of everything else.
+## Architecture
 
-Here are a couple of links with more detailed steps to help you get started using either Steam or a cross-platform process.
+```
+              ARENA2 game data  ──►  TownLoader  ──►  Registries (state)
+                                                          ▲   │
+                                                          │   ▼
+   Inputs ──►  EventBus  ◄──────────────────────────  Systems (logic)
+                                                          │
+                                                          ▼
+                                                   RenderSnapshot  ──►  TUI / web / Unity
+```
 
-+ [Using Steam Release of Daggerfall with Daggerfall Unity](https://github.com/Interkarma/daggerfall-unity/wiki/Using-Steam-Release-of-Daggerfall-with-Daggerfall-Unity)
-+ [Installing Daggerfall Unity Cross Platform](https://github.com/Interkarma/daggerfall-unity/wiki/Installing-Daggerfall-Unity-Cross-Platform)
+**The tick** (`TickLoop.Step`) is a fixed pipeline: drain cross-thread inputs → deliver last
+tick's events → each system processes events into its registries → each system updates →
+flush newly-emitted events for next tick → advance the clock. Everything is **game-time
+driven** (needs drift and decisions are gated on game-minutes, not raw ticks), so the sim is
+resolution-independent and a simulated week is just a tick count.
 
-# System Requirements
+Roughly 20 systems run each tick — clock, weather, lighting, health, effects, skills/progression,
+holidays, economy, needs, the ODD decision core, movement, perception, social fabric, and the
+request (proto-quest) system — over ~20 registries holding identity, vitals, needs, personality,
+relations, memory, residency, coin, and the world grid. The full inventory and the design
+direction are documented in [`docs/behavior.md`](docs/behavior.md).
 
-Daggerfall Unity has the following system requirements. Please note that optional mods may substantially increase system requirements or cause game to become less stable.
+## Project layout
 
-### Minimum
-* Operating system: Windows, Linux, MacOS
-* Processor: Intel i3 (Skylake) equivalent
-* Graphics: DirectX 11 capable with 1GB video memory and up-to-date drivers
-* Memory: 2GB system RAM
+| Path | What |
+|------|------|
+| `Assets/Sim/` | The simulation core — **single source of truth**. Registries, systems, events, threading. Compiled both by Unity *and* by the headless solution (no copies). |
+| `Assets/Sim/Bridge/` | The Unity bridge (mirrors/driver) for when the engine *is* the renderer. Unverified on this machine — engine-swap insurance. |
+| `Headless/` | Standalone .NET solution (`Sim.slnx`) that compiles `Assets/Sim` with zero Unity dependency. |
+| `Headless/Sim.Core` | Registries, systems, events (targets `netstandard2.0` so Unity can consume it). |
+| `Headless/Sim.Data` | `DaggerfallConnect` readers — parse `ARENA2` (`MAPS.BSA`, `BLOCKS.BSA`, …). |
+| `Headless/Sim.World` | Town loading into the registries. |
+| `Headless/Sim.Net` | TCP snapshot protocol — networked spectators. |
+| `Headless/Sim.Host` | Console runners: combat demo, town demo, TUI viewer, **soak**, serve/connect. |
+| `Headless/Sim.Web` | Web spectator — pan the town, click a civilian, watch their life. |
+| `Headless/Sim.Tests` | 119 tests covering the sim. |
 
-### Recommended
-* Operating system: Windows, Linux, MacOS
-* Processor: Intel i5 (Skylake) equivalent
-* Graphics: GTX 660 with 2GB video memory and up-to-date drivers
-* Memory: 4GB system RAM
+## Running it headless
 
-# Featured Mods
+**Prerequisites:** the [.NET 10 SDK](https://dotnet.microsoft.com/download) and a copy of
+Daggerfall's `ARENA2` game data (any legal copy — e.g. the free Steam release). Point the sim at
+it with an environment variable:
 
-Daggerfall Unity has an active mod community with hundreds of incredible mods. It's impossible to feature them all, but here's a sampling of a few popular mods that represent a variety of mods the community has created. They range from graphical overhauls, to new quests, new guilds, adding new world areas, and changing game formulas and other behaviours.
+```bash
+export DAGGERFALL_ARENA2=/path/to/daggerfall/arena2
+```
 
-## DREAM
+All commands run from the `Headless/` directory.
 
-![image](https://github.com/Interkarma/daggerfall-unity/assets/10426244/6a424f3c-f7f1-4def-82e9-98b6486dfc21)
+```bash
+# Build and test
+dotnet build
+dotnet test                      # 119 tests
 
-The Daggerfall Remaster Enchanted Art Mod (DREAM) upgrades game assets including sound, music, videos & all graphics found in the game. It goes beyond a restoration and additionally fixes the old quirks, bugs and increases variety/fidelity everywhere possible.
+# List locations in a region (or regions, if no args)
+dotnet run --project Sim.Host -- --probe Daggerfall
 
-[Link to DREAM on Nexus](https://www.nexusmods.com/daggerfallunity/mods/5)
+# Fast-forward a real town and print a day-in-the-life trace
+dotnet run --project Sim.Host -- --town Daggerfall "Gothway Garden" --ticks 1440
 
-## Quest Pack 1
+# Multi-day stability soak: run N game-days, report daily metrics + a verdict
+dotnet run --project Sim.Host -- --soak Daggerfall "Gothway Garden" --days 7
 
-![image](https://github.com/Interkarma/daggerfall-unity/assets/10426244/43688bd8-c3b0-42b5-bb64-066d6867ff66)
+# Watch the town live in the terminal
+dotnet run --project Sim.Host -- --view Daggerfall "Gothway Garden"
 
-This quest pack offers 195 original new quests for Daggerfall Unity, mostly for the game's guilds.
+# Run as a server; connect a spectator from another process
+dotnet run --project Sim.Host -- --serve Daggerfall "Gothway Garden" --port 7777
+dotnet run --project Sim.Host -- --connect localhost:7777
+```
 
-[Link to Quest Pack 1 on Nexus](https://www.nexusmods.com/daggerfallunity/mods/2)
+### The soak test
 
-## Archaeologists
+`--soak` is the multi-day stability harness. It runs a real town for N game-days at one
+game-minute per tick and samples aggregate state every day, checking **structural invariants**
+(liveness — does the town keep deciding; solvency — does the economy stay in a band; no deaths;
+no NaNs) and reporting **shape observations** (wealth concentration via a Gini coefficient,
+social saturation, the no-decay signature of the relationship model). It exists to de-risk
+deeper modeling and to surface decay-shaped gaps before they get baked in — see
+[`docs/behavior.md`](docs/behavior.md) §4.
 
-![image](https://github.com/Interkarma/daggerfall-unity/assets/10426244/282aa3a9-1662-49d9-9319-a9358775ea33)
+---
 
-Enhance Daggerfall Unity gameplay by making language skills more viable and adding a new guild to the game, called "The Archaeologists Guild". Their mission is to delve into the history of Tamriel and they're interested in all creatures and races who have lived or still live there. Joining gives access to locator devices to aid in dungeon delving.
+## Built on Daggerfall Unity
 
-[Link to Archaeologists on Nexus](https://www.nexusmods.com/daggerfallunity/mods/14)
+This is a fork. The entire Daggerfall engine recreation underneath it — the rendering, the
+formulas, the `DaggerfallConnect` data readers this sim reuses to load `ARENA2` — is the work of
+[Daggerfall Workshop](http://www.dfworkshop.net) and the Daggerfall Unity community. Daggerfall
+Unity is an open-source recreation of Bethesda's *The Elder Scrolls II: Daggerfall* in the Unity
+engine. If you're looking for the *game* (to play, mod, or build on the engine), go upstream:
 
-## World of Daggerfall Project
+- **Upstream repository:** https://github.com/Interkarma/daggerfall-unity
+- **Daggerfall Workshop:** http://www.dfworkshop.net/
+- **Nexus mods:** https://www.nexusmods.com/daggerfallunity
+- **Discord (Lysandus' Tomb):** https://discord.gg/rn95kxPGpg
+- **Forums:** http://forums.dfworkshop.net/
 
-![image](https://github.com/Interkarma/daggerfall-unity/assets/10426244/c3909d99-9ce4-4c41-8aaf-ee7dce49a6d7)
+Daggerfall Unity requires a free copy of DOS Daggerfall for its game assets; the same `ARENA2`
+data feeds this simulation.
 
-From the ashes of Daggerfall's past, experience the world of Daggerfall as originally envisioned. With glorious mountain tops that reach for the heavens, and countless new locations to explore.
+## License
 
-[Link to World of Daggerfall Project on Nexus](https://www.nexusmods.com/daggerfallunity/mods/249)
-
-## Finding My Religion
-
-![image](https://github.com/Interkarma/daggerfall-unity/assets/10426244/995ae53d-eb99-451f-942c-931dd31dc85c)
-
-Finding My Religion is a multi-release visual and gameplay overhaul of Daggerfall's religions. The current release is "Detailed Temples", which decorates and redesigns the temples' according to the worshipped deity's sphere of influence. Julianos boasts a bigger library than others, Kynareth has an indoor garden, Mara has a birthing room and more. Each temple have been expanded downwards,  with priests' quarters and additional rooms for all service members. They also feature a crypt where people of importance have been buried.
-
-[Link to Finding My Religion on Nexus](https://www.nexusmods.com/daggerfallunity/mods/344)
-
-## Physical Combat And Armor Overhaul
-
-![image](https://github.com/Interkarma/daggerfall-unity/assets/10426244/35bc2fb2-5b3d-401d-b3cb-806a59241014)
-
-Instead of increasing chance to avoid an attack completely, armor now reduces the damage you take, based on the material as well as the type of attack. Skills now determine most of your chance to avoid attacks, including many more features.
-
-[Link to Physical Combat And Armor Overhaul on Nexus](https://www.nexusmods.com/daggerfallunity/mods/76)
-
-## Links
-
-+ [Daggerfall Unity Nexus](https://www.nexusmods.com/daggerfallunity) - *Discover more mods for Daggerfall Unity*
-+ [Lysandus' Tomb Discord](https://discord.gg/rn95kxPGpg) - *Join an active growing community*
-+ [Daggerfall Workshop](http://www.dfworkshop.net/) - *Follow the development of Daggerfall Unity*
-+ [Workshop Forums](http://forums.dfworkshop.net/) - *Join the forum community*
-+ [Reddit](https://www.reddit.com/r/daggerfallunity) - *Join the Daggerfall Unity subreddit*
-+ [Twitter](https://twitter.com/gav_clayton) - *Follow lead developer on Twitter for more news*
+MIT, inherited from Daggerfall Unity — Copyright (c) 2009-2023 Daggerfall Workshop. See
+[`LICENSE`](LICENSE).
