@@ -44,6 +44,7 @@ namespace DaggerfallWorkshop.Sim
         public IntentRegistry Intent { get; }
         public EmploymentRegistry Employment { get; }
         public StockRegistry Stock { get; }
+        public LarderRegistry Larder { get; }
         public TreasuryRegistry Treasury { get; }
         public WorldMarketRegistry WorldMarket { get; }
         public SettlementRegistry Settlements { get; }
@@ -88,6 +89,7 @@ namespace DaggerfallWorkshop.Sim
             Intent = new IntentRegistry();
             Employment = new EmploymentRegistry();
             Stock = new StockRegistry();
+            Larder = new LarderRegistry();
             Treasury = new TreasuryRegistry();
             WorldMarket = new WorldMarketRegistry();
             Settlements = new SettlementRegistry();

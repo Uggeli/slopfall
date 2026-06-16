@@ -38,6 +38,13 @@ namespace DaggerfallWorkshop.Sim
         // among those working it — so income reaches the workforce instead of piling up
         // in one "keeper" purse. A fraction of the till per tick (it refills from sales).
         public const double FarmWagePayoutFraction = 0.3;
+        // In-kind subsistence (Subsistence slice): a farm/fishery hand takes home a
+        // share of the harvest — provisions → their household larder — on top of the
+        // small cash wage. Modelled as free extra yield (NOT drawn off the farm's
+        // sale stock), so it doesn't disturb the sale/export flow; it's the hand's
+        // own subsistence portion. PLACEHOLDER, tuned against the famine soak once
+        // EatHome draws on the larder (sub-step 3). See docs/subsistence.md.
+        public const double InKindProvisionsPerMinute = 0.01;       // provisions/game-min to a working food-producer's larder
         public const double ProducePerMinute = 0.5;                 // local craft output (units/game-min, a keeper working)
         // World market (export edge): a producer sells surplus off-map only while the
         // saturating price holds above this fraction of wholesale — below it the glut
@@ -241,6 +248,11 @@ namespace DaggerfallWorkshop.Sim
                             double wage = LaborWagePerMinute * gameMinutes;
                             if (_farmWageShare.TryGetValue(behavior.TargetBuilding, out var share)) wage = share;
                             next += PayWage(id, wage);
+                            // In-kind subsistence: a food-producer (farm/fishery) hand
+                            // also takes home provisions for the household larder. A
+                            // miner produces ore (not edible) → cash wage only.
+                            if (behavior.Activity == ActivityKind.Farm || behavior.Activity == ActivityKind.Fish)
+                                _ctx.Larder.Add(HomeOf(id), InKindProvisionsPerMinute * gameMinutes);
                             break;
                         case ActivityKind.EatTavern:
                         case ActivityKind.Socialize:
@@ -615,6 +627,13 @@ namespace DaggerfallWorkshop.Sim
             double bill = units * price;
             if (goods) _ctx.Stock.Add(building, good, -units);                   // off the shelf (services have none)
 
+            // Shopping for the larder: provisions bought (Buy) go home to the
+            // household's food store (the larder), to be eaten later via EatHome.
+            // Other sale goods (a tavern meal, drink, a craftsman's wares) are
+            // consumed on the spot, not larded.
+            if (goods && spec.Kind == ActivityKind.Buy && good == Good.Provisions)
+                _ctx.Larder.Add(HomeOf(patron), units);
+
             var keeper = KeeperOf(building);
             if (!keeper.IsNone && keeper != patron)
             {
@@ -623,6 +642,11 @@ namespace DaggerfallWorkshop.Sim
             }
             return bill;
         }
+
+        /// The home building whose larder this agent stocks/eats from — its
+        /// residency building (a home's residents share one larder). −1 if none.
+        int HomeOf(EntityId id)
+            => _ctx.Residency.TryGet(id, out var r) && r != null ? r.BuildingIndex : -1;
 
         EntityId KeeperOf(int building)
         {

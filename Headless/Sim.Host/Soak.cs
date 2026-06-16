@@ -150,6 +150,8 @@ namespace DaggerfallWorkshop.Sim.Host
             public double MoneySupply;                 // private purses + treasury (conservation holds on this)
             // goods on shelves (instantaneous total stock by good)
             public double StockProvisions, StockDrink, StockWares, StockOre;
+            public double LarderProvisions;         // food in household larders (subsistence buffer)
+            public int LarderHouseholds;            // homes holding any provisions
             // needs (population average deficit per axis)
             public double Hunger, Energy, Social, Poverty;
             public int Starving;                    // any axis ≥ 1.4 (near VMax 1.5)
@@ -181,6 +183,7 @@ namespace DaggerfallWorkshop.Sim.Host
                 Taxes = c.Taxes, GuardPay = c.GuardPay, Treasury = c.Treasury, MoneySupply = c.MoneySupply,
                 Exports = c.Exports, CrownSubsidy = c.CrownSubsidy,
                 StockProvisions = c.StockProvisions, StockDrink = c.StockDrink, StockWares = c.StockWares, StockOre = c.StockOre,
+                LarderProvisions = c.LarderProvisions, LarderHouseholds = c.LarderHouseholds,
                 Hunger = c.Hunger, Energy = c.Energy, Social = c.Social, Poverty = c.Poverty, Starving = c.Starving,
                 Edges = c.Edges, Acquaintances = c.Acquaintances, FriendEdges = c.FriendEdges,
                 MeanRegard = c.MeanRegard, MeanFamiliarity = c.MeanFamiliarity,
@@ -316,6 +319,8 @@ namespace DaggerfallWorkshop.Sim.Host
             Console.WriteLine("  [obs]  goods on shelves: provisions " + last.StockProvisions.ToString("F0")
                 + ", drink " + last.StockDrink.ToString("F0") + ", wares " + last.StockWares.ToString("F0")
                 + ", ore " + last.StockOre.ToString("F0"));
+            Console.WriteLine("  [obs]  food in larders: provisions " + last.LarderProvisions.ToString("F0")
+                + " across " + last.LarderHouseholds + " households");
 
             // 5. Coin concentration (shape, not fail).
             Console.WriteLine("  [obs]  wealth: Gini " + first.Gini.ToString("F2") + " → " + last.Gini.ToString("F2")

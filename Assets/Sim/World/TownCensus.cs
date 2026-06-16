@@ -34,6 +34,11 @@ namespace DaggerfallWorkshop.Sim
         // Goods on shelves (total stock across all buildings, by good)
         public double StockProvisions, StockDrink, StockWares, StockOre;
 
+        // Food in households (total provisions across all home larders) — the
+        // subsistence buffer EatHome draws on (Subsistence slice).
+        public double LarderProvisions;
+        public int LarderHouseholds;        // homes holding any provisions
+
         // Needs (population-average deficit per axis)
         public double Hunger, Energy, Social, Poverty;
         public int Starving;                   // any axis ≥ 1.4 (near VMax 1.5)
@@ -114,6 +119,11 @@ namespace DaggerfallWorkshop.Sim
                 s.StockWares += g[(int)Good.Wares];
                 s.StockOre += g[(int)Good.Ore];
             }
+
+            // --- Food in household larders ---
+            foreach (var kv in ctx.Larder.All)
+                s.LarderProvisions += kv.Value;
+            s.LarderHouseholds = ctx.Larder.Count;
 
             // --- Needs ---
             int n = 0;
