@@ -84,6 +84,7 @@ namespace DaggerfallWorkshop.Sim
             loop.Register(new MovementSystem());
             loop.Register(new SenseSystem());        // raw senses: who's near (grid LOS)
             loop.Register(new SubjectiveSystem());    // membrane: senses → SubjectiveView + percepts (S1)
+            loop.Register(new AffectsSystem());        // emotion: interactions → directed affects + regard (S2)
             loop.Register(new SocialSystem());
             loop.Register(new RequestSystem());     // reads relations after SocialSystem's tick
             loop.Register(new LifecycleSystem());    // L2: despawns the dead (last, so every system saw them live)

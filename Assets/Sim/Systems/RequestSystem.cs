@@ -143,30 +143,14 @@ namespace DaggerfallWorkshop.Sim
             {
                 _ctx.Events.Emit(new CoinTransferEvent { From = target, To = asker, Amount = AlmsAmount });
                 _ctx.Events.Emit(new HelpGrantedEvent { Asker = asker, Giver = target, Amount = AlmsAmount });
-                _ctx.Events.Emit(new RelationImpulseEvent
-                {
-                    Who = asker, Other = target, RegardDelta = +0.3, FamiliarityDelta = +0.05,
-                    Memory = MemoryKind.ReceivedHelp, RecordMemory = true,
-                });
-                _ctx.Events.Emit(new RelationImpulseEvent
-                {
-                    Who = target, Other = asker, RegardDelta = +0.05, FamiliarityDelta = +0.05,
-                    Memory = MemoryKind.GaveHelp, RecordMemory = true,
-                });
+                // The gratitude + the regard/memory shift are AffectsSystem's now
+                // (S2): one place scales them to the interaction's stakes.
             }
             else
             {
                 _ctx.Events.Emit(new HelpRefusedEvent { Asker = asker, Refuser = target });
-                _ctx.Events.Emit(new RelationImpulseEvent
-                {
-                    Who = asker, Other = target, RegardDelta = -0.2, FamiliarityDelta = +0.02,
-                    Memory = MemoryKind.WasRefused, RecordMemory = true,
-                });
-                _ctx.Events.Emit(new RelationImpulseEvent
-                {
-                    Who = target, Other = asker, RegardDelta = -0.02, FamiliarityDelta = +0.02,
-                    Memory = MemoryKind.RefusedToHelp, RecordMemory = true,
-                });
+                // Resentment + the (now mild — routine begging) regard/memory shift
+                // are AffectsSystem's now (S2).
             }
         }
     }

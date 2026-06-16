@@ -143,7 +143,7 @@ namespace Sim.Tests
         }
 
         [Fact]
-        public void PoorAsksSomeoneWhoDislikesThem_GetsRefused_GrudgeForms()
+        public void PoorAsksSomeoneWhoDislikesThem_GetsRefused_SoursMildly()
         {
             var h = Harness(out var pauper, out var mark, markIsKeeper: false, markRegardForPauper: -0.5);
             var refused = h.Collect<HelpRefusedEvent>();
@@ -156,9 +156,12 @@ namespace Sim.Tests
             Assert.True(h.Ctx.Memory.TryGet(pauper, out var pm));
             Assert.Contains(pm.Entries, e => e.Kind == MemoryKind.WasRefused && e.Other == mark);
 
-            // Resentment: regard for the refuser dropped from 0.2.
+            // Resentment, but MILD now: a routine begging-refusal is low-stakes
+            // (S2), so regard dips from 0.2 rather than cratering. The grudge
+            // magnitude lives in AffectsSystem (scaled to stakes), not a flat -0.2.
             Assert.True(h.Ctx.Relations.TryGet(pauper, out var rel));
-            Assert.True(rel.Of[mark].Regard < 0.05, "no resentment after refusal: " + rel.Of[mark].Regard);
+            Assert.True(rel.Of[mark].Regard < 0.2 && rel.Of[mark].Regard > 0.0,
+                "refusal didn't mildly sour regard: " + rel.Of[mark].Regard);
         }
 
         [Fact]

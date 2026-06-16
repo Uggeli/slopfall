@@ -38,12 +38,17 @@ namespace DaggerfallWorkshop.Sim
         /// lookup adjusted by the per-entity dossier delta.)
         public static EntityRead Interpret(SimulationContext ctx, EntityId self, EntityId other)
         {
-            double valence = 0, familiarity = 0;
+            double regard = 0, familiarity = 0;
             if (ctx.Relations.TryGet(self, out var rels) && rels.Of.TryGetValue(other, out var rel))
             {
-                valence = rel.Regard;
+                regard = rel.Regard;
                 familiarity = rel.Familiarity;
             }
+            // Chronic opinion (dossier) + acute feeling (Affects, S2): "what I
+            // think of you" plus "how I feel about you right now" (the latter
+            // fading). Emotion-as-controller — this valence colors the decider's
+            // place-lens and the greet/dislike percepts.
+            double valence = regard + ctx.Affects.ValenceToward(self, other);
             return new EntityRead
             {
                 Other = other,
@@ -100,9 +105,9 @@ namespace DaggerfallWorkshop.Sim
             _nextGreetAt[a] = _gameMinutes + GreetCooldownGameMinutes;
             _nextGreetAt[b] = _gameMinutes + GreetCooldownGameMinutes;
 
+            // Just announce the greeting; AffectsSystem turns it into mutual
+            // affection + the regard impulse (S2 — one place owns the magnitude).
             _ctx.Events.Emit(new GreetingEvent { A = a, B = b });
-            _ctx.Events.Emit(new RelationImpulseEvent { Who = a, Other = b, RegardDelta = 0.02, FamiliarityDelta = 0.01 });
-            _ctx.Events.Emit(new RelationImpulseEvent { Who = b, Other = a, RegardDelta = 0.02, FamiliarityDelta = 0.01 });
         }
 
         void TryDislike(EntityId who, EntityId whom)
