@@ -34,7 +34,7 @@ namespace DaggerfallWorkshop.Sim
                 throw new ArgumentException("location not found: " + regionName + "/" + locationName);
 
             var boot = NewSim(seed);
-            var town = TownLoader.Load(boot.Ctx, location, blocks);
+            var town = TownLoader.Load(boot.Ctx, location, blocks, maps);   // maps → climate/coast detection
             SeedStart(boot.Ctx, timeScale);
             boot.Town = town;
             return boot;

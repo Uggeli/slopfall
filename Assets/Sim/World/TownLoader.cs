@@ -32,7 +32,7 @@ namespace DaggerfallWorkshop.Sim
         public const float GlobalScale = 0.025f;    // matches MeshReader.GlobalScale
         const double InitialStock = 20.0;            // units a shop/tavern holds at load; G2 replenishes
 
-        public static TownLoadResult Load(SimulationContext ctx, in DFLocation location, BlocksFile blocksFile)
+        public static TownLoadResult Load(SimulationContext ctx, in DFLocation location, BlocksFile blocksFile, MapsFile maps = null)
         {
             int width = location.Exterior.ExteriorData.Width;
             int height = location.Exterior.ExteriorData.Height;
@@ -52,6 +52,10 @@ namespace DaggerfallWorkshop.Sim
             var settlement = ctx.Settlements.Add(location.Name, location.RegionName, KindOf(location));
             settlement.BlocksWide = width;
             settlement.BlocksHigh = height;
+            var pix = MapsFile.LongitudeLatitudeToMapPixel(location.MapTableData.Longitude, location.MapTableData.Latitude);
+            settlement.MapPixelX = pix.X;
+            settlement.MapPixelY = pix.Y;
+            RegionIndustry.DetectInto(maps, settlement);   // climate/coast (maps==null → authored fallback)
 
             LoadLocationInto(ctx, location, blocksFile, grid, 0, 0, settlement, result);
 
@@ -65,9 +69,14 @@ namespace DaggerfallWorkshop.Sim
         /// guards). Called once per settlement by both Load and RegionLoader.
         public static void SeedSettlement(SimulationContext ctx, SettlementData s)
         {
-            SeedTownKnowledge(ctx, s);
+            // Employment/guards first — they SYNTHESIZE the primary workplaces (farm,
+            // and a fishery where the coast is near). Knowledge runs last so every
+            // resident knows their whole settlement INCLUDING those workplaces (a
+            // farmhand still knows where the shore is). Knowledge draws no RNG, so the
+            // spawn/RNG order is unchanged.
             SeedFarmAndEmployment(ctx, s);
             SeedGuards(ctx, s);
+            SeedTownKnowledge(ctx, s);
         }
 
         /// Allocate a combined walkability grid of blocksWide × blocksHigh blocks.
@@ -265,7 +274,7 @@ namespace DaggerfallWorkshop.Sim
             // side, the shore the other), away from the homes — so hands walk OUT to
             // work, not to the town centre. Each is run by a keeper promoted from the
             // laborers; the rest are its hands.
-            var kinds = RegionIndustry.Workplaces(s.RegionName);
+            var kinds = RegionIndustry.Workplaces(s);
             var anchors = PeripheralAnchors(ctx, s, kinds.Count);
             if (anchors.Count == 0) return;
 

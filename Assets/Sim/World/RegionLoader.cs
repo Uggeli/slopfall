@@ -98,6 +98,7 @@ namespace DaggerfallWorkshop.Sim
                 var pix = MapsFile.LongitudeLatitudeToMapPixel(loc.MapTableData.Longitude, loc.MapTableData.Latitude);
                 s.MapPixelX = pix.X;
                 s.MapPixelY = pix.Y;
+                RegionIndustry.DetectInto(maps, s);   // read climate/coast before the employment seed
 
                 var sub = new TownLoadResult
                 {

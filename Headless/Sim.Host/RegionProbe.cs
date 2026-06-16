@@ -20,7 +20,7 @@ namespace DaggerfallWorkshop.Sim.Host
                 + r.Buildings + " buildings, " + r.Civilians + " civilians; combined grid "
                 + r.BlocksWide + "x" + r.BlocksHigh + " blocks");
             Console.WriteLine();
-            Console.WriteLine("  id  kind     name                          bldgs   civ  keep  labor guard");
+            Console.WriteLine("  id  kind     name                          bldgs   civ  keep  labor guard  climate coast");
             foreach (var s in ctx.Settlements.All)
             {
                 int keepers = 0, laborers = 0, guards = 0;
@@ -41,7 +41,9 @@ namespace DaggerfallWorkshop.Sim.Host
                     + s.Residents.Count.ToString().PadLeft(4) + "  "
                     + keepers.ToString().PadLeft(4) + "  "
                     + laborers.ToString().PadLeft(5) + " "
-                    + guards.ToString().PadLeft(5));
+                    + guards.ToString().PadLeft(5) + "  "
+                    + s.ClimateIndex.ToString().PadLeft(7) + " "
+                    + (s.Coastal ? "yes" : "no").PadLeft(5));
             }
             Console.WriteLine();
             Console.WriteLine("businesses by settlement (keeper-bearing buildings):");

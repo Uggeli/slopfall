@@ -35,6 +35,13 @@ namespace DaggerfallWorkshop.Sim
         public float OriginX, OriginZ;      // world-space offset of this settlement's tile in the combined grid
         public int BlocksWide, BlocksHigh;
 
+        // Geography, read from the world climate map at load (RegionIndustry.DetectInto):
+        // which primary industries the surroundings support. ClimateIndex is the
+        // CLIMATE.PAK value (223-232; 0 = unknown/no map). Coastal = the sea is within
+        // reach, so the settlement's hands can fish as well as farm.
+        public int ClimateIndex;
+        public bool Coastal;
+
         // Membership, filled as the loader walks this settlement's blocks.
         public readonly List<int> Buildings = new List<int>();
         public readonly List<EntityId> Residents = new List<EntityId>();
