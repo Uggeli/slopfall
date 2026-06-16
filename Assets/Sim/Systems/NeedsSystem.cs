@@ -10,6 +10,11 @@ namespace DaggerfallWorkshop.Sim
         /// the felt side of a directed emotion (Atoms: the residual).
         const double DislikeDiscomfort = 0.03;
 
+        /// A "comfortably stocked" household larder, in provisions: the GoodsDef
+        /// derived read saturates to 0 at/above this, 1.0 at empty. FROZEN
+        /// placeholder (tuned against the famine soak, not here).
+        const double LarderTarget = 5.0;
+
         SimulationContext _ctx;
         readonly System.Collections.Generic.List<EntityId> _discomforts = new System.Collections.Generic.List<EntityId>();
 
@@ -54,14 +59,29 @@ namespace DaggerfallWorkshop.Sim
                 bool sleeping = doing != null && doing.Kind == ActivityKind.Sleep;
                 _ctx.Personality.TryGet(kv.Key, out var person);
 
+                int home = HomeOf(kv.Key);
+
                 for (int axis = 0; axis < NeedAxis.Count; axis++)
                 {
-                    // CoinDef is no longer a drifting pole — it derives from
-                    // actual money (EconomySystem's CoinRegistry), so poverty
-                    // pressure in scoring tracks a conserved quantity.
-                    if (axis == NeedAxis.CoinDef)
+                    // Derived levels are READ from a conserved/external quantity each
+                    // tick, not drifted (drive doc: only Stored poles are ticked by
+                    // Metabolism — nothing kept that can desync from its source).
+                    var level = DriveCatalog.Defs[axis].Level;
+                    if (level == LevelSource.DerivedCoin)
                     {
+                        // Poverty pressure tracks the actual purse (CoinRegistry).
                         double deficit = 1.0 - _ctx.Coin.Get(kv.Key);
+                        next.V[axis] = deficit < 0 ? 0 : deficit;
+                        continue;
+                    }
+                    if (level == LevelSource.DerivedLarder)
+                    {
+                        // "Provisions running low" reads the household larder directly
+                        // (single source of truth) — an empty pantry is a loud restock
+                        // pull, a full one is silent. The homeless have no pantry to
+                        // stock, so no goods pressure (they eat out / beg / steal).
+                        double pantry = home < 0 ? LarderTarget : _ctx.Larder.Get(home);
+                        double deficit = 1.0 - System.Math.Min(1.0, pantry / LarderTarget);
                         next.V[axis] = deficit < 0 ? 0 : deficit;
                         continue;
                     }
@@ -97,6 +117,13 @@ namespace DaggerfallWorkshop.Sim
                             && !SellerHasStock(behavior.TargetBuilding, doing))
                             delta = 0;
 
+                        // A home meal's relief is contingent on real provisions: the
+                        // household larder is the eater's "shelf" (HomeOf), drawn by
+                        // EconomySystem this tick. Empty larder → no meal (Subsistence).
+                        if (doing.LarderGated && axis == NeedAxis.Hunger && delta < 0
+                            && _ctx.Larder.Get(home) <= 0)
+                            delta = 0;
+
                         value += delta;
                     }
 
@@ -114,6 +141,12 @@ namespace DaggerfallWorkshop.Sim
 
         static double CompanyFactor(int company) =>
             company <= 0 ? 0.2 : (company == 1 ? 0.6 : 1.0);
+
+        /// The home building whose larder this agent eats from — its residency
+        /// building (a home's residents share one larder). Mirrors EconomySystem's
+        /// HomeOf, the larder's sole writer. −1 if none.
+        int HomeOf(EntityId id)
+            => _ctx.Residency.TryGet(id, out var r) && r != null ? r.BuildingIndex : -1;
 
         /// Does the seller still have the good this sale draws? Mirrors the gate
         /// EconomySystem.PaySale obeyed (which ran earlier this tick), so a relief

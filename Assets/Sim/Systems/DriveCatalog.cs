@@ -1,38 +1,122 @@
 namespace DaggerfallWorkshop.Sim
 {
+    /// How a drive's residual discharges — the drive doc's three routes, NOT the
+    /// old engine enum. The old `Derived` was really "a deplete drive whose level
+    /// lives in an external store"; that distinction now lives in LevelSource, a
+    /// separate axis, so Satisfaction can name only the discharge route.
+    /// (Relations decay toward a baseline — a fourth route — but relations are the
+    /// social fabric (L1), not drives, so it isn't a DriveDef option here.)
     public enum SatisfactionModel
     {
-        Deplete,             // drifts up over time, pushed down by activities (hunger, energy, social)
-        Derived,             // computed from another quantity each tick (coin deficit = 1 − coin)
-        DecayTowardBaseline, // erodes toward a baseline unless refreshed (relations — L1, SocialSystem)
+        Deplete,         // an action writes the level down (hunger, energy, social)
+        ResetOnPercept,  // residual tracks a percept; discharge = its absence (safety/fear — V2b)
+        None,            // no discharge node — bottomless (curiosity / growth B-needs — later)
     }
 
-    /// Authored definition of one need/drive axis. Atoms says a drive is a few
-    /// fields in a table — this makes that literally true, formalizing constants
-    /// today scattered across ActivityCatalog.Weights, ActivityCatalog.DriftPerHour,
-    /// and OddSystem.PrepotencyGate. Values match those constants exactly, so the
-    /// pipeline rewrite (E0b-4) that switches onto this table is behavior-neutral
-    /// until we deliberately retune. Indexed by NeedAxis.
+    /// Where a drive's LEVEL is read from — the drive doc's pole/derived split
+    /// made explicit. Only Stored poles are ticked by Metabolism (NeedsSystem);
+    /// the rest are derived reads of a conserved/external quantity each tick, so
+    /// nothing is stored that can desync from its source ("drives are minted, not
+    /// stored; nothing kept but poles and memory").
+    public enum LevelSource
+    {
+        Stored,        // a real body pole in NeedsData.V, ticked by DriftPerHour (hunger, energy, social)
+        DerivedCoin,   // read from the purse (CoinRegistry): poverty = 1 − coin
+        DerivedLarder, // read from the home larder: provisions running low (wired in the famine phase)
+    }
+
+    /// How a directed drive's target FIELD collapses to scalar urgency. Moot for
+    /// undirected/scalar drives (one implicit target). Authored per-drive so it's
+    /// a real fact, not a global choice: fear=Max (the worst threat dominates —
+    /// three foxes must not sum to panic), social=Sum (a crowd adds bonding pull).
+    public enum UrgencyProjection { Max, Sum }
+
+    /// A prepotency DAG edge OUT of a drive (this ⊣ Target). Two kinds:
+    ///  - HardCull: deficiency ⊣ growth — past threshold the gated drive's ads
+    ///    can't manifest ("a starving bunny can't binky"); graded below it.
+    ///  - DesperationGraded: hunger ⊣ safety — starvation overrides fear but
+    ///    stays graded, never culls, or a starving animal couldn't flee (V2b).
+    public enum GateKind { HardCull, DesperationGraded }
+
+    public struct GateEdge { public int Target; public GateKind Kind; }
+
+    /// Authored definition of one drive — the drive doc's four fields plus the
+    /// pole/derived split:
+    ///   drive = ( ScoreField, Projection, Satisfaction, Gates )  +  LevelSource
+    /// One row per NeedAxis: the single source of truth for scoring weight,
+    /// metabolism rate, discharge route, urgency projection, and prepotency.
+    /// ActivityCatalog.Weights / DriftPerHour project out of this table.
     public struct DriveDef
     {
         public string Name;
-        public double Weight;            // scoring weight  (was ActivityCatalog.Weights)
-        public double DriftPerHour;      // metabolism tick (was ActivityCatalog.DriftPerHour)
+        public double ScoreField;             // the V weight (was Weight)
+        public double DriftPerHour;           // metabolism tick — Stored poles only (derived levels = 0)
+        public UrgencyProjection Projection;
         public SatisfactionModel Satisfaction;
-        public bool Prepotent;           // a deficiency drive that suppresses leisure when loud
+        public LevelSource Level;
+        public GateEdge[] Gates;              // prepotency edges out of this drive (empty ⇒ gates nothing)
     }
 
     public static class DriveCatalog
     {
         public static readonly DriveDef[] Defs = new DriveDef[NeedAxis.Count];
 
+        // Every deficiency pole hard-culls every growth/discretionary drive
+        // DIRECTLY (drive doc proto p1: never only transitively). The current
+        // roster's culled set — social, goods, coin — shared by both poles.
+        static readonly GateEdge[] DeficiencyGates =
+        {
+            new GateEdge { Target = NeedAxis.SocialDef, Kind = GateKind.HardCull },
+            new GateEdge { Target = NeedAxis.GoodsDef,  Kind = GateKind.HardCull },
+            new GateEdge { Target = NeedAxis.CoinDef,   Kind = GateKind.HardCull },
+        };
+
         static DriveCatalog()
         {
-            Defs[NeedAxis.Hunger]    = new DriveDef { Name = "hunger", Weight = 1.2, DriftPerHour = 0.04, Satisfaction = SatisfactionModel.Deplete, Prepotent = true };
-            Defs[NeedAxis.EnergyDef] = new DriveDef { Name = "energy", Weight = 1.0, DriftPerHour = 0.05, Satisfaction = SatisfactionModel.Deplete, Prepotent = true };
-            Defs[NeedAxis.SocialDef] = new DriveDef { Name = "social", Weight = 0.6, DriftPerHour = 0.03, Satisfaction = SatisfactionModel.Deplete, Prepotent = false };
-            Defs[NeedAxis.CoinDef]   = new DriveDef { Name = "coin",   Weight = 0.5, DriftPerHour = 0.0,  Satisfaction = SatisfactionModel.Derived, Prepotent = false };
-            Defs[NeedAxis.GoodsDef]  = new DriveDef { Name = "goods",  Weight = 0.5, DriftPerHour = 0.03, Satisfaction = SatisfactionModel.Deplete, Prepotent = false };
+            // Body poles — Stored, ticked, prepotent deficiency sources.
+            Defs[NeedAxis.Hunger] = new DriveDef
+            {
+                Name = "hunger", ScoreField = 1.2, DriftPerHour = 0.04,
+                Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.Deplete,
+                Level = LevelSource.Stored, Gates = DeficiencyGates,
+            };
+            Defs[NeedAxis.EnergyDef] = new DriveDef
+            {
+                Name = "energy", ScoreField = 1.0, DriftPerHour = 0.05,
+                Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.Deplete,
+                Level = LevelSource.Stored, Gates = DeficiencyGates,
+            };
+            // Social: a Stored loneliness pole today; becomes a directed Sum-field
+            // drive in D2 (its projection is already authored). Gates nothing.
+            Defs[NeedAxis.SocialDef] = new DriveDef
+            {
+                Name = "social", ScoreField = 0.6, DriftPerHour = 0.03,
+                Projection = UrgencyProjection.Sum, Satisfaction = SatisfactionModel.Deplete,
+                Level = LevelSource.Stored, Gates = System.Array.Empty<GateEdge>(),
+            };
+            // Coin: NOT a real pole — instrumental, a derived read of the purse.
+            // DEMOTED to a weak discretionary pull (0.5 → 0.1): the honest
+            // coin-seeking is hunger → provisions → coin, i.e. ODD-tree propagation
+            // (V3); until that lands, a strong CoinDef was a synthetic "poverty =
+            // maxed need" that made the whole town beg. Now hunger (prepotent) and
+            // GoodsDef (the larder) carry the want-for-coin; this is just the
+            // leftover pull for drink/wares. FROZEN (tuned with the famine, not here).
+            Defs[NeedAxis.CoinDef] = new DriveDef
+            {
+                Name = "coin", ScoreField = 0.1, DriftPerHour = 0.0,
+                Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.Deplete,
+                Level = LevelSource.DerivedCoin, Gates = System.Array.Empty<GateEdge>(),
+            };
+            // Goods: "provisions running low" — drives shopping/stealing. Now a
+            // DERIVED read of the household larder (single source of truth): an
+            // empty pantry is a loud restock pull, a full one silent. A stored copy
+            // would desync from the larder EatHome actually draws.
+            Defs[NeedAxis.GoodsDef] = new DriveDef
+            {
+                Name = "goods", ScoreField = 0.5, DriftPerHour = 0.0,
+                Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.Deplete,
+                Level = LevelSource.DerivedLarder, Gates = System.Array.Empty<GateEdge>(),
+            };
         }
     }
 }

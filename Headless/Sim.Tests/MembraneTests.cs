@@ -71,5 +71,29 @@ namespace Sim.Tests
             }
             Assert.True(OddSystem.RelationFactor(-0.5) < OddSystem.RelationFactor(0.5), "not monotone");
         }
+
+        [Fact]
+        public void SocialField_SumProjection_CrowdAddsUp()
+        {
+            // The social drive is a directed target-field (D2): its urgency
+            // collapses by UrgencyProjection. Sum makes a crowd of bonded others
+            // add up (two friends pull harder than one); Max keeps only the
+            // strongest. A single occupant is identical under both (≈ the old mean).
+            var one = new[] { 0.3 };
+            var two = new[] { 0.3, 0.3 };
+
+            Assert.Equal(0.3, OddSystem.ProjectField(one, UrgencyProjection.Sum), 6);
+            Assert.Equal(0.6, OddSystem.ProjectField(two, UrgencyProjection.Sum), 6);
+            Assert.True(OddSystem.ProjectField(two, UrgencyProjection.Sum)
+                      > OddSystem.ProjectField(one, UrgencyProjection.Sum),
+                "a crowd must add bonding pull under Sum");
+
+            Assert.Equal(0.3, OddSystem.ProjectField(two, UrgencyProjection.Max), 6);
+            Assert.Equal(OddSystem.ProjectField(one, UrgencyProjection.Max),
+                         OddSystem.ProjectField(two, UrgencyProjection.Max), 6);
+
+            // social is authored Sum in the table (it's what makes a gathering pull).
+            Assert.Equal(UrgencyProjection.Sum, DriveCatalog.Defs[NeedAxis.SocialDef].Projection);
+        }
     }
 }

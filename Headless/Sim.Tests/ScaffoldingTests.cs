@@ -14,16 +14,22 @@ namespace Sim.Tests
         {
             for (int axis = 0; axis < NeedAxis.Count; axis++)
             {
-                Assert.Equal(ActivityCatalog.Weights[axis], DriveCatalog.Defs[axis].Weight, 6);
+                // ActivityCatalog now projects out of DriveCatalog — the table is
+                // the single source of truth (ScoreField → Weights, DriftPerHour).
+                Assert.Equal(ActivityCatalog.Weights[axis], DriveCatalog.Defs[axis].ScoreField, 6);
                 Assert.Equal(ActivityCatalog.DriftPerHour[axis], DriveCatalog.Defs[axis].DriftPerHour, 6);
             }
-            // CoinDef is the one derived (not depleting) axis.
-            Assert.Equal(SatisfactionModel.Derived, DriveCatalog.Defs[NeedAxis.CoinDef].Satisfaction);
-            Assert.Equal(SatisfactionModel.Deplete, DriveCatalog.Defs[NeedAxis.Hunger].Satisfaction);
-            // Hunger/energy are the prepotent deficiency drives (gate leisure).
-            Assert.True(DriveCatalog.Defs[NeedAxis.Hunger].Prepotent);
-            Assert.True(DriveCatalog.Defs[NeedAxis.EnergyDef].Prepotent);
-            Assert.False(DriveCatalog.Defs[NeedAxis.SocialDef].Prepotent);
+            // Coin is a derived read of the purse (not a stored pole); hunger is a
+            // real body pole. The pole/derived split now lives in LevelSource.
+            Assert.Equal(LevelSource.DerivedCoin, DriveCatalog.Defs[NeedAxis.CoinDef].Level);
+            Assert.Equal(LevelSource.Stored, DriveCatalog.Defs[NeedAxis.Hunger].Level);
+            // Hunger/energy are the prepotent deficiency sources (hard-cull edges);
+            // social gates nothing. DriveGraph derives the cull set from the edges.
+            Assert.Contains(NeedAxis.Hunger, DriveGraph.HardCullSources);
+            Assert.Contains(NeedAxis.EnergyDef, DriveGraph.HardCullSources);
+            Assert.DoesNotContain(NeedAxis.SocialDef, DriveGraph.HardCullSources);
+            // The prepotency graph is a validated DAG (Kahn covered every node).
+            Assert.Equal(NeedAxis.Count, DriveGraph.TopoOrder.Length);
         }
 
         [Fact]

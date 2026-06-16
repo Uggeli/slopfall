@@ -37,11 +37,13 @@ namespace DaggerfallWorkshop.Sim
         // Food in households (total provisions across all home larders) — the
         // subsistence buffer EatHome draws on (Subsistence slice).
         public double LarderProvisions;
-        public int LarderHouseholds;        // homes holding any provisions
+        public int LarderHouseholds;        // home larders that exist (have an entry)
+        public int LarderEmpty;             // home larders out of food (≤ ε) — "can't eat in"
 
         // Needs (population-average deficit per axis)
         public double Hunger, Energy, Social, Poverty;
         public int Starving;                   // any axis ≥ 1.4 (near VMax 1.5)
+        public int Hungry;                     // hunger ≥ 1.0 — the "can they eat?" headline (Subsistence)
 
         // Social fabric
         public long Edges, Acquaintances, FriendEdges;
@@ -124,7 +126,10 @@ namespace DaggerfallWorkshop.Sim
 
             // --- Food in household larders ---
             foreach (var kv in ctx.Larder.All)
+            {
                 s.LarderProvisions += kv.Value;
+                if (kv.Value <= 1e-6) s.LarderEmpty++;
+            }
             s.LarderHouseholds = ctx.Larder.Count;
 
             // --- Needs ---
@@ -134,6 +139,7 @@ namespace DaggerfallWorkshop.Sim
                 var v = kv.Value.V;
                 s.Hunger += v[NeedAxis.Hunger]; s.Energy += v[NeedAxis.EnergyDef];
                 s.Social += v[NeedAxis.SocialDef]; s.Poverty += v[NeedAxis.CoinDef];
+                if (v[NeedAxis.Hunger] >= 1.0) s.Hungry++;
                 for (int a = 0; a < NeedAxis.Count; a++) if (v[a] >= 1.4) { s.Starving++; break; }
                 n++;
             }

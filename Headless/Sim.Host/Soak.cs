@@ -151,10 +151,12 @@ namespace DaggerfallWorkshop.Sim.Host
             // goods on shelves (instantaneous total stock by good)
             public double StockProvisions, StockDrink, StockWares, StockOre;
             public double LarderProvisions;         // food in household larders (subsistence buffer)
-            public int LarderHouseholds;            // homes holding any provisions
+            public int LarderHouseholds;            // home larders that exist
+            public int LarderEmpty;                 // home larders out of food (can't eat in)
             // needs (population average deficit per axis)
             public double Hunger, Energy, Social, Poverty;
             public int Starving;                    // any axis ≥ 1.4 (near VMax 1.5)
+            public int Hungry;                      // hunger ≥ 1.0 — the "can they eat?" headline
             // social fabric
             public long Edges, Acquaintances, FriendEdges;
             public double MeanRegard, MeanFamiliarity;
@@ -183,8 +185,9 @@ namespace DaggerfallWorkshop.Sim.Host
                 Taxes = c.Taxes, GuardPay = c.GuardPay, Treasury = c.Treasury, MoneySupply = c.MoneySupply,
                 Exports = c.Exports, CrownSubsidy = c.CrownSubsidy,
                 StockProvisions = c.StockProvisions, StockDrink = c.StockDrink, StockWares = c.StockWares, StockOre = c.StockOre,
-                LarderProvisions = c.LarderProvisions, LarderHouseholds = c.LarderHouseholds,
-                Hunger = c.Hunger, Energy = c.Energy, Social = c.Social, Poverty = c.Poverty, Starving = c.Starving,
+                LarderProvisions = c.LarderProvisions, LarderHouseholds = c.LarderHouseholds, LarderEmpty = c.LarderEmpty,
+                Hunger = c.Hunger, Energy = c.Energy, Social = c.Social, Poverty = c.Poverty,
+                Starving = c.Starving, Hungry = c.Hungry,
                 Edges = c.Edges, Acquaintances = c.Acquaintances, FriendEdges = c.FriendEdges,
                 MeanRegard = c.MeanRegard, MeanFamiliarity = c.MeanFamiliarity,
                 PosRegard = c.PosRegard, NegRegard = c.NegRegard, SaturatedRegard = c.SaturatedRegard,
@@ -196,7 +199,7 @@ namespace DaggerfallWorkshop.Sim.Host
         {
             Console.WriteLine("day-by-day (per-day rates in the right block are deltas from the prior day):");
             Console.WriteLine(
-                "day  pop  coinTot coinMax  gini broke | mint  sunk   imp | prov drnk ware | hung engy soc  pov starv | "
+                "day  pop  coinTot coinMax  gini broke | mint  sunk   imp | prov drnk ware lard✗ | hung engy soc  pov starv hungry | "
                 + "edges  acq  friends mReg mFam sat | decis alms+ alms- newfr | mem");
             for (int i = 0; i < series.Count; i++)
             {
@@ -214,10 +217,12 @@ namespace DaggerfallWorkshop.Sim.Host
                     + (s.Imports - p.Imports).ToString("F2").PadLeft(5) + " | "
                     + s.StockProvisions.ToString("F0").PadLeft(4) + " "
                     + s.StockDrink.ToString("F0").PadLeft(4) + " "
-                    + s.StockWares.ToString("F0").PadLeft(4) + " | "
+                    + s.StockWares.ToString("F0").PadLeft(4) + " "
+                    + s.LarderEmpty.ToString().PadLeft(4) + " | "
                     + s.Hunger.ToString("F2") + " " + s.Energy.ToString("F2") + " "
                     + s.Social.ToString("F2") + " " + s.Poverty.ToString("F2") + " "
-                    + s.Starving.ToString().PadLeft(4) + " | "
+                    + s.Starving.ToString().PadLeft(4) + " "
+                    + s.Hungry.ToString().PadLeft(6) + " | "
                     + s.Edges.ToString().PadLeft(5) + " "
                     + s.Acquaintances.ToString().PadLeft(5) + " "
                     + s.FriendEdges.ToString().PadLeft(6) + " "
@@ -280,6 +285,19 @@ namespace DaggerfallWorkshop.Sim.Host
                 Console.WriteLine("  [warn] " + last.Starving + " civilians with a need pegged near VMax at last sample");
             else
                 Console.WriteLine("  [ok]   no pegged needs at sample");
+
+            // Can they eat? The subsistence headline that replaces the meaningless
+            // broke%. Hunger is now backed by real provisions (larder), so a famine
+            // is the EXPECTED signal of the valve flip — surfaced, never failed
+            // (tuning of wages/yields/prices is a separate pass; see subsistence.md).
+            {
+                double hungryPct = last.Population > 0 ? 100.0 * last.Hungry / last.Population : 0;
+                double emptyPct = last.LarderHouseholds > 0 ? 100.0 * last.LarderEmpty / last.LarderHouseholds : 0;
+                Console.WriteLine("  [obs]  can-they-eat: " + last.Hungry + "/" + last.Population
+                    + " hungry (h≥1.0, " + hungryPct.ToString("F0") + "%), "
+                    + last.LarderEmpty + "/" + last.LarderHouseholds + " larders empty ("
+                    + emptyPct.ToString("F0") + "%), mean hunger " + last.Hunger.ToString("F2"));
+            }
 
             // 4. NaN guard.
             if (double.IsNaN(last.CoinTotal) || double.IsNaN(last.MeanRegard) || double.IsNaN(last.Hunger))

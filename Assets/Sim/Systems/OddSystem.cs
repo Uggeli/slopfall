@@ -208,7 +208,7 @@ namespace DaggerfallWorkshop.Sim
                 * (s.Outdoor ? c.Outdoor : 1.0)
                 * (s.Social ? Liveliness(ad) * (c.Hour >= 17 ? 1.5 : 1.0) * c.Cozy : 1.0)
                 * (s.Prepotent ? c.Prepotency : 1.0)
-                * (s.RelationSensitive ? RelationFactor(MeanRegardAt(ad.Building, c)) : 1.0)
+                * (s.RelationSensitive ? RelationFactor(RegardFieldAt(ad.Building, c)) : 1.0)
                 * ConscienceFactor(_ctx.Conscience.ChargeFor(c.Self, ad.Verb))
                 * (c.Holiday && s.HolidayFactor != 1.0 ? s.HolidayFactor : 1.0)
                 * (s.TraitOnBase ? 1.0 : traitFactor);
@@ -225,23 +225,46 @@ namespace DaggerfallWorkshop.Sim
         // L3/S1 placeholders (FROZEN — no tuning until the substrate lands).
         const double RelationGain = 0.5, RelationFloor = 0.5, RelationCeil = 1.5;
 
-        /// The deciding agent's subjective read of "who's here": mean interpreted
-        /// valence (SubjectiveSystem.Interpret) over a place's occupants, self
-        /// excluded. Goes through the one membrane interpret(), so when S3 sources
-        /// valence from MEANINGS this benefits automatically. (Occupancy is last
-        /// tick's — perceptual staleness, Atoms-acceptable.)
-        double MeanRegardAt(int building, ScoreContext c)
+        /// The social drive's TARGET FIELD, projected to a scalar (drive doc): a
+        /// directed drive mints a contribution per perceived other and collapses
+        /// the field by its UrgencyProjection. social = Sum, so a crowd of bonded
+        /// others adds up — two friends pull harder than one — unlike fear = Max
+        /// (the worst threat dominates). Each occupant contributes its interpreted
+        /// valence (the one membrane SubjectiveSystem.Interpret, self excluded), so
+        /// when S3 sources valence from MEANINGS this benefits automatically.
+        /// RelationFactor then saturates the result, so a big crowd can't blow up
+        /// the score. (Occupancy is last tick's — perceptual staleness, acceptable.)
+        /// Inline (alloc-free hot path); mirrors the pure ProjectField operator.
+        double RegardFieldAt(int building, ScoreContext c)
         {
             if (building < 0) return 0.0;
             var occ = _ctx.Occupancy.OccupantsOf(building);
-            double sum = 0; int n = 0;
+            bool sum = DriveCatalog.Defs[NeedAxis.SocialDef].Projection == UrgencyProjection.Sum;
+            double acc = 0; bool any = false;
             for (int i = 0; i < occ.Count; i++)
             {
                 if (occ[i] == c.Self) continue;
-                sum += SubjectiveSystem.Interpret(_ctx, c.Self, occ[i]).Valence;
-                n++;
+                double v = SubjectiveSystem.Interpret(_ctx, c.Self, occ[i]).Valence;
+                if (!any) { acc = v; any = true; }
+                else if (sum) acc += v;
+                else if (v > acc) acc = v;
             }
-            return n > 0 ? sum / n : 0.0;
+            return any ? acc : 0.0;
+        }
+
+        /// The urgency-projection operator (drive doc) in pure form: collapse a
+        /// directed drive's target field to a scalar by Sum (contributions add) or
+        /// Max (the strongest wins). RegardFieldAt is the alloc-free inline twin.
+        public static double ProjectField(System.Collections.Generic.IReadOnlyList<double> contribs, UrgencyProjection proj)
+        {
+            if (contribs == null || contribs.Count == 0) return 0.0;
+            double acc = contribs[0];
+            for (int i = 1; i < contribs.Count; i++)
+            {
+                if (proj == UrgencyProjection.Sum) acc += contribs[i];
+                else if (contribs[i] > acc) acc = contribs[i];
+            }
+            return acc;
         }
 
         /// Color a place's value by regard for its company: a multiplier in
@@ -278,13 +301,20 @@ namespace DaggerfallWorkshop.Sim
         /// Prepotency (Atoms, two-regime): leisure only wins when deficiency
         /// drives are quiet — graded suppression as the loudest deficiency
         /// rises, hard cull at the threshold ("a starving bunny can't binky").
-        /// Hysteresis deferred; hourly decisions + sticky damp the boundary
-        /// flicker for now.
+        /// The deficiency sources are no longer hardcoded: they're the drives
+        /// that carry a HardCull edge (DriveGraph.HardCullSources, = hunger +
+        /// energy today), so adding a prepotent pole extends the gate from the
+        /// table. Hysteresis deferred; hourly decisions + sticky damp the
+        /// boundary flicker for now.
+        public const double CullThreshold = 0.8;
+
         public static double PrepotencyGate(double[] v)
         {
-            double loudest = v[NeedAxis.Hunger] > v[NeedAxis.EnergyDef]
-                ? v[NeedAxis.Hunger] : v[NeedAxis.EnergyDef];
-            return loudest >= 0.8 ? 0 : 1.0 - loudest / 0.8;
+            double loudest = 0;
+            var sources = DriveGraph.HardCullSources;
+            for (int i = 0; i < sources.Length; i++)
+                if (v[sources[i]] > loudest) loudest = v[sources[i]];
+            return loudest >= CullThreshold ? 0 : 1.0 - loudest / CullThreshold;
         }
 
         static bool IsNight(int hour) => hour >= 21 || hour < 6;

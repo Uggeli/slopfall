@@ -35,6 +35,14 @@ namespace DaggerfallWorkshop.Sim
             public double SalePrice = 0;
             public int SaleReliefAxis = -1;
 
+            // --- Larder gate (Subsistence): the home-larder analog of the shop-
+            //     stock sale gate. EatHome eats provisions from the eater's home
+            //     larder (drawn by EconomySystem); with the larder empty the meal
+            //     isn't backed, so its hunger relief doesn't accrue. The "shelf" is
+            //     the eater's residency (HomeOf), not a TargetBuilding. -->
+            public bool LarderGated = false;
+            public double LarderUnitsPerMinute = 0;     // provisions eaten per game-minute while Doing
+
             // --- V modulators (soft; the uniform value function reads these) ---
             public double BaseGate = 1.0;               // flat gate multiplier (duty, etc.)
             public double DayGate = 1.0, NightGate = 1.0;
@@ -158,6 +166,12 @@ namespace DaggerfallWorkshop.Sim
             DurationMinutes = 30,
             Delta = Deltas(hunger: -0.5),
             NightGate = 0.15,               // kitchens mostly cold in the small hours
+            // No longer a free lunch (Subsistence): a meal eats provisions from the
+            // household larder, and its hunger relief is gated on them — an empty
+            // larder means no meal. ~1 provision per 30-min meal (FROZEN placeholder;
+            // tuned against the famine soak, not here). EconomySystem draws it.
+            LarderGated = true,
+            LarderUnitsPerMinute = 0.033,
         };
 
         public static readonly Spec EatTavern = new Spec
@@ -276,16 +290,27 @@ namespace DaggerfallWorkshop.Sim
             DistanceScale = 150,
         };
 
-        /// Per-axis scoring weights, ported from ODD's WeightsRegistry idea as
-        /// global defaults; per-agent weights become personality later.
-        public static readonly double[] Weights = { 1.2, 1.0, 0.6, 0.5, 0.5 };
+        /// Per-axis scoring weights — DERIVED from the canonical DriveCatalog
+        /// table (the single source of truth; the drive doc's ScoreField).
+        /// Personality scales a copy of this. Was a duplicate literal
+        /// {1.2,1.0,0.6,0.5,0.5}; now the table is authoritative.
+        public static readonly double[] Weights = BuildAxisArray(d => d.ScoreField);
 
-        /// Need drift per game HOUR — the poles ticking up (Atoms: Metabolism).
-        /// CoinDef has no drift: it derives from real money (CoinRegistry);
-        /// the cost of living is an actual coin sink in EconomySystem. The
-        /// CoinDef deltas in the specs above remain as scoring PROMISES whose
-        /// real rates EconomySystem implements as transfers.
-        public static readonly double[] DriftPerHour = { 0.04, 0.05, 0.03, 0.0, 0.03 };
+        /// Need drift per game HOUR — the poles ticking up (Atoms: Metabolism),
+        /// derived from DriveCatalog. Coin/Goods are derived reads (their
+        /// LevelSource is not Stored), so their stored drift is 0; the CoinDef
+        /// deltas in the specs above remain scoring PROMISES whose real rates
+        /// EconomySystem implements as transfers. Was {0.04,0.05,0.03,0.0,0.03}.
+        public static readonly double[] DriftPerHour = BuildAxisArray(d => d.DriftPerHour);
+
+        /// Project one field of every DriveDef into a by-axis array, so the
+        /// scattered scoring/metabolism constants share DriveCatalog's one table.
+        static double[] BuildAxisArray(System.Func<DriveDef, double> select)
+        {
+            var a = new double[NeedAxis.Count];
+            for (int i = 0; i < NeedAxis.Count; i++) a[i] = select(DriveCatalog.Defs[i]);
+            return a;
+        }
 
         public const double VMax = 1.5;
 

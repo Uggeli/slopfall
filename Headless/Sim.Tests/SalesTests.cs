@@ -14,6 +14,11 @@ namespace Sim.Tests
             var p = h.SpawnEntity("Patron");
             h.Ctx.Coin.Set(p, coin);
             h.Ctx.Needs.Set(p, needs);
+            // GoodsDef now derives from the household larder (Subsistence), so a
+            // patron needs a home for "provisions running low" to read at all — an
+            // empty pantry (the default) → goods need 1.0, which Buy fills.
+            int home = h.Ctx.Buildings.Add(new BuildingRow { Kind = BuildingKind.House1 });
+            h.Ctx.Residency.Set(p, new ResidencyData { BuildingIndex = home, Role = ResidentRole.Resident });
             h.Ctx.Behavior.Set(p, new BehaviorData
             {
                 Activity = activity, Phase = ActivityPhase.Doing,

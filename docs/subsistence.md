@@ -109,3 +109,32 @@ it pulls L2 migration (people leave), S4 crime (steal bread to eat), and life-or
   EntityId-ordered walk; `NeedsSystem` only reads it (mirroring the `Stock` gate).
 - **Regional soak is the baseline.** A single town is an economy in a void (exports 0 → it must
   deflate); measurement is against `--soakregion Betony`.
+
+## Observed (40-day Betony, on the canonical drive engine)
+
+Built in two sub-steps so the valve flip and the drive rewire could be read apart:
+
+| | shelves (prov) | hungry (h≥1.0) | larders empty | mean hunger | friend-edges | money 2nd-half drift |
+|---|---|---|---|---|---|---|
+| **3a** — `EatHome` gated + draws larder; drives unchanged | 365 left | 83% | 93% | 1.32 | 108 | 9% (PASS) |
+| **3b** — `+ GoodsDef`←larder, `CoinDef` 0.5→0.1 | **0** (drained) | **100%** | **100%** | **1.50** (pegged) | 6 | 18% (PASS) |
+
+**The drive rewire did its job.** 3a leaves provisions piling on shelves (the cashless majority
+begs for *coin* rather than chasing food — `CoinDef` still strong). 3b flips that: with coin
+demoted and `GoodsDef` reading the empty larder, agents chase *provisions* and drain every shelf to
+zero — the honest chain `hunger → larder → GoodsDef → Buy/Steal` is live. The structural
+(money-supply) gate still PASSES in both; the new **can-they-eat** line surfaces the famine the old
+`broke%` hid.
+
+**The residual famine is a supply gap, not a logic bug.** ~2 meals/day × 617 ≈ 1200 provisions/day
+of demand vs ~500–800/day of supply (farm/fishery in-kind + store imports) at the *frozen
+placeholder* rates (`EatHome` 0.033 prov/min, in-kind 0.01/min, `LarderTarget` 5) — structurally
+undersupplied ~2×. The social fabric collapsing (108→6 edges: hunger is prepotent, so it hard-culls
+socializing) is the predicted "destitution distorts every cognitive layer downstream."
+
+**Next (a separate tuning pass, deferred per "tune after, not during"):** raise food supply or cut
+consumption to close the ~2× gap until the town reaches a *survivable* equilibrium — most people
+fed, a genuinely-squeezed minority begging/stealing/migrating — then the begging/conscience/charity
+layers become measurable against a sane baseline. This famine is the intended driving behavior
+("famine → migration / theft / charity"); the placeholders just need one honest tuning pass before
+the next vertical is measured on top of it.

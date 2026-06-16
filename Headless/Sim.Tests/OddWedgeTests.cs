@@ -90,11 +90,17 @@ namespace Sim.Tests
         {
             var h = new SimHarness(tickIntervalSeconds: 1.0);
             var id = SpawnWithNeeds(h, hunger: 0.6);
+            // A home meal is no longer free (Subsistence): it draws on the household
+            // larder and its relief is gated on it. Give this eater a stocked pantry
+            // so the meal is backed and its hunger delta lands.
+            int home = h.Ctx.Buildings.Add(new BuildingRow { Kind = BuildingKind.House1 });
+            h.Ctx.Residency.Set(id, new ResidencyData { BuildingIndex = home, Role = ResidentRole.Resident });
+            h.Ctx.Larder.Set(home, 10);
             h.Ctx.Behavior.Set(id, new BehaviorData
             {
                 Activity = ActivityKind.EatHome,
                 Phase = ActivityPhase.Doing,
-                TargetBuilding = -1,
+                TargetBuilding = home,
                 RemainingGameMinutes = 30,
             });
             h.SeedClock(hour: 12, timeScale: 600f);     // 10 game-minutes per tick
@@ -103,6 +109,8 @@ namespace Sim.Tests
             Assert.True(h.Ctx.Needs.TryGet(id, out var needs));
             // -0.5 over 30 min -> about -0.33 in 20 min, plus a sliver of drift.
             Assert.InRange(needs.V[NeedAxis.Hunger], 0.2, 0.35);
+            // The meal ate from the larder (started at 10).
+            Assert.True(h.Ctx.Larder.Get(home) < 10);
         }
 
         [Fact]

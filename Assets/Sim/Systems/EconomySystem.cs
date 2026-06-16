@@ -276,6 +276,15 @@ namespace DaggerfallWorkshop.Sim
                             StealProvisions(id, behavior.TargetBuilding,
                                 ActivityCatalog.SpecFor(behavior.Activity), gameMinutes);
                             break;
+                        case ActivityKind.EatHome:
+                            // A home meal is no longer free (Subsistence): it eats
+                            // provisions from the household larder. The draw clamps at
+                            // zero (Larder.Add), and NeedsSystem gates the hunger relief
+                            // on the same larder having food — so an empty larder yields
+                            // no meal, mirroring the shop-stock sale gate. Coin untouched.
+                            _ctx.Larder.Add(HomeOf(id),
+                                -ActivityCatalog.EatHome.LarderUnitsPerMinute * gameMinutes);
+                            break;
                     }
                 }
 
