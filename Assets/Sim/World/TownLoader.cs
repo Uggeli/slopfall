@@ -399,7 +399,7 @@ namespace DaggerfallWorkshop.Sim
             }
         }
 
-        static void Spawn(SimulationContext ctx, int buildingIndex, BuildingRow row, ResidentRole role, string name, SettlementData settlement)
+        static EntityId Spawn(SimulationContext ctx, int buildingIndex, BuildingRow row, ResidentRole role, string name, SettlementData settlement)
         {
             var id = ctx.Identity.Allocate();
             settlement.Residents.Add(id);
@@ -462,6 +462,49 @@ namespace DaggerfallWorkshop.Sim
             for (int t = 0; t < TraitIndex.Count; t++)
                 traits[t] = (ctx.Random.NextDouble() + ctx.Random.NextDouble()) * 0.5;
             ctx.Personality.Set(id, PersonalityData.Derive(traits));
+
+            // L2 (docs/living_world_L2_lifecycle.md): age + lifespan, derived from a
+            // hash of the id — NOT ctx.Random — so adding it leaves the spawn RNG
+            // stream (and every existing seeded value) byte-identical. Adults at
+            // load / immigration; the distribution is a FROZEN placeholder.
+            ctx.Life.Set(id, SeedLife(id));
+            return id;
+        }
+
+        /// L2.4 — backfill a vacated residency slot with a broke adult immigrant
+        /// (docs/living_world_L2_lifecycle.md): re-staffs a dead keeper's shop and
+        /// keeps headcount roughly stationary. Arrives with NO coin (mints no
+        /// money → conservation holds) and knows its new settlement on arrival,
+        /// matching the load-time "residents know the whole town" policy.
+        public static EntityId SpawnImmigrant(SimulationContext ctx, SettlementData settlement, int buildingIndex, ResidentRole role)
+        {
+            if (settlement == null) return EntityId.None;
+            if (!ctx.Buildings.TryGet(buildingIndex, out var row) || row == null) return EntityId.None;
+
+            var id = Spawn(ctx, buildingIndex, row, role, "Newcomer (" + settlement.Name + ")", settlement);
+            ctx.Coin.Set(id, 0);                        // broke newcomer — mints no money
+            foreach (var b in settlement.Buildings)
+                ctx.PlaceMemory.Learn(id, b);
+            return id;
+        }
+
+        static LifeData SeedLife(EntityId id)
+        {
+            uint h = LifeHash(id.Value);
+            double a = (h & 0xFFFF) / 65535.0;
+            double b = ((h >> 16) & 0xFFFF) / 65535.0;
+            return new LifeData
+            {
+                AgeYears = 18 + a * 42,        // 18..60 — adults at load/immigration
+                LifespanYears = 58 + b * 24,   // 58..82
+            };
+        }
+
+        static uint LifeHash(int v)
+        {
+            uint x = (uint)(v * 2654435761u);
+            x ^= x >> 13; x *= 0x5bd1e995; x ^= x >> 15;
+            return x;
         }
     }
 }

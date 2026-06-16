@@ -27,6 +27,8 @@ namespace DaggerfallWorkshop.Sim
         public int CountFor(EntityId id)
             => _d.TryGetValue(id, out var set) ? set.Count : 0;
 
+        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
+
         public int Count => _d.Count;
     }
 }

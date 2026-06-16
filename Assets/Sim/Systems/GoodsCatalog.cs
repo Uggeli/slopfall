@@ -34,6 +34,7 @@ namespace DaggerfallWorkshop.Sim
         public double Base;            // = Import price (the anchor)
         public double WholesaleMarkup; // Wholesale = Base * this
         public double RetailMarkup;    // Retail    = Base * this  (> WholesaleMarkup)
+        public double WorldDemandPerDay; // units/day the off-map market wants at full price; beyond it the export price falls
     }
 
     /// The goods table: item kinds, authored prices, and which buildings stock
@@ -46,10 +47,10 @@ namespace DaggerfallWorkshop.Sim
         // Indexed by (int)Good. The single source of authored prices.
         public static readonly GoodDef[] Defs =
         {
-            new GoodDef { Good = Good.Provisions, Name = "provisions", Base = 0.02,  WholesaleMarkup = 1.5, RetailMarkup = 2.5 },
-            new GoodDef { Good = Good.Drink,      Name = "drink",      Base = 0.015, WholesaleMarkup = 1.5, RetailMarkup = 2.5 },
-            new GoodDef { Good = Good.Wares,      Name = "wares",      Base = 0.05,  WholesaleMarkup = 2.0, RetailMarkup = 3.0 },
-            new GoodDef { Good = Good.Ore,        Name = "ore",        Base = 0.04,  WholesaleMarkup = 1.5, RetailMarkup = 2.5 },
+            new GoodDef { Good = Good.Provisions, Name = "provisions", Base = 0.02,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 500 },
+            new GoodDef { Good = Good.Drink,      Name = "drink",      Base = 0.015, WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 300 },
+            new GoodDef { Good = Good.Wares,      Name = "wares",      Base = 0.05,  WholesaleMarkup = 2.0, RetailMarkup = 3.0, WorldDemandPerDay = 200 },
+            new GoodDef { Good = Good.Ore,        Name = "ore",        Base = 0.04,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 200 },
         };
 
         public static GoodDef Def(Good good) => Defs[(int)good];

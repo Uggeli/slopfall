@@ -2,8 +2,9 @@ namespace DaggerfallWorkshop.Sim
 {
     public enum SatisfactionModel
     {
-        Deplete,    // drifts up over time, pushed down by activities (hunger, energy, social)
-        Derived,    // computed from another quantity each tick (coin deficit = 1 − coin)
+        Deplete,             // drifts up over time, pushed down by activities (hunger, energy, social)
+        Derived,             // computed from another quantity each tick (coin deficit = 1 − coin)
+        DecayTowardBaseline, // erodes toward a baseline unless refreshed (relations — L1, SocialSystem)
     }
 
     /// Authored definition of one need/drive axis. Atoms says a drive is a few

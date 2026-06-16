@@ -259,10 +259,24 @@ namespace DaggerfallWorkshop.Sim.Host
             if (minDay <= 0) { healthy = false; Console.WriteLine("  [FAIL] a day with 0 decisions — sim reached a fixed point / deadlock"); }
             else Console.WriteLine("  [ok]   liveness: ≥ " + minDay + " decisions on the quietest day");
 
-            // 3. No mass death / starvation.
-            if (last.Deaths > 0) { healthy = false; Console.WriteLine("  [FAIL] " + last.Deaths + " deaths"); }
-            else if (last.Starving > 0) Console.WriteLine("  [warn] " + last.Starving + " civilians with a need pegged near VMax at last sample");
-            else Console.WriteLine("  [ok]   no deaths, no pegged needs at sample");
+            // 3. Turnover, not mass death. Natural death of old age is expected
+            //    now (L2 lifecycles), so the invariant is that the population
+            //    doesn't COLLAPSE — repopulation should hold it. A large drop
+            //    means a mortality runaway or a broken backfill, not normal aging.
+            if (first.Population > 0 && last.Population < first.Population / 2)
+            {
+                healthy = false;
+                Console.WriteLine("  [FAIL] population collapsed " + first.Population + " → " + last.Population
+                    + " over " + last.Deaths + " deaths — repopulation not holding");
+            }
+            else
+                Console.WriteLine("  [obs]  turnover: " + last.Deaths + " deaths, population "
+                    + first.Population + " → " + last.Population);
+
+            if (last.Starving > 0)
+                Console.WriteLine("  [warn] " + last.Starving + " civilians with a need pegged near VMax at last sample");
+            else
+                Console.WriteLine("  [ok]   no pegged needs at sample");
 
             // 4. NaN guard.
             if (double.IsNaN(last.CoinTotal) || double.IsNaN(last.MeanRegard) || double.IsNaN(last.Hunger))
@@ -308,18 +322,24 @@ namespace DaggerfallWorkshop.Sim.Host
                 + ", richest/mean " + (last.CoinMean > 0 ? (last.CoinMax / last.CoinMean) : 0).ToString("F1") + "×, "
                 + last.Broke + " broke");
 
-            // 6. Social saturation (shape) — is the fabric still climbing at the end?
-            //    No decay term on regard/familiarity means we expect monotonic growth → no equilibrium.
+            // 6. Social fabric shape — climbing, plateaued, or cooling? L1 added
+            //    the DecayTowardBaseline satisfaction-model (SocialSystem.DecayRelations),
+            //    so the fabric reaches a dynamic equilibrium rather than saturating;
+            //    second-half change can now be negative, so classify by sign (not |·|).
             var mid = series[series.Count / 2];
             double regardLateGrowth = last.MeanRegard - mid.MeanRegard;
             long friendsLate = last.FriendEdges - mid.FriendEdges;
+            string shape;
+            if (regardLateGrowth > 0.01 || friendsLate > 0)
+                shape = "  → still climbing";
+            else if (regardLateGrowth < -0.01 || friendsLate < 0)
+                shape = "  → cooling toward baseline (decay outpacing contact in the 2nd half)";
+            else
+                shape = "  → plateaued (dynamic equilibrium)";
             Console.WriteLine("  [obs]  social: " + last.FriendEdges + " friend-edges, mean regard "
                 + last.MeanRegard.ToString("F2") + ", " + last.SaturatedRegard + " saturated (|regard|≥0.95)");
-            Console.WriteLine("         second-half growth: regard +" + regardLateGrowth.ToString("F3")
-                + ", friend-edges +" + friendsLate
-                + (Math.Abs(regardLateGrowth) > 0.01 || friendsLate > 0
-                    ? "  → still climbing, no equilibrium (no decay term — Atoms: add a satisfaction-model)"
-                    : "  → plateaued"));
+            Console.WriteLine("         second-half growth: regard " + regardLateGrowth.ToString("+0.000;-0.000")
+                + ", friend-edges " + friendsLate.ToString("+0;-0") + shape);
 
             Console.WriteLine();
             Console.WriteLine(healthy ? "SOAK PASSED (structural invariants held)" : "SOAK FAILED (a structural invariant broke)");

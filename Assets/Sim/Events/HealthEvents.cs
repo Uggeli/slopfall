@@ -9,6 +9,7 @@ namespace DaggerfallWorkshop.Sim
         Shock,
         Poison,
         Disease,
+        Age,        // old age (L2): AgingSystem's lethal hit, routed through the one death path
     }
 
     /// Apply damage to an entity. Handled by HealthSystem, which mutates

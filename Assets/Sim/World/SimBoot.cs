@@ -65,6 +65,7 @@ namespace DaggerfallWorkshop.Sim
 
             var loop = new TickLoop(ctx);
             loop.Register(new TimeSystem());
+            loop.Register(new AgingSystem());        // L2: ages agents yearly; fatal hit past lifespan
             loop.Register(new WeatherSystem());
             loop.Register(new SunlightSystem());
             loop.Register(new HealthSystem());
@@ -85,6 +86,8 @@ namespace DaggerfallWorkshop.Sim
             loop.Register(new PerceptionSystem());   // refine senses → percepts/interrupts
             loop.Register(new SocialSystem());
             loop.Register(new RequestSystem());     // reads relations after SocialSystem's tick
+            loop.Register(new LifecycleSystem());    // L2: despawns the dead (last, so every system saw them live)
+            loop.Register(new RepopulationSystem()); // L2.4: backfills vacated residency slots
             var log = new EventLog();
             loop.Register(log);
 

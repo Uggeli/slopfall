@@ -17,6 +17,15 @@ namespace DaggerfallWorkshop.Sim
         public EntityId Other;
     }
 
+    /// Emitted once per pair direction when a previously-announced friendship
+    /// decays (or is soured) back below the bar — L1's "relationships can end."
+    /// Symmetric to FriendshipFormedEvent; re-crossing the bar re-announces.
+    public sealed class FriendshipLapsedEvent : ISimEvent
+    {
+        public EntityId Who;
+        public EntityId Other;
+    }
+
     /// Request that Who's directed relation toward Other shift — emitted by
     /// systems that don't own RelationsRegistry (RequestSystem's gratitude and
     /// resentment). SocialSystem, the owner, applies it and records the

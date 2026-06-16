@@ -166,6 +166,60 @@ namespace Sim.Tests
             var exhausted = MakeNeeds(energyDef: 0.9);
             Assert.Equal(0.0, OddSystem.PrepotencyGate(exhausted.V), 5);
         }
+
+        static double[] WarmTraits()
+        {
+            var t = new double[TraitIndex.Count];
+            for (int i = 0; i < t.Length; i++) t[i] = 0.8;
+            t[TraitIndex.Warmth] = 0.9;     // warm + similar -> strong positive affinity
+            return t;
+        }
+
+        /// L1 gate (docs/living_world_L1_entropy.md): a bond decays toward
+        /// neutral unless refreshed. Qualitative direction only — no tuned
+        /// magnitudes. A neglected friendship cools below a contacted one and
+        /// lapses; contact keeps a bond warm.
+        [Fact]
+        public void NeglectedBond_CoolsAndLapses_WhileContactStaysWarm()
+        {
+            var h = new SimHarness(tickIntervalSeconds: 1.0);
+            var formed = h.Collect<FriendshipFormedEvent>();
+            var lapsed = h.Collect<FriendshipLapsedEvent>();
+
+            var c1 = PlantSocializer(h, building: 7);   // contacted pair: socialize throughout
+            var c2 = PlantSocializer(h, building: 7);
+            var i1 = PlantSocializer(h, building: 8);   // isolated pair: warm up, then pulled apart
+            var i2 = PlantSocializer(h, building: 8);
+            foreach (var id in new[] { c1, c2, i1, i2 })
+                h.Ctx.Personality.Set(id, PersonalityData.Derive(WarmTraits()));
+
+            h.SeedClock(hour: 18, timeScale: 600f);     // 10 game-min/tick
+
+            h.Step(40);                                  // warm up: both pairs befriend
+
+            Assert.Contains(formed, e => e.Who == i1 && e.Other == i2);
+            Assert.True(h.Ctx.Relations.TryGet(i1, out var warm), "no relations for isolated pair");
+            Assert.True(warm.Of.TryGetValue(i2, out var peakRel) && peakRel.FriendAnnounced,
+                        "isolated pair never befriended");
+            double isolatedPeak = peakRel.Familiarity;
+
+            // Pull the isolated pair apart — idle, no longer co-located.
+            foreach (var id in new[] { i1, i2 })
+                h.Ctx.Behavior.Set(id, new BehaviorData
+                {
+                    Activity = ActivityKind.Idle, Phase = ActivityPhase.Doing,
+                    TargetBuilding = -1, RemainingGameMinutes = 100000,
+                });
+
+            h.Step(700);                                 // long neglect; contact pair keeps socializing
+
+            h.Ctx.Relations.TryGet(i1, out var iso); iso.Of.TryGetValue(i2, out var isoRel);
+            h.Ctx.Relations.TryGet(c1, out var con); con.Of.TryGetValue(c2, out var conRel);
+
+            Assert.True(isoRel.Familiarity < isolatedPeak, "neglected familiarity didn't drop");
+            Assert.True(isoRel.Familiarity < conRel.Familiarity, "neglected pair not cooler than contacted pair");
+            Assert.Contains(lapsed, e => e.Who == i1 && e.Other == i2);
+        }
     }
 
     /// Social fabric over a real town day.

@@ -39,6 +39,13 @@ namespace DaggerfallWorkshop.Sim
         // in one "keeper" purse. A fraction of the till per tick (it refills from sales).
         public const double FarmWagePayoutFraction = 0.3;
         public const double ProducePerMinute = 0.5;                 // local craft output (units/game-min, a keeper working)
+        // World market (export edge): a producer sells surplus off-map only while the
+        // saturating price holds above this fraction of wholesale — below it the glut
+        // isn't worth selling into, so it HOLDS stock instead of dumping (export isn't
+        // automatic). Production pauses once a held warehouse fills, so a glutted
+        // producer idles rather than piling up forever. PLACEHOLDERS, tuned vs the soak.
+        public const double ExportFloorFraction = 0.5;             // reservation: hold below 0.5× wholesale
+        public const double WarehouseCap = StockTarget * 3.0;       // stop producing once this full of unsold stock
         // Necessity drain (placeholder). Real balance comes from the full
         // circular flow — employer-paid wages (E1) + rent (E2) + tax (E3) — and
         // gets tuned once all mechanisms are in, not before.
@@ -57,6 +64,7 @@ namespace DaggerfallWorkshop.Sim
 
         SimulationContext _ctx;
         readonly List<CoinTransferEvent> _pending = new List<CoinTransferEvent>();
+        readonly List<EscheatEvent> _escheats = new List<EscheatEvent>();
         readonly List<EntityId> _order = new List<EntityId>();      // reused per-tick deterministic walk order (F3)
         readonly Dictionary<int, int> _farmWorkers = new Dictionary<int, int>();             // hands working each farm this tick (scales its harvest)
         readonly Dictionary<int, double> _farmWageShare = new Dictionary<int, double>();     // a farm's per-worker wage this tick (its till shared out)
@@ -74,11 +82,14 @@ namespace DaggerfallWorkshop.Sim
         {
             _ctx = ctx;
             ctx.Events.Subscribe<CoinTransferEvent>(e => _pending.Add(e));
+            ctx.Events.Subscribe<EscheatEvent>(e => _escheats.Add(e));
             ctx.Events.Subscribe<NewMonthSimEvent>(e => _taxDue = true);   // tax man arrives (E3)
+            ctx.Events.Subscribe<NewDaySimEvent>(e => ctx.WorldMarket.ResetDay());   // external demand replenishes daily
         }
 
         public void ProcessEvents()
         {
+            ProcessEscheats();
             if (_pending.Count == 0) return;
 
             double before = SumCoin();
@@ -107,6 +118,25 @@ namespace DaggerfallWorkshop.Sim
             _minted += minted;
             _sunk += before + minted - SumCoin();           // To=None burns land here
             _alms += almsMoved;
+        }
+
+        /// A dead agent's purse passes to its settlement treasury (escheat, L2 —
+        /// docs/living_world_L2_lifecycle.md). A within-supply transfer (purse →
+        /// treasury, both counted by SumCoin), so it touches no faucet/sink tally
+        /// and conservation holds; then the purse row is removed (EconomySystem is
+        /// the sole writer of Coin). Runs before the transfer pass so that pass's
+        /// before/after sink accounting is unaffected.
+        void ProcessEscheats()
+        {
+            if (_escheats.Count == 0) return;
+            for (int i = 0; i < _escheats.Count; i++)
+            {
+                var e = _escheats[i];
+                double purse = _ctx.Coin.Get(e.Dead);
+                if (purse > 0) _ctx.Treasury.Add(e.To, purse);
+                _ctx.Coin.Remove(e.Dead);
+            }
+            _escheats.Clear();
         }
 
         public void Update(long tick)
@@ -423,22 +453,39 @@ namespace DaggerfallWorkshop.Sim
             for (int i = 0; i < produced.Length; i++)
             {
                 var good = produced[i];
-                // A craft keeper makes a steady amount alone; a farm makes food scaled
-                // by the hands working it this tick, capped by its land — the bounded
-                // faucet (no runaway however many laborers pile in).
-                double output = ProducePerMinute * gameMinutes;
-                if (GoodsCatalog.IsPrimaryWorkplace(b.Kind))
+                // Produce — unless the warehouse is already full of unsold stock (a
+                // glutted producer idles instead of piling up forever). A craft keeper
+                // makes a steady amount alone; a farm makes food scaled by the hands
+                // working it this tick, capped by its land.
+                if (_ctx.Stock.Get(building, good) < WarehouseCap)
                 {
-                    int hands = _farmWorkers.TryGetValue(building, out var w) ? w : 0;
-                    if (hands > FarmCapacity) hands = FarmCapacity;
-                    output = hands * FarmProducePerWorkerMinute * gameMinutes;
+                    double output = ProducePerMinute * gameMinutes;
+                    if (GoodsCatalog.IsPrimaryWorkplace(b.Kind))
+                    {
+                        int hands = _farmWorkers.TryGetValue(building, out var w) ? w : 0;
+                        if (hands > FarmCapacity) hands = FarmCapacity;
+                        output = hands * FarmProducePerWorkerMinute * gameMinutes;
+                    }
+                    _ctx.Stock.Add(building, good, output);                        // produced free (value from land/craft)
                 }
-                _ctx.Stock.Add(building, good, output);                            // produced free (value from land/craft)
-                double surplus = _ctx.Stock.Get(building, good) - StockTarget;     // keep StockTarget for local sale
+
+                // Export the surplus above local-sale stock — but only if the world
+                // market still pays enough. Demand saturates (price falls past the
+                // daily quota), and below the reservation the producer HOLDS rather than
+                // dumps (export isn't automatic). Every settlement competes for the same
+                // demand, so a glut cuts the price for all of them.
+                double surplus = _ctx.Stock.Get(building, good) - StockTarget;
                 if (surplus > 0)
                 {
-                    _ctx.Stock.Add(building, good, -surplus);                      // surplus leaves town
-                    exports += surplus * GoodsCatalog.PriceOf(good, PriceTier.Wholesale);   // off-map pays wholesale
+                    double wholesalePrice = GoodsCatalog.PriceOf(good, PriceTier.Wholesale);
+                    double price = ExportPrice(good, wholesalePrice);
+                    if (price >= wholesalePrice * ExportFloorFraction)
+                    {
+                        _ctx.Stock.Add(building, good, -surplus);                  // surplus leaves town
+                        _ctx.WorldMarket.Sell(good, surplus);                      // glut the market → lower price for the next seller
+                        exports += surplus * price;
+                    }
+                    // else: hold the surplus (warehoused) and wait for demand to recover.
                 }
             }
 
@@ -457,6 +504,18 @@ namespace DaggerfallWorkshop.Sim
                     GoodsCatalog.PriceOf(needs[i], PriceTier.Wholesale), source, available - imports - wholesale);
             }
             return imports;
+        }
+
+        /// The off-map buying price for a good right now: full wholesale until the day's
+        /// world demand quota is met, then falling as the glut grows (price = wholesale
+        /// ÷ how many times over the quota we are). Shared across settlements, so the
+        /// more everyone exports, the less each unit fetches.
+        double ExportPrice(Good good, double wholesale)
+        {
+            double quota = GoodsCatalog.Def(good).WorldDemandPerDay;
+            if (quota <= 0) return wholesale;
+            double fill = _ctx.WorldMarket.BoughtOf(good) / quota;
+            return fill <= 1.0 ? wholesale : wholesale / fill;
         }
 
         /// Move up to `units` of a good onto a building's shelf without overshooting

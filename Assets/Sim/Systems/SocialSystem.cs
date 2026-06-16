@@ -21,9 +21,26 @@ namespace DaggerfallWorkshop.Sim
         /// Shared game-minutes for familiarity to reach 1.0.
         const double MinutesToFullFamiliarity = 600;
 
+        // L1 (docs/living_world_L1_entropy.md): a relation is a pole with the
+        // DecayTowardBaseline satisfaction-model (Atoms what_is_drive.md) — it
+        // erodes toward neutral unless contact refreshes it, so the social
+        // graph reaches a dynamic equilibrium instead of saturating. Applied
+        // on a ~1 game-hour cadence. These rates are FROZEN placeholders until
+        // the whole L-stack lands (living_world.md -> Tuning) — do not tune.
+        const double RelationBaseline = 0.0;
+        const double FamiliarityDecayPerHour = 0.01;
+        const double RegardDecayPerHour = 0.01;
+        /// An edge cooled below this on both axes is forgotten and dropped —
+        /// which also GCs references to despawned ids (they can never refresh).
+        const double ForgetThreshold = 0.01;
+
         SimulationContext _ctx;
         readonly Dictionary<int, List<EntityId>> _groups = new Dictionary<int, List<EntityId>>();
         readonly List<RelationImpulseEvent> _impulses = new List<RelationImpulseEvent>();
+        readonly List<EntityId> _decayKeys = new List<EntityId>();
+        readonly List<EntityId> _dropList = new List<EntityId>();
+        readonly List<EntityId> _lapseList = new List<EntityId>();
+        double _gameMinutesSinceDecay;
 
         public void Init(SimulationContext ctx)
         {
@@ -46,6 +63,14 @@ namespace DaggerfallWorkshop.Sim
                 }
                 rel.Regard = Clamp(rel.Regard + e.RegardDelta, -1, 1);
                 rel.Familiarity = Clamp01(rel.Familiarity + e.FamiliarityDelta);
+
+                // A grudge (e.g. WasRefused) can sour a friendship past the bar.
+                if (rel.FriendAnnounced && (rel.Familiarity < FriendFamiliarity || rel.Regard < FriendRegard))
+                {
+                    rel.FriendAnnounced = false;
+                    _ctx.Events.Emit(new FriendshipLapsedEvent { Who = e.Who, Other = e.Other });
+                }
+
                 _ctx.Relations.Set(e.Who, next);
 
                 if (e.RecordMemory)
@@ -62,6 +87,16 @@ namespace DaggerfallWorkshop.Sim
             var clock = _ctx.WorldClock.Current;
             if (clock.Year == 0) return;
             double gameMinutes = _ctx.Time.TickIntervalSeconds * clock.TimeScale / 60.0;
+
+            // --- Erode relations toward neutral on a ~1 game-hour cadence. ---
+            // Decaying first, then refreshing co-located pairs below, means net
+            // change is positive only where there is actual contact this hour.
+            _gameMinutesSinceDecay += gameMinutes;
+            if (_gameMinutesSinceDecay >= 60.0)
+            {
+                DecayRelations(_gameMinutesSinceDecay / 60.0);
+                _gameMinutesSinceDecay = 0.0;
+            }
 
             // --- Build occupancy groups. ---
             foreach (var list in _groups.Values) list.Clear();
@@ -96,6 +131,62 @@ namespace DaggerfallWorkshop.Sim
                     GrowRelations(kv.Key, group, gameMinutes, tick);
             }
             _ctx.Occupancy.Swap(company, place);
+        }
+
+        /// Erode every directed relation toward neutral. Runs over ALL relation
+        /// rows — not just co-located ones, since the neglected pairs (the ones
+        /// the soak found pinned at the ceiling) are exactly those NOT in a
+        /// group this tick. Key-ordered iteration + sorted event emission keep
+        /// it replay-exact. Cooled-out edges are dropped, which doubles as the
+        /// L2 reference-GC (a despawned id's edge can never refresh).
+        void DecayRelations(double gameHours)
+        {
+            _decayKeys.Clear();
+            foreach (var kv in _ctx.Relations.All) _decayKeys.Add(kv.Key);
+            _decayKeys.Sort((a, b) => a.Value.CompareTo(b.Value));
+
+            for (int k = 0; k < _decayKeys.Count; k++)
+            {
+                var id = _decayKeys[k];
+                var next = CloneRelations(id);
+                if (next.Of.Count == 0) continue;
+
+                bool changed = false;
+                _dropList.Clear();
+                _lapseList.Clear();
+                foreach (var pair in next.Of)
+                {
+                    var rel = pair.Value;
+                    double fam = Decay.TowardBaseline(rel.Familiarity, RelationBaseline, FamiliarityDecayPerHour, gameHours);
+                    double reg = Decay.TowardBaseline(rel.Regard, RelationBaseline, RegardDecayPerHour, gameHours);
+                    if (fam != rel.Familiarity || reg != rel.Regard) changed = true;
+                    rel.Familiarity = fam;
+                    rel.Regard = reg;
+
+                    if (rel.FriendAnnounced && (fam < FriendFamiliarity || reg < FriendRegard))
+                    {
+                        rel.FriendAnnounced = false;
+                        changed = true;
+                        _lapseList.Add(pair.Key);
+                    }
+
+                    if (fam < ForgetThreshold && reg < ForgetThreshold && reg > -ForgetThreshold)
+                        _dropList.Add(pair.Key);
+                }
+
+                // Deterministic emission order (rows already iterate in id order).
+                _lapseList.Sort((a, b) => a.Value.CompareTo(b.Value));
+                for (int l = 0; l < _lapseList.Count; l++)
+                    _ctx.Events.Emit(new FriendshipLapsedEvent { Who = id, Other = _lapseList[l] });
+
+                for (int d = 0; d < _dropList.Count; d++)
+                {
+                    next.Of.Remove(_dropList[d]);
+                    changed = true;
+                }
+
+                if (changed) _ctx.Relations.Set(id, next);
+            }
         }
 
         void GrowRelations(int building, List<EntityId> group, double gameMinutes, long tick)

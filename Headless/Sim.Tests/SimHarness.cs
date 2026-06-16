@@ -21,6 +21,7 @@ namespace Sim.Tests
 
             Loop = new TickLoop(Ctx);
             Loop.Register(new TimeSystem());
+            Loop.Register(new AgingSystem());
             Loop.Register(new WeatherSystem());
             Loop.Register(new SunlightSystem());
             Loop.Register(new HealthSystem());
@@ -41,6 +42,8 @@ namespace Sim.Tests
             Loop.Register(new PerceptionSystem());
             Loop.Register(new SocialSystem());
             Loop.Register(new RequestSystem());
+            Loop.Register(new LifecycleSystem());
+            Loop.Register(new RepopulationSystem());
             Log = new EventLog();
             Loop.Register(Log);
         }

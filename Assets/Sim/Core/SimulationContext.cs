@@ -14,6 +14,7 @@ namespace DaggerfallWorkshop.Sim
         public IdentityRegistry Identity { get; }
         public PositionRegistry Position { get; }
         public VitalsRegistry Vitals { get; }
+        public LifeRegistry Life { get; }
         public WorldClockRegistry WorldClock { get; }
         public WeatherRegistry Weather { get; }
         public LightingRegistry Lighting { get; }
@@ -40,6 +41,7 @@ namespace DaggerfallWorkshop.Sim
         public EmploymentRegistry Employment { get; }
         public StockRegistry Stock { get; }
         public TreasuryRegistry Treasury { get; }
+        public WorldMarketRegistry WorldMarket { get; }
         public SettlementRegistry Settlements { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
@@ -52,6 +54,7 @@ namespace DaggerfallWorkshop.Sim
             Identity = new IdentityRegistry();
             Position = new PositionRegistry();
             Vitals = new VitalsRegistry();
+            Life = new LifeRegistry();
             WorldClock = new WorldClockRegistry();
             Weather = new WeatherRegistry();
             Lighting = new LightingRegistry();
@@ -78,6 +81,7 @@ namespace DaggerfallWorkshop.Sim
             Employment = new EmploymentRegistry();
             Stock = new StockRegistry();
             Treasury = new TreasuryRegistry();
+            WorldMarket = new WorldMarketRegistry();
             Settlements = new SettlementRegistry();
         }
     }

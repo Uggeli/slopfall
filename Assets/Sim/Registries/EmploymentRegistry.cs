@@ -20,6 +20,7 @@ namespace DaggerfallWorkshop.Sim
 
         public void Set(EntityId id, EmploymentData data) => _d[id] = data;
         public bool TryGet(EntityId id, out EmploymentData data) => _d.TryGetValue(id, out data);
+        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
         public int Count => _d.Count;
         public IEnumerable<KeyValuePair<EntityId, EmploymentData>> All => _d;
     }
