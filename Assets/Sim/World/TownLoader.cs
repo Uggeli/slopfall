@@ -468,6 +468,7 @@ namespace DaggerfallWorkshop.Sim
             // stream (and every existing seeded value) byte-identical. Adults at
             // load / immigration; the distribution is a FROZEN placeholder.
             ctx.Life.Set(id, SeedLife(id));
+            ctx.Conscience.Set(id, SeedConscience(id));
             return id;
         }
 
@@ -498,6 +499,18 @@ namespace DaggerfallWorkshop.Sim
                 AgeYears = 18 + a * 42,        // 18..60 — adults at load/immigration
                 LifespanYears = 58 + b * 24,   // 58..82
             };
+        }
+
+        /// S4 conscience: a seeded begging-shame, scaled by a pride disposition
+        /// (re-salted hash of the id, so it doesn't perturb the spawn RNG stream).
+        /// A proud soul would rather starve than beg; a shameless one feels no
+        /// qualm. FROZEN placeholder distribution.
+        static ConscienceData SeedConscience(EntityId id)
+        {
+            double pride = (LifeHash(id.Value ^ 0x5A5A5A5A) & 0xFFFF) / 65535.0;
+            var c = new ConscienceData();
+            c.Charge[(int)ActivityKind.Beg] = pride * 0.8;
+            return c;
         }
 
         static uint LifeHash(int v)

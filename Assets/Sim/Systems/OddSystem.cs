@@ -209,6 +209,7 @@ namespace DaggerfallWorkshop.Sim
                 * (s.Social ? Liveliness(ad) * (c.Hour >= 17 ? 1.5 : 1.0) * c.Cozy : 1.0)
                 * (s.Prepotent ? c.Prepotency : 1.0)
                 * (s.RelationSensitive ? RelationFactor(MeanRegardAt(ad.Building, c)) : 1.0)
+                * ConscienceFactor(_ctx.Conscience.ChargeFor(c.Self, ad.Verb))
                 * (c.Holiday && s.HolidayFactor != 1.0 ? s.HolidayFactor : 1.0)
                 * (s.TraitOnBase ? 1.0 : traitFactor);
 
@@ -250,6 +251,19 @@ namespace DaggerfallWorkshop.Sim
         {
             double f = 1.0 + RelationGain * meanRegard;
             return f < RelationFloor ? RelationFloor : (f > RelationCeil ? RelationCeil : f);
+        }
+
+        const double ShameFloor = 0.05;
+
+        /// A conscience charge on a verb penalises it at the marketplace join
+        /// (Atoms: the superego as a sign-opposed valence source — it biases V,
+        /// it does not choose). Graded — a strongly-shamed action scores a small
+        /// fraction of its drive value, so a proud agent would rather do almost
+        /// anything else (the proud-starves-rather-than-beg case). Pure for testing.
+        public static double ConscienceFactor(double charge)
+        {
+            double f = 1.0 - charge;
+            return f < ShameFloor ? ShameFloor : (f > 1.0 ? 1.0 : f);
         }
 
         static double TraitOf(ScoreContext c, int idx) => c.Person != null ? c.Person.Trait(idx) : 0.5;

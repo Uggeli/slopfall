@@ -22,6 +22,7 @@ namespace DaggerfallWorkshop.Sim
         const double GreetValenceBar = 0.3;
         const double GreetRecognitionBar = 0.25;
         const double DislikeValenceBar = -0.3;
+        const double StigmaScale = 0.5;         // S4: how hard disposition (Warmth) colors the read of a beggar
 
         SimulationContext _ctx;
         readonly Dictionary<EntityId, double> _nextGreetAt = new Dictionary<EntityId, double>();
@@ -52,6 +53,13 @@ namespace DaggerfallWorkshop.Sim
             // + acute feeling (Affects, S2). Emotion-as-controller: this valence
             // colors the decider's place-lens and the greet/dislike percepts.
             double valence = baseValence + ctx.Affects.ValenceToward(self, other);
+            // S4 stigma: a beggar (Doing Beg — observable in the public molecule)
+            // is read through the perceiver's disposition — a cold soul disdains,
+            // a warm one pities. Same beggar, opposite read.
+            if (ctx.Behavior.TryGet(other, out var ob) && ob != null
+                && ob.Phase == ActivityPhase.Doing && ob.Activity == ActivityKind.Beg
+                && ctx.Personality.TryGet(self, out var p) && p != null)
+                valence += (p.Trait(TraitIndex.Warmth) - 0.5) * StigmaScale;
             return new EntityRead
             {
                 Other = other,

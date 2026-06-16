@@ -40,6 +40,7 @@ namespace DaggerfallWorkshop.Sim
         public SubjectiveViewRegistry Subjective { get; }
         public AffectsRegistry Affects { get; }
         public MeaningsRegistry Meanings { get; }
+        public ConscienceRegistry Conscience { get; }
         public IntentRegistry Intent { get; }
         public EmploymentRegistry Employment { get; }
         public StockRegistry Stock { get; }
@@ -83,6 +84,7 @@ namespace DaggerfallWorkshop.Sim
             Subjective = new SubjectiveViewRegistry();
             Affects = new AffectsRegistry();
             Meanings = new MeaningsRegistry();
+            Conscience = new ConscienceRegistry();
             Intent = new IntentRegistry();
             Employment = new EmploymentRegistry();
             Stock = new StockRegistry();
