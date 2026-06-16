@@ -39,9 +39,12 @@ namespace Sim.Tests
 
             Assert.Equal(4, town.BlocksWide);
             Assert.Equal(3, town.BlocksHigh);
-            Assert.Equal(175, town.Buildings);
+            Assert.Equal(175, town.Buildings);              // loaded from block data
             Assert.Equal(337, town.Civilians);
-            Assert.Equal(175, ctx.Buildings.Count);
+            // Stage 5 synthesizes one Farm workplace per settlement, so the registry
+            // holds one more building than were loaded; no new civilians (the farm
+            // keeper is a promoted resident).
+            Assert.Equal(176, ctx.Buildings.Count);
             Assert.Equal(337, ctx.Residency.Count);
             Assert.Equal(337, ctx.Identity.Count);
         }

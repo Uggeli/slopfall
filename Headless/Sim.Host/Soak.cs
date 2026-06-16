@@ -29,10 +29,38 @@ namespace DaggerfallWorkshop.Sim.Host
                 Console.Error.WriteLine(ex.Message);
                 return 1;
             }
+            var t = boot.Town;
+            string title = t.RegionName + " / " + t.Name
+                + " — " + t.Buildings + " structures, " + t.Civilians + " civilians";
+            return RunBoot(boot, title, days, perSettlement: false);
+        }
+
+        /// Soak a whole region: every settled location in one context, reported with a
+        /// regional table + verdict and a per-settlement breakdown (Stage 4).
+        public static int RunRegion(string regionName, int days)
+        {
+            SimBootResult boot;
+            try { boot = SimBoot.CreateRegion(DataProbe.Arena2Path, regionName, SoakTimeScale); }
+            catch (ArgumentException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return 1;
+            }
+            var r = boot.Region;
+            string title = r.RegionName + " — " + r.Settlements + " settlements, "
+                + r.Buildings + " structures, " + r.Civilians + " civilians";
+            return RunBoot(boot, title, days, perSettlement: true);
+        }
+
+        /// Run a soak on an already-booted sim (town or whole region) and report it.
+        /// The day-by-day table + verdict measure the WHOLE context via TownCensus, so
+        /// a region boot reports its regional aggregates; perSettlement adds the
+        /// per-settlement breakdown (Stage 4: observe the model across all settlements).
+        public static int RunBoot(SimBootResult boot, string title, int days, bool perSettlement)
+        {
             var ctx = boot.Ctx;
             var loop = boot.Loop;
             var events = ctx.Events;
-            var town = boot.Town;
 
             // Cumulative counters, snapshotted and diffed per day.
             long decisions = 0, almsGranted = 0, almsRefused = 0, friendships = 0, mets = 0, deaths = 0;
@@ -43,8 +71,7 @@ namespace DaggerfallWorkshop.Sim.Host
             events.Subscribe<MetSimEvent>(e => mets++);
             events.Subscribe<DeathSimEvent>(e => deaths++);
 
-            Console.WriteLine(town.RegionName + " / " + town.Name
-                + " — " + town.Buildings + " structures, " + town.Civilians + " civilians, soaking "
+            Console.WriteLine(title + ", soaking "
                 + days + " game-days (" + (days * TicksPerDay) + " ticks @ 1 game-min/tick)");
             Console.WriteLine();
 
@@ -60,8 +87,47 @@ namespace DaggerfallWorkshop.Sim.Host
 
             PrintTable(series);
             Console.WriteLine();
+            if (perSettlement) PrintSettlements(ctx);
             return Verdict(series) ? 0 : 1;
         }
+
+        /// Final per-settlement economy breakdown — does each settlement behave like
+        /// its solo soak (a producer-less hamlet deflates, etc.)?
+        static void PrintSettlements(SimulationContext ctx)
+        {
+            Console.WriteLine("per-settlement (final):");
+            Console.WriteLine("  kind     name                          pop  coinTot coinMean broke  treasury  pov  hung");
+            foreach (var s in ctx.Settlements.All)
+            {
+                int pop = 0, broke = 0, needN = 0;
+                double coinTot = 0, pov = 0, hung = 0;
+                for (int i = 0; i < s.Residents.Count; i++)
+                {
+                    var id = s.Residents[i];
+                    double c = ctx.Coin.Get(id);
+                    coinTot += c; pop++;
+                    if (c < 0.05) broke++;
+                    if (ctx.Needs.TryGet(id, out var nd))
+                    {
+                        pov += nd.V[NeedAxis.CoinDef]; hung += nd.V[NeedAxis.Hunger]; needN++;
+                    }
+                }
+                double mean = pop > 0 ? coinTot / pop : 0;
+                if (needN > 0) { pov /= needN; hung /= needN; }
+                Console.WriteLine("  "
+                    + s.Kind.ToString().PadRight(8) + " "
+                    + Trunc(s.Name, 28).PadRight(28) + " "
+                    + pop.ToString().PadLeft(4) + " "
+                    + coinTot.ToString("F1").PadLeft(7) + " "
+                    + mean.ToString("F2").PadLeft(7) + " "
+                    + broke.ToString().PadLeft(5) + " "
+                    + ctx.Treasury.Get(s.Treasury).ToString("F1").PadLeft(8) + "  "
+                    + pov.ToString("F2") + " " + hung.ToString("F2"));
+            }
+            Console.WriteLine();
+        }
+
+        static string Trunc(string s, int n) => string.IsNullOrEmpty(s) ? "" : (s.Length <= n ? s : s.Substring(0, n));
 
         struct Snapshot
         {

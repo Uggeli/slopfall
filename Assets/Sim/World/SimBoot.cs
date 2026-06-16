@@ -9,12 +9,14 @@ namespace DaggerfallWorkshop.Sim
         public SimulationContext Ctx;
         public TickLoop Loop;
         public EventLog Log;
-        public TownLoadResult Town;
+        public TownLoadResult Town;     // set by CreateTown (single location)
+        public RegionLoadResult Region; // set by CreateRegion (whole region)
     }
 
-    /// Standard town-sim bring-up shared by every host (console, TCP server,
-    /// web spectator, future Unity/Godot drivers): full system stack, town
-    /// loaded from ARENA2, clock seeded at dawn-ish, sunny weather.
+    /// Standard sim bring-up shared by every host (console, TCP server, web
+    /// spectator, future Unity/Godot drivers): full system stack, world loaded from
+    /// ARENA2, clock seeded at dawn-ish, sunny weather. CreateTown loads one location;
+    /// CreateRegion loads every settled location of a region into one context.
     public static class SimBoot
     {
         public static string DefaultArena2Path =>
@@ -31,6 +33,28 @@ namespace DaggerfallWorkshop.Sim
             if (!location.Loaded)
                 throw new ArgumentException("location not found: " + regionName + "/" + locationName);
 
+            var boot = NewSim(seed);
+            var town = TownLoader.Load(boot.Ctx, location, blocks);
+            SeedStart(boot.Ctx, timeScale);
+            boot.Town = town;
+            return boot;
+        }
+
+        public static SimBootResult CreateRegion(string arena2Path, string regionName,
+            float timeScale, int seed = 12345)
+        {
+            var maps = new MapsFile(System.IO.Path.Combine(arena2Path, "MAPS.BSA"), FileUsage.UseMemory, true);
+            var blocks = new BlocksFile(System.IO.Path.Combine(arena2Path, "BLOCKS.BSA"), FileUsage.UseMemory, true);
+
+            var boot = NewSim(seed);
+            boot.Region = RegionLoader.LoadRegion(boot.Ctx, maps, blocks, regionName);
+            SeedStart(boot.Ctx, timeScale);
+            return boot;
+        }
+
+        /// Build the context + the full system stack (same order for every host).
+        static SimBootResult NewSim(int seed)
+        {
             var events = new EventBus();
             var time = new SimulationTime(0.1);
             var random = new SimRandom(seed);
@@ -62,16 +86,17 @@ namespace DaggerfallWorkshop.Sim
             var log = new EventLog();
             loop.Register(log);
 
-            var town = TownLoader.Load(ctx, location, blocks);
+            return new SimBootResult { Ctx = ctx, Loop = loop, Log = log };
+        }
 
-            inputs.Enqueue(new SeedClockInput
+        static void SeedStart(SimulationContext ctx, float timeScale)
+        {
+            ctx.Inputs.Enqueue(new SeedClockInput
             {
                 Year = 405, Month = 0, Day = 3, Hour = 5, Minute = 30, Second = 0f,
                 TimeScale = timeScale,
             });
             ctx.Weather.Set(new WeatherData { Kind = WeatherKind.Sunny });
-
-            return new SimBootResult { Ctx = ctx, Loop = loop, Log = log, Town = town };
         }
     }
 }

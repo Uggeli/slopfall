@@ -115,6 +115,30 @@ namespace DaggerfallWorkshop.Sim
             Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,   // on the gate
         };
 
+        /// Farming the settlement's fields — primary food production, out at the
+        /// fields (a distinct place from home/shop). Coin-need-driven like labor; a
+        /// long day, dawn to dusk. No distance penalty: it's the one workplace its
+        /// hands have, so they go however far it is.
+        public static readonly Spec Farm = new Spec
+        {
+            Kind = ActivityKind.Farm,
+            DurationMinutes = 180,
+            Delta = Deltas(coinDef: -0.15, energyDef: +0.10),
+            OpenHour = 6, CloseHour = 19,
+            Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,
+        };
+
+        /// Fishing the coast — primary food production, out at the shore (a distinct
+        /// place). Early start (best catch at dawn); otherwise like farming.
+        public static readonly Spec Fish = new Spec
+        {
+            Kind = ActivityKind.Fish,
+            DurationMinutes = 180,
+            Delta = Deltas(coinDef: -0.15, energyDef: +0.12),
+            OpenHour = 5, CloseHour = 17,
+            Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,
+        };
+
         public static readonly Spec EatHome = new Spec
         {
             Kind = ActivityKind.EatHome,
@@ -228,6 +252,8 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Sleep:     return Sleep;
                 case ActivityKind.Work:      return Work;
                 case ActivityKind.Labor:     return Labor;
+                case ActivityKind.Farm:      return Farm;
+                case ActivityKind.Fish:      return Fish;
                 case ActivityKind.EatHome:   return EatHome;
                 case ActivityKind.EatTavern: return EatTavern;
                 case ActivityKind.Socialize: return Socialize;

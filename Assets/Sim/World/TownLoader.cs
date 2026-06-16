@@ -34,7 +34,6 @@ namespace DaggerfallWorkshop.Sim
 
         public static TownLoadResult Load(SimulationContext ctx, in DFLocation location, BlocksFile blocksFile)
         {
-            float blockSide = BlocksFile.RMBDimension * GlobalScale;
             int width = location.Exterior.ExteriorData.Width;
             int height = location.Exterior.ExteriorData.Height;
 
@@ -46,17 +45,77 @@ namespace DaggerfallWorkshop.Sim
                 BlocksHigh = height,
             };
 
+            // One settlement filling its own grid at origin (0,0) — RegionLoader is
+            // the multi-settlement path; this stays the single-town case and must
+            // stay behavior-identical (the LOD ground-truth + the test/soak baseline).
+            var grid = NewGrid(width, height, location.RegionIndex);
+            var settlement = ctx.Settlements.Add(location.Name, location.RegionName, KindOf(location));
+            settlement.BlocksWide = width;
+            settlement.BlocksHigh = height;
+
+            LoadLocationInto(ctx, location, blocksFile, grid, 0, 0, settlement, result);
+
+            ctx.TownGrid.Set(grid);
+            SeedSettlement(ctx, settlement);
+            SeedStock(ctx);
+            return result;
+        }
+
+        /// Run the per-settlement structural seeds (local knowledge, employment,
+        /// guards). Called once per settlement by both Load and RegionLoader.
+        public static void SeedSettlement(SimulationContext ctx, SettlementData s)
+        {
+            SeedTownKnowledge(ctx, s);
+            SeedFarmAndEmployment(ctx, s);
+            SeedGuards(ctx, s);
+        }
+
+        /// Allocate a combined walkability grid of blocksWide × blocksHigh blocks.
+        /// RegionLoader sizes this to the whole packed region; single-town Load sizes
+        /// it to the one location.
+        public static TownGridData NewGrid(int blocksWide, int blocksHigh, int regionIndex)
+        {
             int cells = TownGridData.CellsPerBlock;
-            var grid = new TownGridData
+            return new TownGridData
             {
-                Width = width * cells,
-                Height = height * cells,
-                BlocksWide = width,
-                BlocksHigh = height,
-                RegionIndex = location.RegionIndex,
-                Cost = new byte[width * cells * height * cells],
-                Gates = new BlockGates[width * height],
+                Width = blocksWide * cells,
+                Height = blocksHigh * cells,
+                BlocksWide = blocksWide,
+                BlocksHigh = blocksHigh,
+                RegionIndex = regionIndex,
+                Cost = new byte[blocksWide * cells * blocksHigh * cells],
+                Gates = new BlockGates[blocksWide * blocksHigh],
             };
+        }
+
+        /// Daggerfall location type → the sim's economic archetype.
+        public static SettlementKind KindOf(in DFLocation location)
+        {
+            switch (location.MapTableData.LocationType)
+            {
+                case DFRegion.LocationTypes.TownCity:       return SettlementKind.City;
+                case DFRegion.LocationTypes.TownHamlet:     return SettlementKind.Hamlet;
+                case DFRegion.LocationTypes.TownVillage:    return SettlementKind.Village;
+                case DFRegion.LocationTypes.HomeFarms:      return SettlementKind.Farm;
+                case DFRegion.LocationTypes.ReligionTemple: return SettlementKind.Temple;
+                case DFRegion.LocationTypes.Tavern:         return SettlementKind.Tavern;
+                default:                                    return SettlementKind.Other;
+            }
+        }
+
+        /// Walk one location's RMB blocks into `grid` at block offset
+        /// (blockOriginX, blockOriginY) (combined block coords), creating buildings
+        /// with world coords offset to match and spawning civilians, all tagged to
+        /// `settlement`. The y,x,subrecord walk order is fixed, so EntityId/RNG draws
+        /// are deterministic and the single-town path (offset 0,0, grid sized to the
+        /// one location) is bit-for-bit unchanged.
+        public static void LoadLocationInto(SimulationContext ctx, in DFLocation location, BlocksFile blocksFile,
+            TownGridData grid, int blockOriginX, int blockOriginY, SettlementData settlement, TownLoadResult result)
+        {
+            float blockSide = BlocksFile.RMBDimension * GlobalScale;
+            int width = location.Exterior.ExteriorData.Width;
+            int height = location.Exterior.ExteriorData.Height;
+            int cells = TownGridData.CellsPerBlock;
 
             for (int y = 0; y < height; y++)
             {
@@ -67,53 +126,50 @@ namespace DaggerfallWorkshop.Sim
                     if (block.Type != DFBlock.BlockTypes.Rmb || block.RmbBlock.SubRecords == null)
                         continue;
 
+                    int gx = blockOriginX + x;       // combined block coordinates
+                    int gy = blockOriginY + y;
+
                     // Walkability: per-template cost grid + gate flags (cached
                     // by block name — same template everywhere in the world).
                     var walk = BlockWalkability.For(blockName, block);
-                    grid.Gates[y * width + x] = walk.Gates;
+                    grid.Gates[gy * grid.BlocksWide + gx] = walk.Gates;
                     for (int row = 0; row < cells; row++)
                         Array.Copy(walk.Cost, row * cells,
-                            grid.Cost, (y * cells + row) * grid.Width + x * cells, cells);
+                            grid.Cost, (gy * cells + row) * grid.Width + gx * cells, cells);
 
                     var buildingDataList = block.RmbBlock.FldHeader.BuildingDataList;
                     for (int i = 0; i < block.RmbBlock.SubRecords.Length; i++)
                     {
                         var sub = block.RmbBlock.SubRecords[i];
 
-                        var row = new BuildingRow
+                        var building = new BuildingRow
                         {
                             Kind = BuildingKind.None,
-                            X = x * blockSide + sub.XPos * GlobalScale,
-                            Z = y * blockSide + (BlocksFile.RMBDimension - sub.ZPos) * GlobalScale,
+                            X = gx * blockSide + sub.XPos * GlobalScale,
+                            Z = gy * blockSide + (BlocksFile.RMBDimension - sub.ZPos) * GlobalScale,
                             YRotation = -sub.YRotation / BlocksFile.RotationDivisor,
-                            BlockX = x,
-                            BlockY = y,
+                            BlockX = gx,
+                            BlockY = gy,
                             RecordIndex = i,
                         };
 
                         if (buildingDataList != null && i < buildingDataList.Length)
                         {
                             var data = buildingDataList[i];
-                            row.Kind = (BuildingKind)data.BuildingType;
-                            row.FactionId = data.FactionId;
-                            row.Quality = data.Quality;
-                            row.NameSeed = data.NameSeed;
+                            building.Kind = (BuildingKind)data.BuildingType;
+                            building.FactionId = data.FactionId;
+                            building.Quality = data.Quality;
+                            building.NameSeed = data.NameSeed;
                         }
 
-                        int buildingIndex = ctx.Buildings.Add(row);
+                        int buildingIndex = ctx.Buildings.Add(building);
+                        settlement.Buildings.Add(buildingIndex);
                         result.Buildings++;
 
-                        result.Civilians += SpawnCivilians(ctx, buildingIndex, row, blockName);
+                        result.Civilians += SpawnCivilians(ctx, buildingIndex, building, blockName, settlement);
                     }
                 }
             }
-
-            ctx.TownGrid.Set(grid);
-            SeedTownKnowledge(ctx);
-            SeedEmployment(ctx);
-            SeedGuards(ctx);
-            SeedStock(ctx);
-            return result;
         }
 
         /// Put a few townsfolk on the public payroll (guards): salaried from the
@@ -122,35 +178,64 @@ namespace DaggerfallWorkshop.Sim
         /// crown reimburses the treasury for their pay each tick (G6), so a small
         /// opening buffer is plenty. Patrol behaviour + the KnightlyGuard faction
         /// are later; here a guard is a salaried resident.
-        static void SeedGuards(SimulationContext ctx)
+        static void SeedGuards(SimulationContext ctx, SettlementData s)
         {
-            var residents = new System.Collections.Generic.List<EntityId>();
-            foreach (var kv in ctx.Residency.All)
-                if (kv.Value.Role == ResidentRole.Resident) residents.Add(kv.Key);
+            var residents = ResidentsOfRole(ctx, s, ResidentRole.Resident);
             if (residents.Count == 0) return;
-            residents.Sort((a, b) => a.Value.CompareTo(b.Value));   // deterministic pick
 
-            int guards = residents.Count / 50;                      // ~1 guard per 50 residents
-            if (guards < 2) guards = 2;
+            int guards = GuardCountFor(s.Kind, residents.Count);    // scaled by settlement kind
+            if (guards <= 0) return;
             if (guards > residents.Count) guards = residents.Count;
 
             for (int i = 0; i < guards; i++)
             {
                 var id = residents[i];
-                ctx.Employment.Set(id, new EmploymentData { Employer = EntityId.None, PublicOwner = OwnerId.Town });
+                ctx.Employment.Set(id, new EmploymentData { Employer = EntityId.None, PublicOwner = s.Treasury });
                 if (ctx.Identity.TryGet(id, out var ident) && ident != null) ident.Name = "Town Guard";
             }
 
             // A day's payroll as an opening buffer; the crown tops it up continuously.
-            ctx.Treasury.Set(OwnerId.Town,
+            // Add (not Set) so it accumulates when settlements share the global purse
+            // (Stage 2); single-town starts from an empty treasury, so it's the same.
+            ctx.Treasury.Add(s.Treasury,
                 guards * EconomySystem.GuardWagePerMinute * 1440.0);
+        }
+
+        /// How many town guards a settlement of this kind keeps — cities are policed,
+        /// hamlets keep a token watch, and villages/farms/standalone temples & taverns
+        /// have none (they're too poor and small for a salaried guard). This is the
+        /// "hamlets are poor and don't really have a town guard" rule, and it also
+        /// stops tiny settlements from turning their whole tiny population into guards.
+        static int GuardCountFor(SettlementKind kind, int residents)
+        {
+            switch (kind)
+            {
+                case SettlementKind.City:   { int g = residents / 50; return g < 2 ? 2 : g; }
+                case SettlementKind.Hamlet: { int g = residents / 100; return g < 1 ? 1 : g; }
+                default:                    return 0;
+            }
+        }
+
+        /// This settlement's residents holding `role`, sorted by EntityId for a
+        /// deterministic, settlement-local pick (no cross-settlement bleed).
+        static System.Collections.Generic.List<EntityId> ResidentsOfRole(
+            SimulationContext ctx, SettlementData s, ResidentRole role)
+        {
+            var list = new System.Collections.Generic.List<EntityId>();
+            for (int i = 0; i < s.Residents.Count; i++)
+            {
+                var id = s.Residents[i];
+                if (ctx.Residency.TryGet(id, out var r) && r.Role == role) list.Add(id);
+            }
+            list.Sort((a, b) => a.Value.CompareTo(b.Value));
+            return list;
         }
 
         /// Stock the shops and taverns so the town opens with goods to sell —
         /// the starting inventory the supply chain then replenishes (imports +
         /// craft, G2). Flat seed for now; scaling by building Quality is a tuning
         /// lever for later, not something to guess at before the loop is closed.
-        static void SeedStock(SimulationContext ctx)
+        public static void SeedStock(SimulationContext ctx)
         {
             foreach (var kv in ctx.Buildings.All)
             {
@@ -164,18 +249,85 @@ namespace DaggerfallWorkshop.Sim
         /// Labor wage is paid by a real business — coin recirculates instead of
         /// being minted. Proper job-matching (skills, nearby business) is later;
         /// this is the employment relationship the wage transfer needs.
-        static void SeedEmployment(SimulationContext ctx)
+        /// Give the settlement's laborers a real workplace (Stage 5). Existing shop /
+        /// service keepers run their own premises; everyone else is a laborer, and in
+        /// v1 the settlement's farmland is the mass workplace — they farm (food, the
+        /// primary sector), employed by a farm keeper promoted from among them. This
+        /// is what turns "271 idle laborers" into producers earning from real output.
+        static void SeedFarmAndEmployment(SimulationContext ctx, SettlementData s)
         {
-            var keepers = new System.Collections.Generic.List<EntityId>();
-            var residents = new System.Collections.Generic.List<EntityId>();
-            foreach (var kv in ctx.Residency.All)
-                (kv.Value.Role == ResidentRole.Keeper ? keepers : residents).Add(kv.Key);
-            if (keepers.Count == 0) return;
+            var laborers = ResidentsOfRole(ctx, s, ResidentRole.Resident);
+            if (laborers.Count == 0) return;
 
-            keepers.Sort((a, b) => a.Value.CompareTo(b.Value));        // deterministic assignment
-            residents.Sort((a, b) => a.Value.CompareTo(b.Value));
-            for (int i = 0; i < residents.Count; i++)
-                ctx.Employment.Set(residents[i], new EmploymentData { Employer = keepers[i % keepers.Count] });
+            // The settlement's primary workplaces — farmland always, plus a fishery in
+            // coastal regions (so an island's idle hands fish the sea, not just the few
+            // fields). Each sits at a distinct edge of the settlement (the fields one
+            // side, the shore the other), away from the homes — so hands walk OUT to
+            // work, not to the town centre. Each is run by a keeper promoted from the
+            // laborers; the rest are its hands.
+            var kinds = RegionIndustry.Workplaces(s.RegionName);
+            var anchors = PeripheralAnchors(ctx, s, kinds.Count);
+            if (anchors.Count == 0) return;
+
+            var workplaces = new System.Collections.Generic.List<int>();
+            var keepers = new System.Collections.Generic.List<EntityId>();
+
+            int li = 0;
+            for (int k = 0; k < kinds.Count && k < anchors.Count && li < laborers.Count; k++)
+            {
+                var a = anchors[k];
+                int wp = ctx.Buildings.Add(new BuildingRow
+                {
+                    Kind = kinds[k],
+                    X = a.X, Z = a.Z, BlockX = a.BlockX, BlockY = a.BlockY, RecordIndex = -1,
+                });
+                s.Buildings.Add(wp);
+                var goods = GoodsCatalog.Stocks(kinds[k]);
+                for (int i = 0; i < goods.Length; i++) ctx.Stock.Set(wp, goods[i], InitialStock);
+
+                var keeper = laborers[li++];
+                ctx.Residency.Set(keeper, new ResidencyData { BuildingIndex = wp, Role = ResidentRole.Keeper });
+                ctx.Employment.Set(keeper, new EmploymentData());   // a keeper has no employer
+                ctx.PlaceMemory.Learn(keeper, wp);
+                workplaces.Add(wp);
+                keepers.Add(keeper);
+            }
+            if (workplaces.Count == 0) return;
+
+            // The remaining laborers split across the workplaces (round-robin), employed
+            // by that workplace's keeper and knowing where it is.
+            for (; li < laborers.Count; li++)
+            {
+                int w = li % workplaces.Count;
+                ctx.Employment.Set(laborers[li], new EmploymentData { Employer = keepers[w] });
+                ctx.PlaceMemory.Learn(laborers[li], workplaces[w]);
+            }
+        }
+
+        /// Distinct edge positions for a settlement's `count` primary workplaces: the
+        /// westmost real building for the first (the fields), the eastmost for the
+        /// second (the shore), so the two sit on opposite sides of town and their hands
+        /// walk out in different directions. Falls back to a single building if the
+        /// settlement is tiny. Building positions are reachable (agents path to them),
+        /// so the fields stay walkable while being away from the homes.
+        static System.Collections.Generic.List<BuildingRow> PeripheralAnchors(
+            SimulationContext ctx, SettlementData s, int count)
+        {
+            BuildingRow west = null, east = null, any = null;
+            for (int i = 0; i < s.Buildings.Count; i++)
+            {
+                if (!ctx.Buildings.TryGet(s.Buildings[i], out var b) || b == null) continue;
+                if (any == null) any = b;
+                if (b.Kind == BuildingKind.None) continue;
+                if (west == null || b.X < west.X) west = b;
+                if (east == null || b.X > east.X) east = b;
+            }
+            var list = new System.Collections.Generic.List<BuildingRow>();
+            var first = west ?? any;
+            if (first == null) return list;
+            list.Add(first);
+            if (count >= 2) list.Add(east != null && east != west ? east : first);
+            return list;
         }
 
         /// A town's residents know its layout — they've lived here. So every
@@ -184,18 +336,20 @@ namespace DaggerfallWorkshop.Sim
         /// (SenseSystem) is then about live perception — who's near right now —
         /// not learning where places are. Discovery (other towns, the player,
         /// wandering creatures) comes later, for agents without this grant.
-        static void SeedTownKnowledge(SimulationContext ctx)
+        static void SeedTownKnowledge(SimulationContext ctx, SettlementData s)
         {
-            var buildings = new System.Collections.Generic.List<int>();
-            foreach (var kv in ctx.Buildings.All)
-                if (kv.Value.Kind != BuildingKind.None) buildings.Add(kv.Key);
-
-            foreach (var res in ctx.Residency.All)
-                for (int i = 0; i < buildings.Count; i++)
-                    ctx.PlaceMemory.Learn(res.Key, buildings[i]);
+            // Each resident knows the buildings of their OWN settlement only — no
+            // omniscient awareness of other settlements across the region.
+            for (int r = 0; r < s.Residents.Count; r++)
+                for (int b = 0; b < s.Buildings.Count; b++)
+                {
+                    int bi = s.Buildings[b];
+                    if (ctx.Buildings.TryGet(bi, out var br) && br.Kind == BuildingKind.None) continue;
+                    ctx.PlaceMemory.Learn(s.Residents[r], bi);
+                }
         }
 
-        static int SpawnCivilians(SimulationContext ctx, int buildingIndex, BuildingRow row, string blockName)
+        static int SpawnCivilians(SimulationContext ctx, int buildingIndex, BuildingRow row, string blockName, SettlementData s)
         {
             switch (row.Kind)
             {
@@ -214,7 +368,7 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.Temple:
                 case BuildingKind.Tavern:
                     Spawn(ctx, buildingIndex, row, ResidentRole.Keeper,
-                        row.Kind + " keeper (" + blockName + " #" + row.RecordIndex + ")");
+                        row.Kind + " keeper (" + blockName + " #" + row.RecordIndex + ")", s);
                     return 1;
 
                 case BuildingKind.House1:
@@ -224,9 +378,9 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.House5:
                 case BuildingKind.House6:
                     Spawn(ctx, buildingIndex, row, ResidentRole.Resident,
-                        "Resident (" + blockName + " #" + row.RecordIndex + "a)");
+                        "Resident (" + blockName + " #" + row.RecordIndex + "a)", s);
                     Spawn(ctx, buildingIndex, row, ResidentRole.Resident,
-                        "Resident (" + blockName + " #" + row.RecordIndex + "b)");
+                        "Resident (" + blockName + " #" + row.RecordIndex + "b)", s);
                     return 2;
 
                 default:
@@ -236,9 +390,10 @@ namespace DaggerfallWorkshop.Sim
             }
         }
 
-        static void Spawn(SimulationContext ctx, int buildingIndex, BuildingRow row, ResidentRole role, string name)
+        static void Spawn(SimulationContext ctx, int buildingIndex, BuildingRow row, ResidentRole role, string name, SettlementData settlement)
         {
             var id = ctx.Identity.Allocate();
+            settlement.Residents.Add(id);
 
             ctx.Identity.Set(id, new IdentityData
             {

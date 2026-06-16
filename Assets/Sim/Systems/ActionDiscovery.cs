@@ -56,16 +56,21 @@ namespace DaggerfallWorkshop.Sim
             foreach (var building in ctx.PlaceMemory.Known(agent))
                 Discover(ctx, agent, building, ads);
 
-            // Jobs-at-business: an employed resident can work at their employer's
-            // premises (the wage is paid from that business's purse — EconomySystem).
+            // Jobs-at-workplace: an employed resident can work at their employer's
+            // premises (wage paid from that purse — EconomySystem). The verb is the
+            // workplace's trade: Farm at the fields, Fish at the shore, generic Labor
+            // anywhere else — so the act is the job, at its own place.
             if (ctx.Employment.TryGet(agent, out var emp) && !emp.Employer.IsNone
                 && ctx.Residency.TryGet(emp.Employer, out var empRes)
                 && ctx.Buildings.TryGet(empRes.BuildingIndex, out var empBldg))
             {
+                var verb = empBldg.Kind == BuildingKind.Farm ? ActivityKind.Farm
+                         : empBldg.Kind == BuildingKind.Fishery ? ActivityKind.Fish
+                         : ActivityKind.Labor;
                 ads.Add(new Ad
                 {
-                    Verb = ActivityKind.Labor, Building = empRes.BuildingIndex,
-                    X = empBldg.X, Z = empBldg.Z, Spec = ActivityCatalog.SpecFor(ActivityKind.Labor),
+                    Verb = verb, Building = empRes.BuildingIndex,
+                    X = empBldg.X, Z = empBldg.Z, Spec = ActivityCatalog.SpecFor(verb),
                 });
             }
 

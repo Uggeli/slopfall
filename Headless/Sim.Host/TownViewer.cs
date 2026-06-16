@@ -55,6 +55,37 @@ namespace DaggerfallWorkshop.Sim.Host
             }
         }
 
+        public static int RunRegion(string regionName, float timeScale, int frames)
+        {
+            var boot = SimBoot.CreateRegion(DataProbe.Arena2Path, regionName, timeScale);
+            var world = new WorldStatic
+            {
+                RegionName = boot.Region.RegionName,
+                Name = boot.Region.Settlements + " settlements",
+                BlocksWide = boot.Region.BlocksWide,
+                BlocksHigh = boot.Region.BlocksHigh,
+            };
+            world.Buildings.AddRange(boot.Ctx.Buildings.All);
+            world.Buildings.Sort((a, b) => a.Key.CompareTo(b.Key));
+
+            if (frames > 0)
+            {
+                const int ticksPerFrame = 60;
+                return Frames(world, frames, () =>
+                {
+                    for (int i = 0; i < ticksPerFrame; i++)
+                        boot.Loop.Step();
+                    return SnapshotBuilder.Build(boot.Ctx, 0);
+                });
+            }
+
+            var publisher = new SnapshotPublisher();
+            var thread = new SimThread(boot.Loop, boot.Ctx, publisher);
+            thread.Start();
+            try { return Interactive(world, () => publisher.Latest, () => thread.LastException); }
+            finally { thread.Stop(); }
+        }
+
         public static int RunRemote(string host, int port, int frames)
         {
             using (var client = new TcpClient())
@@ -243,7 +274,7 @@ namespace DaggerfallWorkshop.Sim.Host
             }
 
             sb.Append("\x1b[2mT tavern  + temple  G guild  B bank  $ shop  # house  ░ wall   ")
-              .Append("z sleep  w work  e eat  s social  v visit  . idle/wander  o walking   q quit")
+              .Append("z sleep  w work  f farm  ~ fish  e eat  s social  v visit  . idle/wander  o walking   q quit")
               .Append(Reset).Append("\x1b[K");
             return sb.ToString();
         }
@@ -253,6 +284,8 @@ namespace DaggerfallWorkshop.Sim.Host
             var sb = new StringBuilder();
             AppendCount(sb, byActivity, ActivityKind.Sleep, "sleep");
             AppendCount(sb, byActivity, ActivityKind.Work, "work");
+            AppendCount(sb, byActivity, ActivityKind.Farm, "farm");
+            AppendCount(sb, byActivity, ActivityKind.Fish, "fish");
             AppendCount(sb, byActivity, ActivityKind.EatHome, "eat-home");
             AppendCount(sb, byActivity, ActivityKind.EatTavern, "eat-tav");
             AppendCount(sb, byActivity, ActivityKind.Socialize, "social");
@@ -274,6 +307,8 @@ namespace DaggerfallWorkshop.Sim.Host
             {
                 case ActivityKind.Sleep: return 'z';
                 case ActivityKind.Work: return 'w';
+                case ActivityKind.Farm: return 'f';
+                case ActivityKind.Fish: return '~';
                 case ActivityKind.EatHome:
                 case ActivityKind.EatTavern: return 'e';
                 case ActivityKind.Socialize: return 's';
@@ -290,6 +325,8 @@ namespace DaggerfallWorkshop.Sim.Host
             {
                 case ActivityKind.Sleep: return "\x1b[34m";       // blue
                 case ActivityKind.Work: return "\x1b[33m";        // yellow
+                case ActivityKind.Farm: return "\x1b[93m";        // bright yellow (fields)
+                case ActivityKind.Fish: return "\x1b[94m";        // bright blue (shore)
                 case ActivityKind.EatHome:
                 case ActivityKind.EatTavern: return "\x1b[32m";   // green
                 case ActivityKind.Socialize: return "\x1b[35m";   // magenta

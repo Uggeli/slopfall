@@ -26,6 +26,9 @@ namespace DaggerfallWorkshop.Sim.Host
             int port = 7777;
             string townRegion = null, townLocation = null;
             string soakRegion = null, soakLocation = null;
+            string loadRegion = null;
+            string soakRegionWhole = null;
+            string viewRegionWhole = null;
             int days = 7;
             string viewRegion = null, viewLocation = null;
             string serveRegion = null, serveLocation = null;
@@ -47,6 +50,9 @@ namespace DaggerfallWorkshop.Sim.Host
                     case "--realtime": realtime = true; break;
                     case "--town": townRegion = args[++i]; townLocation = args[++i]; break;
                     case "--soak": soakRegion = args[++i]; soakLocation = args[++i]; break;
+                    case "--loadregion": loadRegion = args[++i]; break;
+                    case "--soakregion": soakRegionWhole = args[++i]; break;
+                    case "--viewregion": viewRegionWhole = args[++i]; break;
                     case "--days": days = int.Parse(args[++i]); break;
                     case "--view": viewRegion = args[++i]; viewLocation = args[++i]; break;
                     case "--serve": serveRegion = args[++i]; serveLocation = args[++i]; break;
@@ -69,6 +75,12 @@ namespace DaggerfallWorkshop.Sim.Host
             }
             if (viewRegion != null)
                 return TownViewer.RunLocal(viewRegion, viewLocation, timeScale, frames);
+            if (loadRegion != null)
+                return RegionProbe.Run(loadRegion);
+            if (soakRegionWhole != null)
+                return Soak.RunRegion(soakRegionWhole, days);
+            if (viewRegionWhole != null)
+                return TownViewer.RunRegion(viewRegionWhole, timeScale, frames);
             if (soakRegion != null)
                 return Soak.Run(soakRegion, soakLocation, days);
             if (townRegion != null)

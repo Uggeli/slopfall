@@ -20,8 +20,10 @@ namespace Sim.Tests
         public void MonthlyTax_DrainsWealthAboveExemption_IntoTreasury()
         {
             var h = new SimHarness(tickIntervalSeconds: 1.0);
-            var rich = h.SpawnEntity("Rich"); h.Ctx.Coin.Set(rich, 10.0); h.Ctx.Needs.Set(rich, new NeedsData());
-            var poor = h.SpawnEntity("Poor"); h.Ctx.Coin.Set(poor, 0.2); h.Ctx.Needs.Set(poor, new NeedsData());
+            // Tax is collected per settlement, so the taxed purses must belong to one.
+            var town = h.Ctx.Settlements.Add("Testton", "Test", SettlementKind.City);
+            var rich = h.SpawnEntity("Rich"); h.Ctx.Coin.Set(rich, 10.0); h.Ctx.Needs.Set(rich, new NeedsData()); town.Residents.Add(rich);
+            var poor = h.SpawnEntity("Poor"); h.Ctx.Coin.Set(poor, 0.2); h.Ctx.Needs.Set(poor, new NeedsData()); town.Residents.Add(poor);
             h.SeedClock(year: 405, month: 0, day: 1, hour: 12, timeScale: 600f);
             h.Step(2);
 
@@ -30,10 +32,10 @@ namespace Sim.Tests
             h.Step(2);
 
             Assert.True(h.Ctx.Coin.Get(rich) < 10.0, "the wealthy weren't taxed");
-            Assert.Equal(0.2, h.Ctx.Coin.Get(poor), 6);                 // below exemption → untouched
-            Assert.True(h.Ctx.Treasury.Get(OwnerId.Town) > 0, "treasury collected no tax");
+            Assert.True(h.Ctx.Coin.Get(poor) >= 0.2, "the poor were taxed");   // below exemption → not taxed (may gain a little civic relief)
+            Assert.True(h.Ctx.Treasury.Get(town.Treasury) > 0, "the settlement treasury collected no tax");
             Assert.True(h.Ctx.Ledger.Current.Taxes > 0, "tax not tallied");
-            // A transfer, not a sink: the money supply is unchanged.
+            // Tax and the civic dividend are both transfers: the money supply is unchanged.
             Assert.Equal(supplyBefore, MoneySupply(h), 6);
         }
 
@@ -53,14 +55,16 @@ namespace Sim.Tests
             h.SeedClock(hour: 12, timeScale: 600f);
 
             double guard0 = h.Ctx.Coin.Get(guard);
+            double treasury0 = h.Ctx.Treasury.Get(OwnerId.Town);
             h.Step(5);
 
-            // The guard is paid out of the treasury; the crown reimburses the
-            // treasury for that payroll each tick (G6), so the balance holds while
-            // coin flows out to the guard.
+            // F1: the guard is paid in full out of the treasury, which DEPLETES (the
+            // crown is only a lender of last resort, so with a funded treasury it mints
+            // nothing). Tax actually recirculates instead of the treasury staying flat.
             Assert.True(h.Ctx.Coin.Get(guard) > guard0, "guard wasn't paid");
             Assert.True(h.Ctx.Ledger.Current.GuardPay > 0, "guard pay not tallied");
-            Assert.True(h.Ctx.Ledger.Current.CrownSubsidy > 0, "crown didn't reimburse the payroll");
+            Assert.True(h.Ctx.Treasury.Get(OwnerId.Town) < treasury0, "treasury didn't fund the payroll");
+            Assert.Equal(0, h.Ctx.Ledger.Current.CrownSubsidy, 9);   // funded treasury → no crown mint
         }
 
         [Fact]

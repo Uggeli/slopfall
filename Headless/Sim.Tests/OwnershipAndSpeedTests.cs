@@ -74,7 +74,9 @@ namespace Sim.Tests
             var h = LoadTown();
             h.Step(10);
 
-            // Find a house with residents via Residency, then inspect it.
+            // Find a house with residents via Residency, then inspect it. (Stage 5
+            // promotes one laborer per settlement to farm keeper, so a house may have
+            // 1 rather than 2 residents — assert against the actual occupancy.)
             int building = -1;
             foreach (var kv in h.Ctx.Residency.All)
             {
@@ -82,9 +84,13 @@ namespace Sim.Tests
             }
             Assert.True(building >= 0);
 
+            int expected = 0;
+            foreach (var kv in h.Ctx.Residency.All)
+                if (kv.Value.BuildingIndex == building) expected++;
+
             var detail = Inspector.InspectBuilding(h.Ctx, building);
             Assert.NotNull(detail);
-            Assert.Equal(2, detail.People.Count);           // houses get two residents
+            Assert.Equal(expected, detail.People.Count);    // lists exactly the building's people
             Assert.All(detail.People, p => Assert.Equal("Resident", p.Role));
             Assert.All(detail.People, p => Assert.False(string.IsNullOrEmpty(p.Name)));
 

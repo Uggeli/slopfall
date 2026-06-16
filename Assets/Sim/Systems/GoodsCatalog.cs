@@ -52,6 +52,12 @@ namespace DaggerfallWorkshop.Sim
 
         public static GoodDef Def(Good good) => Defs[(int)good];
 
+        /// A primary-sector workplace (farm, fishery): a sim-native production site
+        /// whose output scales with the hands working it. Drives the worker-scaling and
+        /// wage-share in EconomySystem so a second industry slots in as data.
+        public static bool IsPrimaryWorkplace(BuildingKind kind)
+            => kind == BuildingKind.Farm || kind == BuildingKind.Fishery;
+
         /// Price of a good at a point in the supply chain.
         public static double PriceOf(Good good, PriceTier tier)
         {
@@ -72,8 +78,11 @@ namespace DaggerfallWorkshop.Sim
         {
             switch (kind)
             {
+                case BuildingKind.Farm:
+                case BuildingKind.Fishery:
+                    return ProvisionsOnly; // the harvest/catch it produces and sells on
                 case BuildingKind.GeneralStore:
-                    return Staples;        // imported provisions + drink
+                    return Staples;        // provisions (sourced local) + drink (imported)
                 case BuildingKind.Tavern:
                     return Staples;        // raw provisions + drink, served as meals/ale
                 case BuildingKind.Alchemist:
@@ -91,14 +100,15 @@ namespace DaggerfallWorkshop.Sim
         }
 
         /// Goods a building brings in from off-map, paying the import price out
-        /// of town — the economy's one controlled leak. General stores are the
-        /// import hub for raw staples; taverns get theirs via B2B from stores
-        /// (G4), not directly, so they import nothing here.
+        /// of town — the economy's one controlled leak. With local farms producing
+        /// food (Stage 5), general stores no longer import provisions — they source
+        /// those locally (B2B) from the farm and import only drink (the one staple
+        /// not yet produced in town). Taverns get theirs via B2B from stores (G4).
         public static Good[] Imports(BuildingKind kind)
         {
             switch (kind)
             {
-                case BuildingKind.GeneralStore: return Staples;
+                case BuildingKind.GeneralStore: return DrinkOnly;
                 default:                        return System.Array.Empty<Good>();
             }
         }
@@ -118,6 +128,9 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.PawnShop:
                 case BuildingKind.WeaponSmith:
                     return WaresOnly;
+                case BuildingKind.Farm:
+                case BuildingKind.Fishery:
+                    return ProvisionsOnly;   // local food: the primary-sector faucet
                 default:
                     return System.Array.Empty<Good>();
             }
@@ -195,5 +208,7 @@ namespace DaggerfallWorkshop.Sim
 
         static readonly Good[] Staples  = { Good.Provisions, Good.Drink };
         static readonly Good[] WaresOnly = { Good.Wares };
+        static readonly Good[] ProvisionsOnly = { Good.Provisions };
+        static readonly Good[] DrinkOnly = { Good.Drink };
     }
 }

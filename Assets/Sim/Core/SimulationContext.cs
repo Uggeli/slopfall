@@ -40,6 +40,7 @@ namespace DaggerfallWorkshop.Sim
         public EmploymentRegistry Employment { get; }
         public StockRegistry Stock { get; }
         public TreasuryRegistry Treasury { get; }
+        public SettlementRegistry Settlements { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -77,6 +78,7 @@ namespace DaggerfallWorkshop.Sim
             Employment = new EmploymentRegistry();
             Stock = new StockRegistry();
             Treasury = new TreasuryRegistry();
+            Settlements = new SettlementRegistry();
         }
     }
 }

@@ -22,13 +22,23 @@ namespace DaggerfallWorkshop.Sim
     /// keeps working unchanged on top of real money.
     public sealed class EconomySystem : ISystem
     {
-        public const double LaborWagePerMinute = 0.15 / 120.0;      // matches Labor's promise (resident day-work)
+        public const double LaborWagePerMinute = 0.15 / 1440.0;     // a farmhand's subsistence day-wage (~0.15/day), tuned so a farm's bounded income spreads across its hands rather than maxing out a few
         // Supply (G2): a working keeper restocks toward StockTarget — craft is
         // free, imports cost the import price off-map. Rates/targets are
         // PLACEHOLDERS, tuned once the loop (G3 sales, G4 B2B) draws stock down.
         public const double StockTarget = 40.0;                     // units a working keeper keeps on hand
         public const double ImportPerMinute = 1.0;                  // off-map restock rate (units/game-min)
-        public const double ProducePerMinute = 0.5;                 // local craft output (units/game-min)
+        // Stage 5: a farm's output scales with the hands working it this tick, capped
+        // by the land it has — the production throttle that bounds the export faucet
+        // without touching craft shops (a lone keeper is no runaway). PLACEHOLDERS
+        // tuned against the soak (food self-sufficient, stable money, low poverty).
+        public const double FarmProducePerWorkerMinute = 0.005;     // food per active farmhand (units/game-min)
+        public const int FarmCapacity = 50;                         // hands a settlement's farmland supports
+        // A farm pays its hands out of what it earns (sales + exports), shared evenly
+        // among those working it — so income reaches the workforce instead of piling up
+        // in one "keeper" purse. A fraction of the till per tick (it refills from sales).
+        public const double FarmWagePayoutFraction = 0.3;
+        public const double ProducePerMinute = 0.5;                 // local craft output (units/game-min, a keeper working)
         // Necessity drain (placeholder). Real balance comes from the full
         // circular flow — employer-paid wages (E1) + rent (E2) + tax (E3) — and
         // gets tuned once all mechanisms are in, not before.
@@ -40,9 +50,16 @@ namespace DaggerfallWorkshop.Sim
         public const double TaxExemption = 0.5;                     // wealth below this is untaxed (protects the poor)
         public const double TaxRatePerMonth = 0.3;                  // share of wealth above the exemption, per month
         public const double GuardWagePerMinute = 0.3 / 1440.0;      // guard salary ≈ 0.3 coin/day, from the treasury
+        // The treasury's spend path: a flat civic dividend (poor relief) back to a
+        // settlement's residents, so the progressive tax actually RECIRCULATES against
+        // concentration instead of hoarding. A transfer (treasury → residents).
+        public const double CivicDividendPerMinute = 0.0002;        // fraction of treasury paid out per game-minute
 
         SimulationContext _ctx;
         readonly List<CoinTransferEvent> _pending = new List<CoinTransferEvent>();
+        readonly List<EntityId> _order = new List<EntityId>();      // reused per-tick deterministic walk order (F3)
+        readonly Dictionary<int, int> _farmWorkers = new Dictionary<int, int>();             // hands working each farm this tick (scales its harvest)
+        readonly Dictionary<int, double> _farmWageShare = new Dictionary<int, double>();     // a farm's per-worker wage this tick (its till shared out)
         readonly Dictionary<int, EntityId> _keeperOf = new Dictionary<int, EntityId>();
         readonly Dictionary<Good, List<int>> _sourcesByGood = new Dictionary<Good, List<int>>();   // wholesale sources (G4)
         bool _taxDue;                                              // armed by NewMonthSimEvent; collected next Update
@@ -101,7 +118,7 @@ namespace DaggerfallWorkshop.Sim
 
             double before = SumCoin();
             double salesRev = 0, serviceRev = 0, importsPaid = 0, wholesalePaid = 0, guardPaid = 0;
-            double exportsEarned = 0, crownMinted = 0;
+            double exportsEarned = 0, crownMinted = 0, crownShortfall = 0;
             double living = CostOfLivingPerHour * gameMinutes / 60.0;
 
             // Tax man (E3): on a month rollover (NewMonthSimEvent), drain wealth
@@ -110,19 +127,54 @@ namespace DaggerfallWorkshop.Sim
             // remittance is handled continuously below, not here.
             if (_taxDue) { CollectMonthlyTax(); _taxDue = false; }
 
-            foreach (var kv in _ctx.Behavior.All)
+            // Count the hands working each farm this tick — its harvest scales with
+            // them (capped by land), so a town's whole workforce makes a sane amount.
+            _farmWorkers.Clear();
+            foreach (var kvb in _ctx.Behavior.All)
             {
-                var behavior = kv.Value;
-                double coin = _ctx.Coin.Get(kv.Key);
+                var bh = kvb.Value;
+                if (bh.Phase != ActivityPhase.Doing || bh.TargetBuilding < 0) continue;
+                if (bh.Activity != ActivityKind.Farm && bh.Activity != ActivityKind.Fish) continue;
+                if (!_ctx.Buildings.TryGet(bh.TargetBuilding, out var wb) || wb == null || !GoodsCatalog.IsPrimaryWorkplace(wb.Kind)) continue;
+                _farmWorkers.TryGetValue(bh.TargetBuilding, out var c);
+                _farmWorkers[bh.TargetBuilding] = c + 1;
+            }
+
+            // Each farm's wage share this tick: a fraction of its keeper's (the farm
+            // till's) coin, split evenly among the hands working it — so the harvest's
+            // proceeds reach the workforce rather than pooling in one purse.
+            _farmWageShare.Clear();
+            foreach (var kv in _farmWorkers)
+            {
+                if (kv.Value <= 0) continue;
+                var keeper = KeeperOf(kv.Key);
+                if (keeper.IsNone) continue;
+                _farmWageShare[kv.Key] = _ctx.Coin.Get(keeper) * FarmWagePayoutFraction / kv.Value;
+            }
+
+            // Deterministic walk: registry enumeration is unordered, and this pass
+            // draws down SHARED shop stock (B2C sales, B2B restock), so when a shelf
+            // is stock-constrained the outcome (who gets the last unit, who pays)
+            // depends on order. Sort by EntityId — same discipline SocialSystem uses
+            // for partner order. MANDATORY before Update runs in parallel / across
+            // region servers (audit F3).
+            SortedKeys(_ctx.Behavior.All, _order);
+            for (int oi = 0; oi < _order.Count; oi++)
+            {
+                var id = _order[oi];
+                if (!_ctx.Behavior.TryGet(id, out var behavior)) continue;
+                double coin = _ctx.Coin.Get(id);
                 double next = coin - living;
 
                 // Guards are on the public payroll: a steady salary out of the
                 // treasury (no keeper), recirculating tax back into spending.
-                if (_ctx.Employment.TryGet(kv.Key, out var emp) && !emp.PublicOwner.IsNone)
+                if (_ctx.Employment.TryGet(id, out var emp) && !emp.PublicOwner.IsNone)
                 {
-                    double drawn = PayGuard(emp.PublicOwner, GuardWagePerMinute * gameMinutes);
-                    next += drawn;
-                    guardPaid += drawn;
+                    double owed = GuardWagePerMinute * gameMinutes;
+                    double drawn = PayGuard(emp.PublicOwner, owed);   // from the local treasury (tax-funded)
+                    next += owed;                                     // the guard is paid in full
+                    guardPaid += drawn;                              // treasury → guard (a transfer)
+                    crownShortfall += owed - drawn;                  // crown mints only the gap (F1)
                 }
 
                 if (behavior.Phase == ActivityPhase.Doing)
@@ -146,37 +198,49 @@ namespace DaggerfallWorkshop.Sim
                             wholesalePaid += wholesaleCost;
                             exportsEarned += exported;
                             break;
+                        case ActivityKind.Farm:
+                        case ActivityKind.Fish:
                         case ActivityKind.Labor:
-                            // Paid by the employer (a transfer, not minted) — so
-                            // resident income recirculates instead of inflating.
-                            next += PayWage(kv.Key, LaborWagePerMinute * gameMinutes);
+                            // Working the employer's premises out at its place — the farm
+                            // fields or the shore. Those hands scale the workplace's harvest
+                            // (counted above); they're paid an even share of its till (its
+                            // sale + export income) rather than a flat wage, so the proceeds
+                            // reach the whole workforce. A transfer from the employer's
+                            // purse, not minted.
+                            double wage = LaborWagePerMinute * gameMinutes;
+                            if (_farmWageShare.TryGetValue(behavior.TargetBuilding, out var share)) wage = share;
+                            next += PayWage(id, wage);
                             break;
                         case ActivityKind.EatTavern:
                         case ActivityKind.Socialize:
                         case ActivityKind.Buy:
                             // A real B2C sale: draw the good off the seller's shelf,
                             // pay the keeper. No stock (or no coin) → no sale.
-                            next -= PaySale(kv.Key, behavior.TargetBuilding,
+                            next -= PaySale(id, behavior.TargetBuilding,
                                 ActivityCatalog.SpecFor(behavior.Activity), gameMinutes, next, ref salesRev);
                             break;
                         case ActivityKind.Visit:
                             // At a service institution the visit is paid patronage
                             // (offering/dues/fee → keeper); free elsewhere (G5).
-                            next -= PaySale(kv.Key, behavior.TargetBuilding,
+                            next -= PaySale(id, behavior.TargetBuilding,
                                 ActivityCatalog.SpecFor(behavior.Activity), gameMinutes, next, ref serviceRev);
                             break;
                     }
                 }
 
-                _ctx.Coin.Set(kv.Key, next < 0 ? 0 : next);
+                _ctx.Coin.Set(id, next < 0 ? 0 : next);
             }
 
-            // Crown remittance (G6): the province reimburses the treasury for the
-            // guards' pay this tick — a smooth coin-IN faucet that keeps the public
-            // payroll solvent ("palace/guards are crown-funded"). Paid continuously
-            // (not a monthly lump) so the money supply doesn't saw-tooth.
-            crownMinted = guardPaid;
-            if (crownMinted > 0) _ctx.Treasury.Add(OwnerId.Town, crownMinted);
+            // Crown as lender of last resort (F1): each settlement's treasury — filled
+            // by its own tax — funds its guards, and the crown mints only the shortfall
+            // when a treasury runs dry. So tax actually recirculates (the treasury
+            // depletes paying guards) instead of sitting idle, and the crown is a
+            // backstop, not the primary money faucet.
+            crownMinted = crownShortfall;
+
+            // Recirculate the treasuries back to residents (poor relief), so the tax
+            // counters concentration instead of hoarding.
+            DistributeTreasury(gameMinutes);
 
             // Conservation accounting. Money is now created only at the off-map
             // edges — exports (coin in to producers) and the crown subsidy (coin in
@@ -208,28 +272,106 @@ namespace DaggerfallWorkshop.Sim
             foreach (var kv in _ctx.Coin.All) s += kv.Value;
             s += _ctx.Treasury.Total;          // treasury is part of the money supply (E3)
             return s;
+            // NOTE: this sum is order-dependent at the float-epsilon level too; left
+            // unsorted as it only feeds the audit residual. Sort here as well if/when
+            // bit-exact two-run state hashing is required (Phase 2 / parallel). F3.
         }
 
-        /// Collect a progressive wealth tax into the Town treasury: each purse pays
-        /// TaxRatePerMonth of whatever it holds above TaxExemption (the poor pay
-        /// nothing). A pure transfer — the money supply is unchanged, it just moves
-        /// from private hands to the commons. Fired once per month rollover.
+        /// Snapshot a registry's keys into `dst`, sorted by EntityId — the stable
+        /// walk order any contended/float-sum pass needs (audit F3). Reuses the
+        /// caller's buffer; allocates only when the entity set grows.
+        static void SortedKeys<T>(IEnumerable<KeyValuePair<EntityId, T>> src, List<EntityId> dst)
+        {
+            dst.Clear();
+            foreach (var kv in src) dst.Add(kv.Key);
+            dst.Sort((a, b) => a.Value.CompareTo(b.Value));
+        }
+
+        /// Recirculate each settlement's treasury back to its residents as a flat civic
+        /// dividend (poor relief) — the spend path that makes the progressive tax counter
+        /// concentration instead of letting the treasury hoard. A transfer (treasury →
+        /// residents), so the money supply is unchanged. Residents walked in EntityId
+        /// order for determinism (F3).
+        void DistributeTreasury(double gameMinutes)
+        {
+            var settlements = _ctx.Settlements.All;
+            for (int si = 0; si < settlements.Count; si++)
+            {
+                var s = settlements[si];
+                if (s.Residents.Count == 0) continue;
+                double bal = _ctx.Treasury.Get(s.Treasury);
+                if (bal <= 0) continue;
+                double per = bal * CivicDividendPerMinute * gameMinutes / s.Residents.Count;
+                if (per <= 0) continue;
+
+                _order.Clear();
+                for (int i = 0; i < s.Residents.Count; i++) _order.Add(s.Residents[i]);
+                _order.Sort((a, b) => a.Value.CompareTo(b.Value));
+
+                double paid = 0;
+                for (int oi = 0; oi < _order.Count; oi++)
+                {
+                    _ctx.Coin.Set(_order[oi], _ctx.Coin.Get(_order[oi]) + per);
+                    paid += per;
+                }
+                _ctx.Treasury.Add(s.Treasury, -paid);
+            }
+        }
+
+        /// Collect a progressive wealth tax PER SETTLEMENT: each settlement taxes its
+        /// own residents into its own treasury — each purse pays its settlement's rate
+        /// on whatever it holds above TaxExemption (the poor pay nothing). A pure
+        /// transfer (the money supply is unchanged, it just moves to the local commons).
+        /// Fired once per month rollover. The RATE scales with settlement kind: a city
+        /// taxes hard (it has a public sector to fund), a hamlet barely at all.
         void CollectMonthlyTax()
         {
-            double collected = 0;
-            foreach (var kv in _ctx.Coin.All)
+            var settlements = _ctx.Settlements.All;
+            for (int si = 0; si < settlements.Count; si++)
             {
-                double coin = kv.Value;
-                double taxable = coin - TaxExemption;
-                if (taxable <= 0) continue;
-                double tax = taxable * TaxRatePerMonth;
-                _ctx.Coin.Set(kv.Key, coin - tax);
-                collected += tax;
+                var s = settlements[si];
+                double rate = TaxRateFor(s.Kind);
+                if (rate <= 0) continue;
+
+                // Sort this settlement's residents so the collected total accumulates
+                // in a deterministic order (float addition isn't associative — order
+                // shifts the treasury balance at the epsilon level, breaking two-run /
+                // multi-server agreement). F3.
+                _order.Clear();
+                for (int i = 0; i < s.Residents.Count; i++) _order.Add(s.Residents[i]);
+                _order.Sort((a, b) => a.Value.CompareTo(b.Value));
+
+                double collected = 0;
+                for (int oi = 0; oi < _order.Count; oi++)
+                {
+                    var id = _order[oi];
+                    double coin = _ctx.Coin.Get(id);
+                    double taxable = coin - TaxExemption;
+                    if (taxable <= 0) continue;
+                    double tax = taxable * rate;
+                    _ctx.Coin.Set(id, coin - tax);
+                    collected += tax;
+                }
+                if (collected > 0)
+                {
+                    _ctx.Treasury.Add(s.Treasury, collected);
+                    _taxes += collected;
+                }
             }
-            if (collected > 0)
+        }
+
+        /// Monthly wealth-tax rate by settlement kind — cities run a real public sector
+        /// and tax hard; hamlets and villages are poor and barely tax; farms and
+        /// standalone temples/taverns are lighter still. ("Hamlets' taxes must be
+        /// lower." TaxRatePerMonth is the city anchor.)
+        static double TaxRateFor(SettlementKind kind)
+        {
+            switch (kind)
             {
-                _ctx.Treasury.Add(OwnerId.Town, collected);
-                _taxes += collected;
+                case SettlementKind.City:    return TaxRatePerMonth;          // 0.30
+                case SettlementKind.Hamlet:  return TaxRatePerMonth * 0.5;    // 0.15
+                case SettlementKind.Village: return TaxRatePerMonth * 0.33;   // 0.10
+                default:                     return TaxRatePerMonth * 0.17;    // ~0.05 (farm/temple/tavern/other)
             }
         }
 
@@ -257,6 +399,10 @@ namespace DaggerfallWorkshop.Sim
             return wage;
         }
 
+        /// A laborer's output at a producing workplace (a farm): their work adds the
+        /// site's goods to its stock, free (value made from land + labour, no coin in),
+        /// which the keeper then sells locally and exports. Non-producing workplaces
+        /// (a shop a clerk minds) add nothing here — only the keeper produces there.
         /// A working keeper stocks their business and trades at the edges:
         ///   - PRODUCE: craft shops make wares locally (no coin), then EXPORT the
         ///     surplus above StockTarget off-map at the wholesale price (coin IN —
@@ -276,7 +422,17 @@ namespace DaggerfallWorkshop.Sim
             for (int i = 0; i < produced.Length; i++)
             {
                 var good = produced[i];
-                _ctx.Stock.Add(building, good, ProducePerMinute * gameMinutes);    // craft (free, builds surplus)
+                // A craft keeper makes a steady amount alone; a farm makes food scaled
+                // by the hands working it this tick, capped by its land — the bounded
+                // faucet (no runaway however many laborers pile in).
+                double output = ProducePerMinute * gameMinutes;
+                if (GoodsCatalog.IsPrimaryWorkplace(b.Kind))
+                {
+                    int hands = _farmWorkers.TryGetValue(building, out var w) ? w : 0;
+                    if (hands > FarmCapacity) hands = FarmCapacity;
+                    output = hands * FarmProducePerWorkerMinute * gameMinutes;
+                }
+                _ctx.Stock.Add(building, good, output);                            // produced free (value from land/craft)
                 double surplus = _ctx.Stock.Get(building, good) - StockTarget;     // keep StockTarget for local sale
                 if (surplus > 0)
                 {

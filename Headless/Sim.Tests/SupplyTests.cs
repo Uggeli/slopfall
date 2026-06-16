@@ -25,20 +25,20 @@ namespace Sim.Tests
         }
 
         [Fact]
-        public void GeneralStoreKeeper_ImportsStaples_PayingOffMap()
+        public void GeneralStoreKeeper_ImportsDrink_PayingOffMap()
         {
             var h = new SimHarness(tickIntervalSeconds: 1.0);
             int store = h.Ctx.Buildings.Add(new BuildingRow { Kind = BuildingKind.GeneralStore });
-            h.Ctx.Stock.Set(store, Good.Provisions, 5);   // shelves low → restock
-            h.Ctx.Stock.Set(store, Good.Drink, 5);
+            h.Ctx.Stock.Set(store, Good.Drink, 5);        // drink low → import off-map
             var keeper = WorkingKeeper(h, store, 1.0);
             h.SeedClock(hour: 12, timeScale: 600f);
 
             h.Step(10);
 
-            // Stock rose toward the target, and the off-map spend was tallied.
-            Assert.True(h.Ctx.Stock.Get(store, Good.Provisions) > 5, "provisions not restocked");
-            Assert.True(h.Ctx.Stock.Get(store, Good.Drink) > 5, "drink not restocked");
+            // Stage 5: stores import only drink off-map (the one staple not made in
+            // town); provisions are sourced locally (B2B from a farm), so a store with
+            // no farm nearby doesn't conjure them. The off-map spend is tallied.
+            Assert.True(h.Ctx.Stock.Get(store, Good.Drink) > 5, "drink not imported");
             Assert.True(h.Ctx.Stock.Get(store, Good.Wares) == 0, "a store shouldn't conjure wares");
             Assert.True(h.Ctx.Ledger.Current.Imports > 0, "imports not tallied as a sink");
         }
@@ -67,27 +67,29 @@ namespace Sim.Tests
         }
 
         [Fact]
-        public void Tavern_B2BRestocksProvisions_FromAStore_InTown()
+        public void Tavern_B2BRestocksProvisions_FromAFarm_InTown()
         {
             var h = new SimHarness(tickIntervalSeconds: 1.0);
-            int store = h.Ctx.Buildings.Add(new BuildingRow { Kind = BuildingKind.GeneralStore, X = 0, Z = 0 });
+            // Stage 5: provisions ORIGINATE at the local farm now (not imported by the
+            // store), so the tavern B2B-sources its provisions from the farm.
+            int farm = h.Ctx.Buildings.Add(new BuildingRow { Kind = BuildingKind.Farm, X = 0, Z = 0 });
             int tavern = h.Ctx.Buildings.Add(new BuildingRow { Kind = BuildingKind.Tavern, X = 10, Z = 0 });
-            h.Ctx.Stock.Set(store, Good.Provisions, 40);   // store has stock to wholesale
+            h.Ctx.Stock.Set(farm, Good.Provisions, 40);    // the harvest, ready to wholesale
             h.Ctx.Stock.Set(tavern, Good.Provisions, 0);   // tavern is out → needs B2B
 
-            var storeKeeper = h.SpawnEntity("StoreKeeper");          // the seller (not working)
-            h.Ctx.Residency.Set(storeKeeper, new ResidencyData { BuildingIndex = store, Role = ResidentRole.Keeper });
-            h.Ctx.Coin.Set(storeKeeper, 0.5);
-            WorkingKeeper(h, tavern, 1.0);                           // tavern keeper at work → restocks
+            var farmKeeper = h.SpawnEntity("FarmKeeper");           // the seller (not working)
+            h.Ctx.Residency.Set(farmKeeper, new ResidencyData { BuildingIndex = farm, Role = ResidentRole.Keeper });
+            h.Ctx.Coin.Set(farmKeeper, 0.5);
+            WorkingKeeper(h, tavern, 1.0);                          // tavern keeper at work → restocks
             h.SeedClock(hour: 12, timeScale: 600f);
 
-            double sellerCoin0 = h.Ctx.Coin.Get(storeKeeper);
-            double storeStock0 = h.Ctx.Stock.Get(store, Good.Provisions);
+            double sellerCoin0 = h.Ctx.Coin.Get(farmKeeper);
+            double farmStock0 = h.Ctx.Stock.Get(farm, Good.Provisions);
             h.Step(8);
 
             Assert.True(h.Ctx.Stock.Get(tavern, Good.Provisions) > 0, "tavern wasn't B2B-restocked");
-            Assert.True(h.Ctx.Stock.Get(store, Good.Provisions) < storeStock0, "store stock not drawn by the wholesale");
-            Assert.True(h.Ctx.Coin.Get(storeKeeper) > sellerCoin0, "store keeper got no wholesale revenue");
+            Assert.True(h.Ctx.Stock.Get(farm, Good.Provisions) < farmStock0, "farm stock not drawn by the wholesale");
+            Assert.True(h.Ctx.Coin.Get(farmKeeper) > sellerCoin0, "farm keeper got no wholesale revenue");
             Assert.True(h.Ctx.Ledger.Current.Wholesale > 0, "B2B wholesale not tallied");
             // B2B stays in town: it's a transfer, not an off-map import.
             Assert.Equal(0, h.Ctx.Ledger.Current.Imports, 9);

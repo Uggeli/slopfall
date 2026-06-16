@@ -39,6 +39,11 @@ namespace DaggerfallWorkshop.Sim
         Special2 = 0xdf,
         Special3 = 0xf9,
         Special4 = 0xfa,
+        // Sim-native workplaces — synthesized at load (not from Daggerfall block data),
+        // so their values sit clear of the 0..0x18 range the cast from BuildingType uses
+        // and the 0x74..0xfa specials.
+        Farm = 0x100,       // primary food production (a settlement's farmland/hinterland)
+        Fishery = 0x101,    // primary food production at the coast (island/coastal regions)
     }
 
     public sealed class BuildingRow

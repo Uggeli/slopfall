@@ -10,7 +10,9 @@ namespace DaggerfallWorkshop.Sim
         Wander,      // Object-Zero fallback: amble nearby
         Sleep,       // home, serves EnergyDef, night-gated
         Work,        // own workplace (keepers), serves CoinDef, hours-gated
-        Labor,       // residents' day-work at home, serves CoinDef, hours-gated
+        Labor,       // residents' generic day-work for an employer, serves CoinDef, hours-gated
+        Farm,        // working the settlement's farmland — primary food production, out at the fields
+        Fish,        // working the coast — primary food production, out at the shore
         EatHome,     // home, serves Hunger weakly, free
         EatTavern,   // tavern, serves Hunger well, costs coin
         Socialize,   // tavern, serves SocialDef, evening-boosted
