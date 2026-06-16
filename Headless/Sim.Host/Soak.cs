@@ -157,6 +157,7 @@ namespace DaggerfallWorkshop.Sim.Host
             public double Hunger, Energy, Social, Poverty;
             public int Starving;                    // any axis ≥ 1.4 (near VMax 1.5)
             public int Hungry;                      // hunger ≥ 1.0 — the "can they eat?" headline
+            public int Creatures;                   // V2a: hostiles roaming
             // social fabric
             public long Edges, Acquaintances, FriendEdges;
             public double MeanRegard, MeanFamiliarity;
@@ -187,7 +188,7 @@ namespace DaggerfallWorkshop.Sim.Host
                 StockProvisions = c.StockProvisions, StockDrink = c.StockDrink, StockWares = c.StockWares, StockOre = c.StockOre,
                 LarderProvisions = c.LarderProvisions, LarderHouseholds = c.LarderHouseholds, LarderEmpty = c.LarderEmpty,
                 Hunger = c.Hunger, Energy = c.Energy, Social = c.Social, Poverty = c.Poverty,
-                Starving = c.Starving, Hungry = c.Hungry,
+                Starving = c.Starving, Hungry = c.Hungry, Creatures = c.Creatures,
                 Edges = c.Edges, Acquaintances = c.Acquaintances, FriendEdges = c.FriendEdges,
                 MeanRegard = c.MeanRegard, MeanFamiliarity = c.MeanFamiliarity,
                 PosRegard = c.PosRegard, NegRegard = c.NegRegard, SaturatedRegard = c.SaturatedRegard,
@@ -298,6 +299,9 @@ namespace DaggerfallWorkshop.Sim.Host
                     + last.LarderEmpty + "/" + last.LarderHouseholds + " larders empty ("
                     + emptyPct.ToString("F0") + "%), mean hunger " + last.Hunger.ToString("F2"));
             }
+
+            Console.WriteLine("  [obs]  threat layer: " + last.Creatures + " hostile(s) roaming, "
+                + last.Deaths + " deaths total (V2a is the emitter; fear/flight is V2b)");
 
             // 4. NaN guard.
             if (double.IsNaN(last.CoinTotal) || double.IsNaN(last.MeanRegard) || double.IsNaN(last.Hunger))

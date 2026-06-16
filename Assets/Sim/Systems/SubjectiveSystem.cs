@@ -37,8 +37,25 @@ namespace DaggerfallWorkshop.Sim
         /// dossier regard, recognition/trust the familiarity, attention a simple
         /// salience. (S2 adds affect to attention; S3 makes valence a MEANINGS
         /// lookup adjusted by the per-entity dossier delta.)
+        /// Innate dread of a hostile creature (V2): a clear threat reads strongly
+        /// aversive and carries Threat clarity = 1 (the fear drive's target field).
+        const double ThreatValence = -1.0;
+
         public static EntityRead Interpret(SimulationContext ctx, EntityId self, EntityId other)
         {
+            // A creature is read by what it IS (a CreatureRegistry member), not a
+            // dossier: an innate, recognized threat (the membrane completing
+            // ambiguous threats from a low-clarity percept is the fear-controller's
+            // job, V2b). No social history applies.
+            if (ctx.Creatures.Contains(other))
+                return new EntityRead
+                {
+                    Other = other, Valence = ThreatValence,
+                    Recognition = 1.0, Trust = 1.0,
+                    Attention = 1.0 + System.Math.Abs(ThreatValence),   // threats grab attention
+                    Threat = 1.0,
+                };
+
             double familiarity = 0, baseValence;
             if (ctx.Relations.TryGet(self, out var rels) && rels.Of.TryGetValue(other, out var rel))
             {
@@ -103,6 +120,9 @@ namespace DaggerfallWorkshop.Sim
         /// — each observer checks its own read). Both derived from interpret().
         void InterpretPercepts(EntityId self, EntityRead r)
         {
+            // A threat is not a social other — it doesn't greet or earn a social
+            // grudge; the fear drive (V2b) owns the response. Skip social percepts.
+            if (r.Threat > 0) return;
             if (r.Other.Value > self.Value && r.Valence >= GreetValenceBar && r.Recognition >= GreetRecognitionBar)
                 TryGreet(self, r.Other);
             else if (r.Valence <= DislikeValenceBar)

@@ -82,6 +82,7 @@ namespace DaggerfallWorkshop.Sim
             loop.Register(new OddSystem());          // decides → writes Intent
             loop.Register(new ExecutionSystem());    // reifies Intent → Behavior (sole writer)
             loop.Register(new MovementSystem());
+            loop.Register(new CreatureSystem());      // V2a: mobile hostiles — spawn, wander, bite (combat emitter)
             loop.Register(new SenseSystem());        // raw senses: who's near (grid LOS)
             loop.Register(new SubjectiveSystem());    // membrane: senses → SubjectiveView + percepts (S1)
             loop.Register(new AffectsSystem());        // emotion: interactions → directed affects + regard (S2)

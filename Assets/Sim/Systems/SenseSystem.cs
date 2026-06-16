@@ -50,12 +50,30 @@ namespace DaggerfallWorkshop.Sim
                 list.Add(kv.Key);
             }
 
+            // Creatures (V2) are perceptible — drop them into the same hash so the
+            // out-and-about agents sense them — but they don't street-watch, so we
+            // don't build a view FOR them (CreatureSystem does their proximity).
+            foreach (var kv in _ctx.Creatures.All)
+            {
+                if (!_ctx.Position.TryGet(kv.Key, out var pos)) continue;
+                long cell = CellKey(pos.X, pos.Z);
+                if (!_buckets.TryGetValue(cell, out var list))
+                {
+                    list = new List<EntityId>();
+                    _buckets[cell] = list;
+                }
+                list.Add(kv.Key);
+            }
+
             var grid = _ctx.TownGrid.Current;
             foreach (var kv in _buckets)
             {
                 var list = kv.Value;
                 for (int i = 0; i < list.Count; i++)
+                {
+                    if (_ctx.Creatures.Contains(list[i])) continue;   // sensed, but not a senser
                     Sense(list[i], grid);
+                }
             }
         }
 

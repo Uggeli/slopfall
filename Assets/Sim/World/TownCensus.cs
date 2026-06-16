@@ -34,6 +34,9 @@ namespace DaggerfallWorkshop.Sim
         // Goods on shelves (total stock across all buildings, by good)
         public double StockProvisions, StockDrink, StockWares, StockOre;
 
+        // Threat layer (V2a): mobile hostiles currently roaming.
+        public int Creatures;
+
         // Food in households (total provisions across all home larders) — the
         // subsistence buffer EatHome draws on (Subsistence slice).
         public double LarderProvisions;
@@ -131,6 +134,7 @@ namespace DaggerfallWorkshop.Sim
                 if (kv.Value <= 1e-6) s.LarderEmpty++;
             }
             s.LarderHouseholds = ctx.Larder.Count;
+            s.Creatures = ctx.Creatures.Count;
 
             // --- Needs ---
             int n = 0;

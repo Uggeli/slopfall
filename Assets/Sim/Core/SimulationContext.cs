@@ -48,6 +48,7 @@ namespace DaggerfallWorkshop.Sim
         public TreasuryRegistry Treasury { get; }
         public WorldMarketRegistry WorldMarket { get; }
         public SettlementRegistry Settlements { get; }
+        public CreatureRegistry Creatures { get; }
 
         public SimulationContext(EventBus events, SimulationTime time, SimRandom random, InputBus inputs)
         {
@@ -93,6 +94,7 @@ namespace DaggerfallWorkshop.Sim
             Treasury = new TreasuryRegistry();
             WorldMarket = new WorldMarketRegistry();
             Settlements = new SettlementRegistry();
+            Creatures = new CreatureRegistry();
         }
     }
 }

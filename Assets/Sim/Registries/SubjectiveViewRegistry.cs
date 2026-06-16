@@ -16,6 +16,7 @@ namespace DaggerfallWorkshop.Sim
         public double Recognition;   // 0 stranger .. 1 well-known
         public double Trust;         // how much I credit the read
         public double Attention;     // salience this tick (capacity-limited top-K)
+        public double Threat;        // 0 = not a threat .. 1 = a clear danger (the fear drive's target field, V2)
     }
 
     public sealed class SubjectiveViewData

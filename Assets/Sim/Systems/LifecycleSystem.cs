@@ -41,6 +41,18 @@ namespace DaggerfallWorkshop.Sim
 
         void Despawn(EntityId id)
         {
+            // Creatures (V2) carry no civilian state — drop their handful of
+            // registries and let CreatureSystem respawn the population.
+            if (_ctx.Creatures.Contains(id))
+            {
+                _ctx.Creatures.Remove(id);
+                _ctx.Identity.Remove(id);
+                _ctx.Position.Remove(id);
+                _ctx.Vitals.Remove(id);
+                _ctx.Events.Emit(new DespawnedEvent { Entity = id, Settlement = -1, Building = -1, Role = ResidentRole.Resident });
+                return;
+            }
+
             // Only civilians despawn — never the player or quest-critical NPCs.
             if (_ctx.Identity.TryGet(id, out var idn) && idn != null && idn.Kind != EntityKind.CivilianNPC)
                 return;
