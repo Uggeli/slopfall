@@ -117,6 +117,7 @@ namespace DaggerfallWorkshop.Sim
                 Outdoor = outdoor, Cozy = cozy, Prepotency = PrepotencyGate(needs.V),
                 Px = pos.X, Pz = pos.Z,
                 Self = id,
+                IsGuard = _ctx.Employment.TryGet(id, out var emp0) && emp0 != null && !emp0.PublicOwner.IsNone,
             };
 
             var ads = ActionDiscovery.GatherAds(_ctx, id);
@@ -162,6 +163,15 @@ namespace DaggerfallWorkshop.Sim
                 bestZ = pos.Z + az / mag * FleeDistance;
                 bestBuilding = -1;
             }
+            else if (bestKind == ActivityKind.Attack)
+            {
+                // Close on the threat. A guard hunts the nearest creature region-
+                // wide (proactive patrol); a civilian only chases one it perceives.
+                float cx, cz; bool have;
+                if (sc.IsGuard) have = NearestCreature(pos.X, pos.Z, out cx, out cz);
+                else have = NearestThreat(id, pos.X, pos.Z, out cx, out cz);
+                if (have) { bestX = cx; bestZ = cz; bestBuilding = -1; }
+            }
 
             var bestSpec = ActivityCatalog.SpecFor(bestKind);
 
@@ -200,6 +210,7 @@ namespace DaggerfallWorkshop.Sim
             public double Outdoor, Cozy, Prepotency;
             public float Px, Pz;
             public EntityId Self;            // whose subjective view this is (membrane reads through it)
+            public bool IsGuard;             // on the public payroll — boosts Attack (hunting threats is the job)
         }
 
         /// V — the value function. Uniform over EVERY ad: read the activity's
@@ -220,6 +231,7 @@ namespace DaggerfallWorkshop.Sim
                 * (s.Social ? Liveliness(ad) * (c.Hour >= 17 ? 1.5 : 1.0) * c.Cozy : 1.0)
                 * (s.Prepotent ? c.Prepotency : 1.0)
                 * (s.FearDriven ? DesperationFactor(c.Needs, NeedAxis.Fear) : 1.0)
+                * (s.Kind == ActivityKind.Attack && c.IsGuard ? GuardCombatBoost : 1.0)
                 * (s.RelationSensitive ? RelationFactor(RegardFieldAt(ad.Building, c)) : 1.0)
                 * ConscienceFactor(_ctx.Conscience.ChargeFor(c.Self, ad.Verb))
                 * (c.Holiday && s.HolidayFactor != 1.0 ? s.HolidayFactor : 1.0)
@@ -306,6 +318,7 @@ namespace DaggerfallWorkshop.Sim
         // FROZEN placeholders.
         const double DesperationStrength = 0.7;   // at max hunger, fear's urgency is cut to ~0.3
         const double DesperationFloor = 0.1;      // never fully silenced
+        const double GuardCombatBoost = 4.0;      // a guard's Attack pull — hunting threats is the job
 
         /// The fear-urgency multiplier from the DesperationGraded edges into an
         /// axis (table-driven via DriveGraph). One edge today: hunger ⊣ fear.
@@ -335,6 +348,23 @@ namespace DaggerfallWorkshop.Sim
                 float dx = tp.X - sx, dz = tp.Z - sz;
                 float d2 = dx * dx + dz * dz;
                 if (d2 < best) { best = d2; tx = tp.X; tz = tp.Z; found = true; }
+            }
+            return found;
+        }
+
+        /// The position of the nearest creature region-wide (CreatureRegistry) —
+        /// a guard's hunt target, seen or not. Deterministic id tie-break.
+        bool NearestCreature(float sx, float sz, out float tx, out float tz)
+        {
+            tx = 0; tz = 0;
+            float best = float.MaxValue; bool found = false; int bestId = int.MaxValue;
+            foreach (var kv in _ctx.Creatures.All)
+            {
+                if (!_ctx.Position.TryGet(kv.Key, out var tp) || tp == null) continue;
+                float dx = tp.X - sx, dz = tp.Z - sz;
+                float d2 = dx * dx + dz * dz;
+                if (d2 < best || (d2 == best && kv.Key.Value < bestId))
+                { best = d2; tx = tp.X; tz = tp.Z; bestId = kv.Key.Value; found = true; }
             }
             return found;
         }

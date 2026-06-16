@@ -57,6 +57,7 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Buy:       return PayThenSustain;
                 case ActivityKind.Steal:     return TakeThenSustain;
                 case ActivityKind.Flee:      return None;             // flee IS movement (like Wander)
+                case ActivityKind.Attack:    return None;             // close the distance; CombatSystem strikes
                 case ActivityKind.Chat:      return JustSpeak;
                 case ActivityKind.SeekHelp:  return JustAsk;
                 default:                     return None;

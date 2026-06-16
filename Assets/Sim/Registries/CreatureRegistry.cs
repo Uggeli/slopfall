@@ -13,6 +13,8 @@ namespace DaggerfallWorkshop.Sim
     {
         public float TargetX, TargetZ;   // current wander destination
         public long NextAttackTick;      // attack cooldown gate
+        public EntityId LastAttacker;    // who last struck it — retaliation target (V2b combat)
+        public long LastStruckTick;      // when, so the grudge lapses
     }
 
     public sealed class CreatureRegistry

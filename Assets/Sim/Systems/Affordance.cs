@@ -74,8 +74,9 @@ namespace DaggerfallWorkshop.Sim
         /// the latter is driven by RequestSystem's embodied flow, not gathered
         /// as a marketplace ad).
         public static readonly ActivityKind[] Person = { ActivityKind.Chat, ActivityKind.SeekHelp };
-        /// Innate, always available: the Object-Zero liveness floor + Flee (the
-        /// fear response is always on the table; it only wins when fear is loud).
-        public static readonly ActivityKind[] Innate = { ActivityKind.Idle, ActivityKind.Wander, ActivityKind.Flee };
+        /// Innate, always available: the Object-Zero liveness floor + the fear
+        /// responses (Flee/Attack are always on the table; they only win when fear
+        /// is loud, and personality picks which — the timid flee, the bold fight).
+        public static readonly ActivityKind[] Innate = { ActivityKind.Idle, ActivityKind.Wander, ActivityKind.Flee, ActivityKind.Attack };
     }
 }

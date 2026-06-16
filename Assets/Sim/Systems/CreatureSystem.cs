@@ -74,7 +74,10 @@ namespace DaggerfallWorkshop.Sim
                 // Reach a civilian → bite (the combat emitter), on cooldown.
                 if (tick >= cr.NextAttackTick)
                 {
-                    var victim = NearestCivilian(id, pos, AttackRange);
+                    // Retaliate against a recent attacker if it's in reach; else the
+                    // nearest civilian.
+                    var victim = Retaliation(cr, pos, tick);
+                    if (victim.IsNone) victim = NearestCivilian(id, pos, AttackRange);
                     if (!victim.IsNone)
                     {
                         _ctx.Events.Emit(new DamageEvent
@@ -117,6 +120,19 @@ namespace DaggerfallWorkshop.Sim
             _ctx.Vitals.Set(id, new VitalsData { CurrentHealth = 20, MaxHealth = 20 });
             _ctx.Creatures.Set(id, new CreatureData { TargetX = px, TargetZ = pz, NextAttackTick = 0 });
             return true;
+        }
+
+        const long RetaliationWindowTicks = 120;   // a creature holds its grudge this long
+
+        /// The creature's recent attacker, if it's still in reach and the grudge is
+        /// fresh — so striking a creature draws its wrath onto you. None otherwise.
+        EntityId Retaliation(CreatureData cr, PositionData from, long tick)
+        {
+            if (cr.LastAttacker.IsNone || tick - cr.LastStruckTick > RetaliationWindowTicks) return EntityId.None;
+            if (!_ctx.Position.TryGet(cr.LastAttacker, out var tp) || tp == null) return EntityId.None;
+            if (_ctx.Vitals.TryGet(cr.LastAttacker, out var v) && v != null && v.IsDead) return EntityId.None;
+            float dx = tp.X - from.X, dz = tp.Z - from.Z;
+            return dx * dx + dz * dz <= AttackRange * AttackRange ? cr.LastAttacker : EntityId.None;
         }
 
         EntityId NearestCivilian(EntityId self, PositionData from, float range)

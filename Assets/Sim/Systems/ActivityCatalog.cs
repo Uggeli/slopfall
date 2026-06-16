@@ -274,6 +274,8 @@ namespace DaggerfallWorkshop.Sim
             DistanceScale = 0,
             Outdoor = false,                // you run regardless of weather
             FearDriven = true,
+            // The TIMID flee: HarmAvoidance 1 → full pull, 0 (bold) → a third.
+            Trait = TraitIndex.HarmAvoidance, TraitBias = 0.3, TraitScale = 0.7, TraitExp = 1.0,
         };
 
         /// Attack (V2b): the fight half of fight-or-flight — strike a perceived
@@ -287,6 +289,9 @@ namespace DaggerfallWorkshop.Sim
             Delta = Deltas(fear: -1.0),
             DistanceScale = 80,             // you must close to the threat
             FearDriven = true,
+            // The BOLD fight: HarmAvoidance 0 (bold) → full pull, 1 (timid) → a
+            // tenth. OddSystem additionally boosts this for guards (it's their job).
+            Trait = TraitIndex.HarmAvoidance, TraitBias = 1.0, TraitScale = -0.9, TraitExp = 1.0,
         };
 
         /// Street greeting between friends — entered by interrupt (rung 2),

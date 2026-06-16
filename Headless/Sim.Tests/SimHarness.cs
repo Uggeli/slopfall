@@ -38,6 +38,7 @@ namespace Sim.Tests
             Loop.Register(new OddSystem());
             Loop.Register(new ExecutionSystem());
             Loop.Register(new MovementSystem());
+            Loop.Register(new CombatSystem());   // inert unless an agent is Doing Attack (no CreatureSystem here)
             Loop.Register(new SenseSystem());
             Loop.Register(new SubjectiveSystem());
             Loop.Register(new AffectsSystem());
