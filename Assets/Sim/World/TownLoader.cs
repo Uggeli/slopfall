@@ -501,15 +501,21 @@ namespace DaggerfallWorkshop.Sim
             };
         }
 
-        /// S4 conscience: a seeded begging-shame, scaled by a pride disposition
-        /// (re-salted hash of the id, so it doesn't perturb the spawn RNG stream).
-        /// A proud soul would rather starve than beg; a shameless one feels no
-        /// qualm. FROZEN placeholder distribution.
+        /// S4 conscience: seeded charges over the agent's own shamed/taboo acts,
+        /// scaled by dispositions (re-salted hashes of the id, so they don't perturb
+        /// the spawn RNG stream). FROZEN placeholder distributions.
+        ///   - begging-shame (pride): a proud soul would rather starve than beg; a
+        ///     shameless one feels no qualm.
+        ///   - theft-taboo (honesty): theft is broadly tabooed — everyone carries a
+        ///     moderate-to-strong qualm [0.5,1.0], so only the least honest will steal,
+        ///     and only when desperate enough for the drive to beat the penalty.
         static ConscienceData SeedConscience(EntityId id)
         {
             double pride = (LifeHash(id.Value ^ 0x5A5A5A5A) & 0xFFFF) / 65535.0;
+            double honesty = (LifeHash(id.Value ^ 0x3C3C3C3C) & 0xFFFF) / 65535.0;
             var c = new ConscienceData();
             c.Charge[(int)ActivityKind.Beg] = pride * 0.8;
+            c.Charge[(int)ActivityKind.Steal] = 0.5 + 0.5 * honesty;
             return c;
         }
 

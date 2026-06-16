@@ -37,6 +37,7 @@ namespace DaggerfallWorkshop.Sim
         static readonly ActionKind[] PayThenSustain = { ActionKind.Transfer, ActionKind.Sustain };
         static readonly ActionKind[] JustSpeak = { ActionKind.Speak };
         static readonly ActionKind[] JustAsk = { ActionKind.Ask };
+        static readonly ActionKind[] TakeThenSustain = { ActionKind.Take, ActionKind.Sustain };   // steal: grab the goods (Take), then the relief accrues
 
         /// The Doing-phase actions an activity performs (MoveTo is implied by the
         /// Moving phase and not listed).
@@ -54,6 +55,7 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Socialize: return PayThenSustain;
                 case ActivityKind.Visit:     return JustSustain;
                 case ActivityKind.Buy:       return PayThenSustain;
+                case ActivityKind.Steal:     return TakeThenSustain;
                 case ActivityKind.Chat:      return JustSpeak;
                 case ActivityKind.SeekHelp:  return JustAsk;
                 default:                     return None;

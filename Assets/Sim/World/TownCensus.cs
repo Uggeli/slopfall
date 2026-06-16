@@ -66,7 +66,9 @@ namespace DaggerfallWorkshop.Sim
     {
         public static CensusSnapshot Capture(SimulationContext ctx)
         {
-            var s = new CensusSnapshot { Doing = new int[(int)ActivityKind.Beg + 1] };
+            // Sized to the enum (contiguous from 0), so adding an ActivityKind can't
+            // overflow this — the soak/tests sample every Doing activity by index.
+            var s = new CensusSnapshot { Doing = new int[System.Enum.GetValues(typeof(ActivityKind)).Length] };
 
             // --- Activity mix ---
             foreach (var kv in ctx.Behavior.All)

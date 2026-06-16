@@ -208,6 +208,14 @@ namespace DaggerfallWorkshop.Sim
                     var sells = Stocks(kind);
                     if (sells.Length > 0) { good = sells[0]; return true; }
                     break;
+                case ActivityKind.Steal:
+                    // A thief takes food: provisions, from anywhere that stocks them
+                    // (a general store, a tavern's larder of meals). Non-food shops
+                    // have nothing edible to take.
+                    good = Good.Provisions;
+                    var held = Stocks(kind);
+                    for (int i = 0; i < held.Length; i++) if (held[i] == Good.Provisions) return true;
+                    return false;
             }
             good = Good.Provisions;
             return false;

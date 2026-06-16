@@ -268,6 +268,14 @@ namespace DaggerfallWorkshop.Sim
                             next -= PaySale(id, behavior.TargetBuilding,
                                 ActivityCatalog.SpecFor(behavior.Activity), gameMinutes, next, ref serviceRev);
                             break;
+                        case ActivityKind.Steal:
+                            // Theft (Subsistence slice): take provisions off the shelf
+                            // into the thief's larder — no coin changes hands (the only
+                            // "cost" is the conscience charge OddSystem reads at decision
+                            // time). `next` (coin) is untouched.
+                            StealProvisions(id, behavior.TargetBuilding,
+                                ActivityCatalog.SpecFor(behavior.Activity), gameMinutes);
+                            break;
                     }
                 }
 
@@ -647,6 +655,25 @@ namespace DaggerfallWorkshop.Sim
         /// residency building (a home's residents share one larder). −1 if none.
         int HomeOf(EntityId id)
             => _ctx.Residency.TryGet(id, out var r) && r != null ? r.BuildingIndex : -1;
+
+        /// Take provisions off a building's shelf into the thief's home larder — the
+        /// free, coinless counterpart to PaySale's Buy. The crime's only "cost" is the
+        /// conscience charge OddSystem reads when choosing it; here it's a pure stock →
+        /// larder move (no coin, no revenue). Bounded by the shelf's provisions —
+        /// nothing to take at a shop with none. Stock is single-writer, so the draw is
+        /// safe inside the EntityId-ordered walk.
+        void StealProvisions(EntityId thief, int building, ActivityCatalog.Spec spec, double gameMinutes)
+        {
+            if (spec == null || spec.SaleUnits <= 0 || spec.DurationMinutes <= 0) return;
+            if (!_ctx.Buildings.TryGet(building, out var b) || b == null) return;
+            double available = _ctx.Stock.Get(building, Good.Provisions);
+            if (available <= 0) return;
+            double units = spec.SaleUnits / spec.DurationMinutes * gameMinutes;     // this tick's share
+            if (units > available) units = available;
+            if (units <= 0) return;
+            _ctx.Stock.Add(building, Good.Provisions, -units);
+            _ctx.Larder.Add(HomeOf(thief), units);
+        }
 
         EntityId KeeperOf(int building)
         {

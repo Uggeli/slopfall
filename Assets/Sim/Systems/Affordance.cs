@@ -26,7 +26,11 @@ namespace DaggerfallWorkshop.Sim
         // keeper with coin is present (L4). Taverns stay social halls. A poor
         // agent picks Beg only when poverty is loud; the comfortable score it ~0
         // (its value comes from the coinDef gap).
-        static readonly ActivityKind[] ShopVerbs = { ActivityKind.Buy, ActivityKind.Beg };
+        // Steal is offered wherever Buy is, but self-gates to provisions-holders
+        // (general stores): SaleStockAvailable culls it where there's no food to
+        // take (a craftsman's wares aren't edible). The desperate take it; the
+        // conscience charge keeps the honest from it.
+        static readonly ActivityKind[] ShopVerbs = { ActivityKind.Buy, ActivityKind.Beg, ActivityKind.Steal };
         static readonly ActivityKind[] LandmarkVerbs = { ActivityKind.Visit, ActivityKind.Beg };
 
         /// Public affordances — any agent who senses or remembers the building

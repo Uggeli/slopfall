@@ -224,6 +224,25 @@ namespace DaggerfallWorkshop.Sim
             SaleUnits = 2, SalePrice = 0.05, SaleReliefAxis = NeedAxis.GoodsDef,
         };
 
+        /// Stealing (Subsistence slice): take provisions off a shop's shelf without
+        /// paying — the destitute tier's survival path when there's no coin to Buy.
+        /// Fills the larder like Buy (goodsDef), but free (no coin) — and carries a
+        /// conscience charge (seeded per-agent on ActivityKind.Steal), so the marketplace
+        /// join penalises it: the honest won't, the desperate/shameless will. The act is
+        /// the Take verb (crime-as-tag); the legitimacy lives in the conscience valence,
+        /// not a separate verb. Gated on the shelf having provisions (SaleReliefAxis).
+        public static readonly Spec Steal = new Spec
+        {
+            Kind = ActivityKind.Steal,
+            DurationMinutes = 20,           // grab and go
+            Delta = Deltas(goodsDef: -0.3),
+            OpenHour = 8, CloseHour = 20,
+            DistanceScale = 150,
+            // Takes 2 provisions over the act, pays nothing (SalePrice 0). Gated on
+            // the shelf — an empty shop has nothing to steal, no relief.
+            SaleUnits = 2, SalePrice = 0, SaleReliefAxis = NeedAxis.GoodsDef,
+        };
+
         /// Street greeting between friends — entered by interrupt (rung 2),
         /// never chosen by the marketplace.
         public static readonly Spec Chat = new Spec
@@ -289,6 +308,7 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Socialize: return Socialize;
                 case ActivityKind.Visit:     return Visit;
                 case ActivityKind.Buy:       return Buy;
+                case ActivityKind.Steal:     return Steal;
                 case ActivityKind.Chat:      return Chat;
                 case ActivityKind.SeekHelp:  return SeekHelp;
                 case ActivityKind.Beg:       return Beg;

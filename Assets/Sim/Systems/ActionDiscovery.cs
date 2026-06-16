@@ -94,7 +94,11 @@ namespace DaggerfallWorkshop.Sim
             var spec = a.Spec;
             if (spec == null || spec.SaleReliefAxis < 0) return true;
             if (a.Building < 0 || !ctx.Buildings.TryGet(a.Building, out var b) || b == null) return true;
-            if (!GoodsCatalog.SaleGoodFor(b.Kind, spec.Kind, out var good)) return true;
+            // A gated activity at a building that sells/holds nothing for it can't
+            // happen here → cull (a wares-only shop has no provisions to steal). Buy/
+            // EatTavern are only offered at venues that do stock their good, so this
+            // only bites the broadly-offered Steal.
+            if (!GoodsCatalog.SaleGoodFor(b.Kind, spec.Kind, out var good)) return false;
             return ctx.Stock.Get(a.Building, good) > 0;
         }
 

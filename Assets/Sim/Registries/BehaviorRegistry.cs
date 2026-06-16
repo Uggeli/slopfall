@@ -22,6 +22,7 @@ namespace DaggerfallWorkshop.Sim
         Chat,        // interrupt: stopped on the street to greet a passing friend
         SeekHelp,    // (legacy) embodied request — superseded by Beg; kept until the journey path is removed
         Beg,         // sit at a public venue and ask passers-by for alms (L4); RequestSystem drives the asking
+        Steal,       // take provisions off a shop's shelf without paying (Take verb); crime — charged by conscience
     }
 
     public enum ActivityPhase
