@@ -83,6 +83,7 @@ namespace DaggerfallWorkshop.Sim
             _ctx.Intent.Remove(id);
             _ctx.Subjective.Remove(id);
             _ctx.Affects.Remove(id);
+            _ctx.Meanings.Remove(id);
             _ctx.Employment.Remove(id);
             _ctx.Life.Remove(id);
 

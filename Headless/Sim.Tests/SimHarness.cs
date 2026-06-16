@@ -41,6 +41,7 @@ namespace Sim.Tests
             Loop.Register(new SenseSystem());
             Loop.Register(new SubjectiveSystem());
             Loop.Register(new AffectsSystem());
+            Loop.Register(new MeaningsSystem());
             Loop.Register(new SocialSystem());
             Loop.Register(new RequestSystem());
             Loop.Register(new LifecycleSystem());

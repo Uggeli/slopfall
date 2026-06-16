@@ -38,17 +38,20 @@ namespace DaggerfallWorkshop.Sim
         /// lookup adjusted by the per-entity dossier delta.)
         public static EntityRead Interpret(SimulationContext ctx, EntityId self, EntityId other)
         {
-            double regard = 0, familiarity = 0;
+            double familiarity = 0, baseValence;
             if (ctx.Relations.TryGet(self, out var rels) && rels.Of.TryGetValue(other, out var rel))
             {
-                regard = rel.Regard;
+                baseValence = rel.Regard;          // I know THEM — judge by my history with them (dossier)
                 familiarity = rel.Familiarity;
             }
-            // Chronic opinion (dossier) + acute feeling (Affects, S2): "what I
-            // think of you" plus "how I feel about you right now" (the latter
-            // fading). Emotion-as-controller — this valence colors the decider's
-            // place-lens and the greet/dislike percepts.
-            double valence = regard + ctx.Affects.ValenceToward(self, other);
+            else
+            {
+                // A stranger — judge by their KIND, the learned category (S3).
+                baseValence = MeaningsSystem.CategoryValence(ctx, self, other);
+            }
+            // + acute feeling (Affects, S2). Emotion-as-controller: this valence
+            // colors the decider's place-lens and the greet/dislike percepts.
+            double valence = baseValence + ctx.Affects.ValenceToward(self, other);
             return new EntityRead
             {
                 Other = other,
