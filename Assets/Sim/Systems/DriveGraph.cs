@@ -25,6 +25,12 @@ namespace DaggerfallWorkshop.Sim
         /// engine edit.
         public static readonly int[] HardCullSources;
 
+        /// Per-target, the drives that grade it DOWN via a DesperationGraded edge
+        /// (e.g. hunger ⊣ fear: starvation overrides fear, never culls it). Indexed
+        /// by target axis; empty where nothing desperation-grades it. The
+        /// escape-affordability mechanism reads this.
+        public static readonly int[][] DesperationSourcesByTarget;
+
         static DriveGraph()
         {
             int n = NeedAxis.Count;
@@ -33,6 +39,8 @@ namespace DaggerfallWorkshop.Sim
             for (int i = 0; i < n; i++) adj[i] = new List<int>();
 
             var cullSources = new List<int>();
+            var desperationByTarget = new List<int>[n];
+            for (int i = 0; i < n; i++) desperationByTarget[i] = new List<int>();
             for (int src = 0; src < n; src++)
             {
                 var gates = DriveCatalog.Defs[src].Gates;
@@ -44,10 +52,13 @@ namespace DaggerfallWorkshop.Sim
                     adj[src].Add(tgt);
                     indegree[tgt]++;
                     if (gates[g].Kind == GateKind.HardCull) culls = true;
+                    else if (gates[g].Kind == GateKind.DesperationGraded) desperationByTarget[tgt].Add(src);
                 }
                 if (culls) cullSources.Add(src);
             }
             HardCullSources = cullSources.ToArray();
+            DesperationSourcesByTarget = new int[n][];
+            for (int i = 0; i < n; i++) DesperationSourcesByTarget[i] = desperationByTarget[i].ToArray();
 
             // Kahn: repeatedly emit a zero-indegree node, lowest index first so the
             // order is deterministic.

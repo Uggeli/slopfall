@@ -8,12 +8,13 @@ namespace DaggerfallWorkshop.Sim
     /// chemistry so the population stops being 337 copies of one person.
     public static class TraitIndex
     {
-        public const int Sociability  = 0;  // loner .. social butterfly
-        public const int Industry     = 1;  // idler .. workaholic
-        public const int Restlessness = 2;  // homebody .. wanderer
-        public const int Chronotype   = 3;  // lark .. night owl
-        public const int Warmth       = 4;  // cold .. charitable
-        public const int Count        = 5;
+        public const int Sociability   = 0;  // loner .. social butterfly
+        public const int Industry      = 1;  // idler .. workaholic
+        public const int Restlessness  = 2;  // homebody .. wanderer
+        public const int Chronotype    = 3;  // lark .. night owl
+        public const int Warmth        = 4;  // cold .. charitable
+        public const int HarmAvoidance = 5;  // bold .. timid — trait anxiety / the fear vigilance floor (V2b)
+        public const int Count         = 6;
     }
 
     public sealed class PersonalityData
@@ -40,6 +41,10 @@ namespace DaggerfallWorkshop.Sim
             p.Weights[NeedAxis.CoinDef] = ActivityCatalog.Weights[NeedAxis.CoinDef]
                 * (0.5 + traits[TraitIndex.Industry]);
             p.Weights[NeedAxis.GoodsDef] = ActivityCatalog.Weights[NeedAxis.GoodsDef];
+            // A timid soul (high HarmAvoidance) weights safety more heavily — fear
+            // wins selection sooner. Centered (0.5) reproduces the base weight.
+            p.Weights[NeedAxis.Fear] = ActivityCatalog.Weights[NeedAxis.Fear]
+                * (0.5 + traits[TraitIndex.HarmAvoidance]);
 
             for (int i = 0; i < NeedAxis.Count; i++) p.DriftScale[i] = 1.0;
             p.DriftScale[NeedAxis.SocialDef] = 0.5 + traits[TraitIndex.Sociability];

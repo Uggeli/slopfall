@@ -23,6 +23,8 @@ namespace DaggerfallWorkshop.Sim
         SeekHelp,    // (legacy) embodied request — superseded by Beg; kept until the journey path is removed
         Beg,         // sit at a public venue and ask passers-by for alms (L4); RequestSystem drives the asking
         Steal,       // take provisions off a shop's shelf without paying (Take verb); crime — charged by conscience
+        Flee,        // V2b: run from a perceived threat (the fear response) — breaks the percept, resets fear
+        Attack,      // V2b: strike a threat (the Attack verb) — fight half of fight-or-flight; crime if the target is innocent
     }
 
     public enum ActivityPhase

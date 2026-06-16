@@ -56,6 +56,7 @@ namespace DaggerfallWorkshop.Sim
             public double TraitBias = 1.0, TraitScale = 0.0, TraitExp = 1.0;  // factor = bias + scale·trait^exp
             public bool TraitOnBase = false;            // apply the trait factor to base (else to gate)
             public bool Growth = false;                 // base scaled by gate (no setpoint, e.g. Visit)
+            public bool FearDriven = false;             // V2b: the fear response — graded down by the desperation edge (escape-affordability)
             public double NightBase = 0;                // base added at night (circadian)
             public double WetBase = 0;                  // base added in foul weather (shelter pull)
         }
@@ -257,6 +258,37 @@ namespace DaggerfallWorkshop.Sim
             SaleUnits = 2, SalePrice = 0, SaleReliefAxis = NeedAxis.GoodsDef,
         };
 
+        /// Flee (V2b): the fear response. Always advertised (an Object-Zero-style
+        /// innate floor), but only wins when fear is loud — its fear delta is the
+        /// scoring PROMISE (the somatic marker pruning the marketplace toward
+        /// running), while the real relief is physical: fleeing carries the agent
+        /// away, the threat percept breaks, and the controller resets fear
+        /// (ResetOnPercept). OddSystem aims it away from the nearest threat.
+        /// FearDriven, so the desperation edge (hunger ⊣ fear) grades it down — a
+        /// starving agent can't afford to run (escape-affordability).
+        public static readonly Spec Flee = new Spec
+        {
+            Kind = ActivityKind.Flee,
+            DurationMinutes = 10,            // short bursts; re-decide and keep running while afraid
+            Delta = Deltas(fear: -1.0),
+            DistanceScale = 0,
+            Outdoor = false,                // you run regardless of weather
+            FearDriven = true,
+        };
+
+        /// Attack (V2b): the fight half of fight-or-flight — strike a perceived
+        /// threat. The DamageEvent is emitted by the combat layer; the fear delta
+        /// is the scoring promise (killing the threat ends the percept). Gated to
+        /// the bold/armed in OddSystem, and tagged a crime if the target is innocent.
+        public static readonly Spec Attack = new Spec
+        {
+            Kind = ActivityKind.Attack,
+            DurationMinutes = 10,
+            Delta = Deltas(fear: -1.0),
+            DistanceScale = 80,             // you must close to the threat
+            FearDriven = true,
+        };
+
         /// Street greeting between friends — entered by interrupt (rung 2),
         /// never chosen by the marketplace.
         public static readonly Spec Chat = new Spec
@@ -334,6 +366,8 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Visit:     return Visit;
                 case ActivityKind.Buy:       return Buy;
                 case ActivityKind.Steal:     return Steal;
+                case ActivityKind.Flee:      return Flee;
+                case ActivityKind.Attack:    return Attack;
                 case ActivityKind.Chat:      return Chat;
                 case ActivityKind.SeekHelp:  return SeekHelp;
                 case ActivityKind.Beg:       return Beg;
@@ -341,7 +375,7 @@ namespace DaggerfallWorkshop.Sim
             }
         }
 
-        static double[] Deltas(double hunger = 0, double energyDef = 0, double socialDef = 0, double coinDef = 0, double goodsDef = 0)
+        static double[] Deltas(double hunger = 0, double energyDef = 0, double socialDef = 0, double coinDef = 0, double goodsDef = 0, double fear = 0)
         {
             var d = new double[NeedAxis.Count];
             d[NeedAxis.Hunger] = hunger;
@@ -349,6 +383,7 @@ namespace DaggerfallWorkshop.Sim
             d[NeedAxis.SocialDef] = socialDef;
             d[NeedAxis.CoinDef] = coinDef;
             d[NeedAxis.GoodsDef] = goodsDef;
+            d[NeedAxis.Fear] = fear;
             return d;
         }
     }

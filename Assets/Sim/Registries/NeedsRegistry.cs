@@ -6,8 +6,9 @@ namespace DaggerfallWorkshop.Sim
     /// V-vector axes, ported from ODD's StateAxis convention: every axis is a
     /// DEFICIT that drifts up over time and gets pushed back toward its
     /// setpoint (0) by activities. Uniform direction keeps the gap math
-    /// branch-free. Directed emotions (Fear-of-X, Anger-at-X) arrive with the
-    /// social/conflict layer later.
+    /// branch-free. Fear is the first DIRECTED drive (V2b): its scalar deficit is
+    /// the Max-projection of a target field over perceived threats, computed by
+    /// NeedsSystem's fear controller rather than drifted.
     public static class NeedAxis
     {
         public const int Hunger    = 0;
@@ -15,7 +16,8 @@ namespace DaggerfallWorkshop.Sim
         public const int SocialDef = 2;   // loneliness
         public const int CoinDef   = 3;   // poverty pressure
         public const int GoodsDef  = 4;   // household provisions running low → drives shopping
-        public const int Count     = 5;
+        public const int Fear      = 5;   // safety: a directed drive over perceived threats (V2b)
+        public const int Count     = 6;
     }
 
     public sealed class NeedsData

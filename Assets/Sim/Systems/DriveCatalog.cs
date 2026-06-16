@@ -23,6 +23,7 @@ namespace DaggerfallWorkshop.Sim
         Stored,        // a real body pole in NeedsData.V, ticked by DriftPerHour (hunger, energy, social)
         DerivedCoin,   // read from the purse (CoinRegistry): poverty = 1 − coin
         DerivedLarder, // read from the home larder: provisions running low (wired in the famine phase)
+        DerivedThreat, // the fear controller: Max-projection of the perceived-threat field + vigilance floor (V2b)
     }
 
     /// How a directed drive's target FIELD collapses to scalar urgency. Moot for
@@ -62,13 +63,25 @@ namespace DaggerfallWorkshop.Sim
         public static readonly DriveDef[] Defs = new DriveDef[NeedAxis.Count];
 
         // Every deficiency pole hard-culls every growth/discretionary drive
-        // DIRECTLY (drive doc proto p1: never only transitively). The current
-        // roster's culled set — social, goods, coin — shared by both poles.
+        // DIRECTLY (drive doc proto p1: never only transitively). The roster's
+        // growth/discretionary set — social, goods, coin — shared by every
+        // deficiency source (hunger, energy, and fear).
         static readonly GateEdge[] DeficiencyGates =
         {
             new GateEdge { Target = NeedAxis.SocialDef, Kind = GateKind.HardCull },
             new GateEdge { Target = NeedAxis.GoodsDef,  Kind = GateKind.HardCull },
             new GateEdge { Target = NeedAxis.CoinDef,   Kind = GateKind.HardCull },
+        };
+
+        // Hunger additionally rules the DESPERATION edge hunger ⊣ safety: a starving
+        // animal's fear is graded DOWN (overridden), never culled — or it couldn't
+        // flee at all. This is what makes escape-affordability emergent (V2b).
+        static readonly GateEdge[] HungerGates =
+        {
+            new GateEdge { Target = NeedAxis.SocialDef, Kind = GateKind.HardCull },
+            new GateEdge { Target = NeedAxis.GoodsDef,  Kind = GateKind.HardCull },
+            new GateEdge { Target = NeedAxis.CoinDef,   Kind = GateKind.HardCull },
+            new GateEdge { Target = NeedAxis.Fear,      Kind = GateKind.DesperationGraded },
         };
 
         static DriveCatalog()
@@ -78,7 +91,7 @@ namespace DaggerfallWorkshop.Sim
             {
                 Name = "hunger", ScoreField = 1.2, DriftPerHour = 0.04,
                 Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.Deplete,
-                Level = LevelSource.Stored, Gates = DeficiencyGates,
+                Level = LevelSource.Stored, Gates = HungerGates,
             };
             Defs[NeedAxis.EnergyDef] = new DriveDef
             {
@@ -116,6 +129,19 @@ namespace DaggerfallWorkshop.Sim
                 Name = "goods", ScoreField = 0.5, DriftPerHour = 0.0,
                 Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.Deplete,
                 Level = LevelSource.DerivedLarder, Gates = System.Array.Empty<GateEdge>(),
+            };
+            // Fear: the first DIRECTED drive (V2b). Its level is the Max-projection
+            // of a perceived-threat field (worst threat dominates — foxes don't sum
+            // to panic) plus a personality vigilance floor, computed by NeedsSystem's
+            // fear controller; ResetOnPercept (decays to the floor when no threat is
+            // seen). A prepotent deficiency source itself: it hard-culls leisure, and
+            // is graded down by hunger (the desperation edge above). Strong weight so
+            // a real threat dominates selection (→ Flee).
+            Defs[NeedAxis.Fear] = new DriveDef
+            {
+                Name = "fear", ScoreField = 1.3, DriftPerHour = 0.0,
+                Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.ResetOnPercept,
+                Level = LevelSource.DerivedThreat, Gates = DeficiencyGates,
             };
         }
     }

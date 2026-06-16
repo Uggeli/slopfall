@@ -33,6 +33,29 @@ namespace Sim.Tests
         }
 
         [Fact]
+        public void FearDrive_IsDirected_Prepotent_AndDesperationGated()
+        {
+            var fear = DriveCatalog.Defs[NeedAxis.Fear];
+            Assert.Equal(UrgencyProjection.Max, fear.Projection);              // worst threat dominates
+            Assert.Equal(SatisfactionModel.ResetOnPercept, fear.Satisfaction); // discharges on percept absence
+            Assert.Equal(LevelSource.DerivedThreat, fear.Level);              // read from the threat field
+
+            // Fear is itself a prepotent source — it hard-culls leisure.
+            Assert.Contains(NeedAxis.Fear, DriveGraph.HardCullSources);
+
+            // Hunger ⊣ Fear is the DESPERATION edge (graded, never a hard cull) —
+            // the escape-affordability mechanism: starvation overrides fear.
+            var hungerGates = DriveCatalog.Defs[NeedAxis.Hunger].Gates;
+            GateEdge toFear = default; bool found = false;
+            foreach (var g in hungerGates) if (g.Target == NeedAxis.Fear) { toFear = g; found = true; }
+            Assert.True(found, "hunger must gate fear (the desperation edge)");
+            Assert.Equal(GateKind.DesperationGraded, toFear.Kind);
+
+            // Still a validated DAG after adding the fear rung.
+            Assert.Equal(NeedAxis.Count, DriveGraph.TopoOrder.Length);
+        }
+
+        [Fact]
         public void AffordanceCatalog_AdvertisesExpectedVerbs()
         {
             Assert.Contains(ActivityKind.EatTavern, AffordanceCatalog.Public(BuildingKind.Tavern));

@@ -180,7 +180,7 @@ namespace DaggerfallWorkshop.Sim
             return s;
         }
 
-        static readonly string[] AxisNames = { "hunger", "energy", "social", "coin", "goods" };
+        static readonly string[] AxisNames = { "hunger", "energy", "social", "coin", "goods", "fear" };
 
         /// One agent's motivations in a line — so a surprising metric can be
         /// judged ("40% awake at 3am" → look: they're hungry, foraging, makes

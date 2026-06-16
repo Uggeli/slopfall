@@ -15,6 +15,14 @@ namespace DaggerfallWorkshop.Sim
         /// placeholder (tuned against the famine soak, not here).
         const double LarderTarget = 5.0;
 
+        // --- Fear controller (V2b). FROZEN placeholders, tuned with the rest. ---
+        const double VigilanceFloorMax = 0.3;    // a maximally timid soul rests this vigilant
+        const double ThreatSightRadius = 12.0;   // matches SenseSystem.SightRadius (clarity = 1 − d/R)
+        const double CompletionGain = 0.8;       // how hard the ambiguous (1−c) remainder is filled in
+        const double SpiralGain = 0.6;           // arousal feeds completion → the positive-feedback (panic) loop
+        const double FearRiseRatePerMin = 0.5;   // fear floods fast
+        const double FearDecayRatePerMin = 0.1;  // and ebbs slower, toward the floor (ResetOnPercept)
+
         SimulationContext _ctx;
         readonly System.Collections.Generic.List<EntityId> _discomforts = new System.Collections.Generic.List<EntityId>();
 
@@ -85,6 +93,14 @@ namespace DaggerfallWorkshop.Sim
                         next.V[axis] = deficit < 0 ? 0 : deficit;
                         continue;
                     }
+                    if (level == LevelSource.DerivedThreat)
+                    {
+                        // The fear controller (V2b): the Max-projected, completion-
+                        // biased threat field over the agent's last view, smoothed
+                        // with a personality vigilance floor. The one stateful drive.
+                        next.V[axis] = FearLevel(kv.Key, v[axis], person, gameMinutes);
+                        continue;
+                    }
 
                     double value = v[axis];
 
@@ -147,6 +163,66 @@ namespace DaggerfallWorkshop.Sim
         /// HomeOf, the larder's sole writer. −1 if none.
         int HomeOf(EntityId id)
             => _ctx.Residency.TryGet(id, out var r) && r != null ? r.BuildingIndex : -1;
+
+        /// The vigilance floor — trait anxiety read as a baseline arousal (drive
+        /// doc). A bold soul (HarmAvoidance 0) rests at 0; a timid one rests
+        /// vigilant, so an ambiguous percept can cross into felt threat FROM REST
+        /// (the ignition bifurcation). Absent personality → centered.
+        static double VigilanceFloor(PersonalityData person)
+            => VigilanceFloorMax * (person != null ? person.Trait(TraitIndex.HarmAvoidance) : 0.5);
+
+        /// Complete an ambiguous threat cue (drive doc, emotion-as-controller):
+        /// clarity c, plus the floor-and-arousal-driven fill of the (1−c) remainder.
+        /// Bold (low floor/arousal) leaves a faint cue faint; timid completes it
+        /// toward threat; rising arousal completes harder still — the analytic
+        /// ignition c + (1−c)·gain·(floor + spiral·arousal). Pure, for the
+        /// ignition-bifurcation test.
+        public static double CompleteThreat(double clarity, double floor, double arousal)
+        {
+            double completion = CompletionGain * (floor + SpiralGain * arousal);
+            double felt = clarity + (1.0 - clarity) * completion;
+            return felt < 0 ? 0 : (felt > 1.0 ? 1.0 : felt);
+        }
+
+        /// The fear controller: Max over the perceived-threat field (each cue
+        /// completed by CompleteThreat, clarity from distance), floored at the
+        /// vigilance baseline, then smoothed toward that target — fast to flood,
+        /// slow to ebb (ResetOnPercept: with no threat in view the target is the
+        /// floor). prevFear is the carried arousal that drives the spiral. Reads
+        /// LAST tick's view (NeedsSystem precedes SubjectiveSystem — staleness is
+        /// Atoms-acceptable).
+        double FearLevel(EntityId self, double prevFear, PersonalityData person, double gameMinutes)
+        {
+            double floor = VigilanceFloor(person);
+            double target = floor;
+
+            if (_ctx.Subjective.TryGet(self, out var view) && view != null
+                && _ctx.Position.TryGet(self, out var sp) && sp != null)
+            {
+                var reads = view.Entities;
+                for (int i = 0; i < reads.Count; i++)
+                {
+                    if (reads[i].Threat <= 0) continue;
+                    double clarity = 1.0;
+                    if (_ctx.Position.TryGet(reads[i].Other, out var tp) && tp != null)
+                    {
+                        double dx = tp.X - sp.X, dz = tp.Z - sp.Z;
+                        double d = System.Math.Sqrt(dx * dx + dz * dz);
+                        clarity = 1.0 - d / ThreatSightRadius;
+                        if (clarity < 0) clarity = 0; else if (clarity > 1) clarity = 1;
+                    }
+                    double felt = CompleteThreat(clarity, floor, prevFear) * reads[i].Threat;
+                    if (felt > target) target = felt;   // Max projection: the worst threat dominates
+                }
+            }
+
+            double ratePerMin = target >= prevFear ? FearRiseRatePerMin : FearDecayRatePerMin;
+            double rate = ratePerMin * gameMinutes;
+            if (rate > 1.0) rate = 1.0; else if (rate < 0) rate = 0;
+            double next = prevFear + rate * (target - prevFear);
+            if (next < 0) next = 0; else if (next > ActivityCatalog.VMax) next = ActivityCatalog.VMax;
+            return next;
+        }
 
         /// Does the seller still have the good this sale draws? Mirrors the gate
         /// EconomySystem.PaySale obeyed (which ran earlier this tick), so a relief

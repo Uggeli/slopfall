@@ -151,6 +151,17 @@ namespace DaggerfallWorkshop.Sim
             {
                 bestX = home.X; bestZ = home.Z; bestBuilding = residency.BuildingIndex;
             }
+            else if (bestKind == ActivityKind.Flee && NearestThreat(id, pos.X, pos.Z, out float tx, out float tz))
+            {
+                // Run directly away from the nearest threat. Breaking the percept
+                // is the real relief (the controller resets fear on percept-absence).
+                float ax = pos.X - tx, az = pos.Z - tz;
+                float mag = (float)System.Math.Sqrt(ax * ax + az * az);
+                if (mag < 1e-3f) { ax = 1; az = 0; mag = 1; }   // on top of it: pick a direction
+                bestX = pos.X + ax / mag * FleeDistance;
+                bestZ = pos.Z + az / mag * FleeDistance;
+                bestBuilding = -1;
+            }
 
             var bestSpec = ActivityCatalog.SpecFor(bestKind);
 
@@ -208,6 +219,7 @@ namespace DaggerfallWorkshop.Sim
                 * (s.Outdoor ? c.Outdoor : 1.0)
                 * (s.Social ? Liveliness(ad) * (c.Hour >= 17 ? 1.5 : 1.0) * c.Cozy : 1.0)
                 * (s.Prepotent ? c.Prepotency : 1.0)
+                * (s.FearDriven ? DesperationFactor(c.Needs, NeedAxis.Fear) : 1.0)
                 * (s.RelationSensitive ? RelationFactor(RegardFieldAt(ad.Building, c)) : 1.0)
                 * ConscienceFactor(_ctx.Conscience.ChargeFor(c.Self, ad.Verb))
                 * (c.Holiday && s.HolidayFactor != 1.0 ? s.HolidayFactor : 1.0)
@@ -287,6 +299,44 @@ namespace DaggerfallWorkshop.Sim
         {
             double f = 1.0 - charge;
             return f < ShameFloor ? ShameFloor : (f > 1.0 ? 1.0 : f);
+        }
+
+        // Escape-affordability (the desperation edge hunger ⊣ fear): starvation
+        // grades the fear response down, so a starving agent can't afford to run.
+        // FROZEN placeholders.
+        const double DesperationStrength = 0.7;   // at max hunger, fear's urgency is cut to ~0.3
+        const double DesperationFloor = 0.1;      // never fully silenced
+
+        /// The fear-urgency multiplier from the DesperationGraded edges into an
+        /// axis (table-driven via DriveGraph). One edge today: hunger ⊣ fear.
+        public static double DesperationFactor(double[] needs, int axis)
+        {
+            var sources = DriveGraph.DesperationSourcesByTarget[axis];
+            double f = 1.0;
+            for (int i = 0; i < sources.Length; i++)
+                f *= 1.0 - DesperationStrength * (needs[sources[i]] / ActivityCatalog.VMax);
+            return f < DesperationFloor ? DesperationFloor : f;
+        }
+
+        const float FleeDistance = 30f;   // how far the agent bolts per flee leg
+
+        /// The position of the nearest perceived threat (a creature in the agent's
+        /// subjective view), or false if none. The fear response runs from this.
+        bool NearestThreat(EntityId self, float sx, float sz, out float tx, out float tz)
+        {
+            tx = 0; tz = 0;
+            if (!_ctx.Subjective.TryGet(self, out var view) || view == null) return false;
+            float best = float.MaxValue; bool found = false;
+            var reads = view.Entities;
+            for (int i = 0; i < reads.Count; i++)
+            {
+                if (reads[i].Threat <= 0) continue;
+                if (!_ctx.Position.TryGet(reads[i].Other, out var tp) || tp == null) continue;
+                float dx = tp.X - sx, dz = tp.Z - sz;
+                float d2 = dx * dx + dz * dz;
+                if (d2 < best) { best = d2; tx = tp.X; tz = tp.Z; found = true; }
+            }
+            return found;
         }
 
         static double TraitOf(ScoreContext c, int idx) => c.Person != null ? c.Person.Trait(idx) : 0.5;
