@@ -28,7 +28,20 @@ namespace DaggerfallWorkshop.Sim
                 // visited or patronised as a customer. (A keeper lives above the
                 // shop, so it's both home and workplace.)
                 foreach (var verb in AffordanceCatalog.Home)
+                {
+                    // Recall (Atoms what_is_memory): don't even offer EatHome if the
+                    // agent REMEMBERS the pantry was bare — the ad doesn't come to
+                    // mind, so a hungry agent reaches past it to Buy/Work/Farm/Steal
+                    // instead of livelocking on a meal it knows it can't have. A
+                    // remembered ProvisionsHere==0 suppresses it; never-seen does not
+                    // (a fresh agent checks home once). Stale by design — corrected
+                    // on the next visit.
+                    if (verb == ActivityKind.EatHome
+                        && ctx.PlaceMemory.Recall(agent, buildingIndex, PlaceFact.ProvisionsHere, out var pf)
+                        && pf.Value <= 0)
+                        continue;
                     Offer(into, verb, buildingIndex, b);
+                }
                 if (res.Role == ResidentRole.Keeper)
                     foreach (var verb in AffordanceCatalog.Workplace)
                         Offer(into, verb, buildingIndex, b);

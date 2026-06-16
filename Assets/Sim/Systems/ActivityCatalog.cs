@@ -133,7 +133,12 @@ namespace DaggerfallWorkshop.Sim
         {
             Kind = ActivityKind.Farm,
             DurationMinutes = 180,
-            Delta = Deltas(coinDef: -0.15, energyDef: +0.10),
+            // Working the land FEEDS you (the manorial channel): the hand takes home
+            // a share of the harvest (in-kind → larder, EconomySystem) plus a small
+            // wage, so the scored promise must LEAD with food (goods), like Buy.
+            // Without it a starving farmhand sees only coin (demoted to weight 0.1)
+            // and an energy cost, and never works the field it would eat from.
+            Delta = Deltas(goodsDef: -0.3, coinDef: -0.1, energyDef: +0.10),
             OpenHour = 6, CloseHour = 19,
             Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,
         };
@@ -144,7 +149,9 @@ namespace DaggerfallWorkshop.Sim
         {
             Kind = ActivityKind.Fish,
             DurationMinutes = 180,
-            Delta = Deltas(coinDef: -0.15, energyDef: +0.12),
+            // Same as Farm: the catch comes home (in-kind food), so the promise
+            // leads with goods, not the demoted coin.
+            Delta = Deltas(goodsDef: -0.3, coinDef: -0.1, energyDef: +0.12),
             OpenHour = 5, CloseHour = 17,
             Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,
         };

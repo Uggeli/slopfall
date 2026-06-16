@@ -146,8 +146,11 @@ namespace DaggerfallWorkshop.Sim
             _escheats.Clear();
         }
 
+        long _tick;   // current tick, stashed so the larder-contact helpers can stamp the belief (memory write)
+
         public void Update(long tick)
         {
+            _tick = tick;
             var clock = _ctx.WorldClock.Current;
             if (clock.Year == 0) return;
             double gameMinutes = _ctx.Time.TickIntervalSeconds * clock.TimeScale / 60.0;
@@ -252,7 +255,11 @@ namespace DaggerfallWorkshop.Sim
                             // also takes home provisions for the household larder. A
                             // miner produces ore (not edible) → cash wage only.
                             if (behavior.Activity == ActivityKind.Farm || behavior.Activity == ActivityKind.Fish)
-                                _ctx.Larder.Add(HomeOf(id), InKindProvisionsPerMinute * gameMinutes);
+                            {
+                                int fh = HomeOf(id);
+                                _ctx.Larder.Add(fh, InKindProvisionsPerMinute * gameMinutes);
+                                _ctx.PlaceMemory.Note(id, fh, PlaceFact.ProvisionsHere, 1, _tick);   // carried the harvest home → remembers it's stocked
+                            }
                             break;
                         case ActivityKind.EatTavern:
                         case ActivityKind.Socialize:
@@ -282,8 +289,14 @@ namespace DaggerfallWorkshop.Sim
                             // zero (Larder.Add), and NeedsSystem gates the hunger relief
                             // on the same larder having food — so an empty larder yields
                             // no meal, mirroring the shop-stock sale gate. Coin untouched.
-                            _ctx.Larder.Add(HomeOf(id),
+                            int eatHome = HomeOf(id);
+                            double afterMeal = _ctx.Larder.Add(eatHome,
                                 -ActivityCatalog.EatHome.LarderUnitsPerMinute * gameMinutes);
+                            // Eating IS contact with the pantry — the agent remembers
+                            // its state (a PLACES memory write): an empty result is the
+                            // surprise that stops it coming back (ActionDiscovery recalls
+                            // the fact and doesn't re-offer EatHome).
+                            _ctx.PlaceMemory.Note(id, eatHome, PlaceFact.ProvisionsHere, afterMeal > 1e-6 ? 1 : 0, _tick);
                             break;
                     }
                 }
@@ -649,7 +662,11 @@ namespace DaggerfallWorkshop.Sim
             // Other sale goods (a tavern meal, drink, a craftsman's wares) are
             // consumed on the spot, not larded.
             if (goods && spec.Kind == ActivityKind.Buy && good == Good.Provisions)
-                _ctx.Larder.Add(HomeOf(patron), units);
+            {
+                int ph = HomeOf(patron);
+                _ctx.Larder.Add(ph, units);
+                _ctx.PlaceMemory.Note(patron, ph, PlaceFact.ProvisionsHere, 1, _tick);   // carried provisions home → remembers it's stocked
+            }
 
             var keeper = KeeperOf(building);
             if (!keeper.IsNone && keeper != patron)
@@ -681,7 +698,9 @@ namespace DaggerfallWorkshop.Sim
             if (units > available) units = available;
             if (units <= 0) return;
             _ctx.Stock.Add(building, Good.Provisions, -units);
-            _ctx.Larder.Add(HomeOf(thief), units);
+            int th = HomeOf(thief);
+            _ctx.Larder.Add(th, units);
+            _ctx.PlaceMemory.Note(thief, th, PlaceFact.ProvisionsHere, 1, _tick);   // carried the loot home → remembers it's stocked
         }
 
         EntityId KeeperOf(int building)

@@ -78,14 +78,37 @@ namespace DaggerfallWorkshop.Sim.Host
             var series = new List<Snapshot>();
             series.Add(Capture(ctx, 0, decisions, almsGranted, almsRefused, friendships, mets, deaths));
 
+            // The daily snapshot lands at one fixed hour (1440 ticks = 24h), so it
+            // only ever sees that slice of the day. Histogram the activity mix
+            // ACROSS the final day (every 30 game-min) for the time-of-day-neutral
+            // ground truth of what people do.
+            int kinds = System.Enum.GetValues(typeof(ActivityKind)).Length;
+            var dayHist = new long[kinds + 2];   // +Moving, +None(no behavior)
+            int movingBucket = kinds, idleNoneBucket = kinds + 1;
+            long histSamples = 0;
+
             for (int d = 1; d <= days; d++)
             {
+                bool lastDay = d == days;
                 for (int t = 0; t < TicksPerDay; t++)
+                {
                     loop.Step();
+                    if (lastDay && t % 30 == 0)
+                    {
+                        foreach (var kv in ctx.Needs.All)   // civilians only (have a Needs row)
+                        {
+                            if (!ctx.Behavior.TryGet(kv.Key, out var b)) { dayHist[idleNoneBucket]++; continue; }
+                            if (b.Phase == ActivityPhase.Moving) dayHist[movingBucket]++;
+                            else dayHist[(int)b.Activity]++;
+                        }
+                        histSamples++;
+                    }
+                }
                 series.Add(Capture(ctx, d, decisions, almsGranted, almsRefused, friendships, mets, deaths));
             }
 
             PrintTable(series);
+            PrintDayMix(dayHist, histSamples, series[series.Count - 1].Population, movingBucket, idleNoneBucket);
             Console.WriteLine();
             if (perSettlement) PrintSettlements(ctx);
             bool ok = Verdict(series);
@@ -96,6 +119,33 @@ namespace DaggerfallWorkshop.Sim.Host
                     Console.WriteLine("movement: " + m.PathfindCalls + " pathfinds / " + m.MovingAgentTicks
                         + " moving-agent-ticks = " + (m.MovingAgentTicks > 0 ? (100.0 * m.PathfindCalls / m.MovingAgentTicks).ToString("F1") : "0") + "% replan rate");
             return ok ? 0 : 1;
+        }
+
+        /// What civilians spend the FINAL DAY doing — averaged over the day (every
+        /// 30 game-min), so it's not biased by the single fixed-hour daily sample.
+        static void PrintDayMix(long[] hist, long samples, int pop, int movingBucket, int idleNoneBucket)
+        {
+            if (samples == 0) return;
+            var rows = new List<(string name, double avg)>();
+            for (int k = 0; k < hist.Length; k++)
+            {
+                if (hist[k] == 0) continue;
+                string name = k == movingBucket ? "Moving"
+                            : k == idleNoneBucket ? "(no behavior)"
+                            : ((ActivityKind)k).ToString();
+                rows.Add((name, hist[k] / (double)samples));
+            }
+            rows.Sort((a, b) => b.avg.CompareTo(a.avg));
+            Console.WriteLine("final-day activity mix (avg headcount over the day, " + pop + " civilians):");
+            var sb = new System.Text.StringBuilder("  ");
+            for (int i = 0; i < rows.Count; i++)
+            {
+                double pct = pop > 0 ? 100.0 * rows[i].avg / pop : 0;
+                sb.Append(rows[i].name).Append(' ').Append(rows[i].avg.ToString("F0"))
+                  .Append(" (").Append(pct.ToString("F0")).Append("%)   ");
+            }
+            Console.WriteLine(sb.ToString());
+            Console.WriteLine();
         }
 
         /// Final per-settlement economy breakdown — does each settlement behave like
@@ -159,6 +209,7 @@ namespace DaggerfallWorkshop.Sim.Host
             public int Hungry;                      // hunger ≥ 1.0 — the "can they eat?" headline
             public int Creatures;                   // V2a: hostiles roaming
             public int Fleeing, Fighting;           // V2b: Doing Flee / Attack
+            public int[] Doing;                     // full activity mix at this sample (by ActivityKind)
             // social fabric
             public long Edges, Acquaintances, FriendEdges;
             public double MeanRegard, MeanFamiliarity;
@@ -190,7 +241,7 @@ namespace DaggerfallWorkshop.Sim.Host
                 LarderProvisions = c.LarderProvisions, LarderHouseholds = c.LarderHouseholds, LarderEmpty = c.LarderEmpty,
                 Hunger = c.Hunger, Energy = c.Energy, Social = c.Social, Poverty = c.Poverty,
                 Starving = c.Starving, Hungry = c.Hungry,
-                Creatures = c.Creatures, Fleeing = c.Fleeing, Fighting = c.Fighting,
+                Creatures = c.Creatures, Fleeing = c.Fleeing, Fighting = c.Fighting, Doing = c.Doing,
                 Edges = c.Edges, Acquaintances = c.Acquaintances, FriendEdges = c.FriendEdges,
                 MeanRegard = c.MeanRegard, MeanFamiliarity = c.MeanFamiliarity,
                 PosRegard = c.PosRegard, NegRegard = c.NegRegard, SaturatedRegard = c.SaturatedRegard,
@@ -305,6 +356,24 @@ namespace DaggerfallWorkshop.Sim.Host
             Console.WriteLine("  [obs]  threat layer: " + last.Creatures + " hostile(s) roaming, "
                 + last.Deaths + " deaths total; " + last.Fleeing + " fleeing / " + last.Fighting
                 + " fighting at last sample (fear → fight-or-flight, V2b)");
+
+            // What is everyone actually DOING right now? The activity mix at the
+            // last sample, busiest first — the ground truth behind the aggregates.
+            if (last.Doing != null)
+            {
+                var order = new List<int>();
+                for (int k = 0; k < last.Doing.Length; k++) if (last.Doing[k] > 0) order.Add(k);
+                order.Sort((a, b) => last.Doing[b].CompareTo(last.Doing[a]));
+                var sb = new System.Text.StringBuilder("  [obs]  doing now:");
+                for (int i = 0; i < order.Count; i++)
+                {
+                    int k = order[i];
+                    double pct = last.Population > 0 ? 100.0 * last.Doing[k] / last.Population : 0;
+                    sb.Append(' ').Append((ActivityKind)k).Append('=').Append(last.Doing[k])
+                      .Append('(').Append(pct.ToString("F0")).Append("%)");
+                }
+                Console.WriteLine(sb.ToString());
+            }
 
             // 4. NaN guard.
             if (double.IsNaN(last.CoinTotal) || double.IsNaN(last.MeanRegard) || double.IsNaN(last.Hunger))
