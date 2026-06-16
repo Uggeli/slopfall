@@ -37,6 +37,7 @@ namespace DaggerfallWorkshop.Sim
         public HolidayRegistry Holiday { get; }
         public PlaceMemoryRegistry PlaceMemory { get; }
         public SensedRegistry Sensed { get; }
+        public SubjectiveViewRegistry Subjective { get; }
         public IntentRegistry Intent { get; }
         public EmploymentRegistry Employment { get; }
         public StockRegistry Stock { get; }
@@ -77,6 +78,7 @@ namespace DaggerfallWorkshop.Sim
             Holiday = new HolidayRegistry();
             PlaceMemory = new PlaceMemoryRegistry();
             Sensed = new SensedRegistry();
+            Subjective = new SubjectiveViewRegistry();
             Intent = new IntentRegistry();
             Employment = new EmploymentRegistry();
             Stock = new StockRegistry();
