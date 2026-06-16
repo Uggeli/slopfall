@@ -108,12 +108,16 @@ namespace DaggerfallWorkshop.Sim
             // --- The marketplace: Collect (ActionDiscovery, precondition-filtered),
             // Score each ad uniformly with V, argmax. No hand-built candidate
             // blocks and no per-verb branching: a new action is a catalog row. ---
+            // L3 membrane: the dossier is the agent's interpretation substrate —
+            // it reads a place partly through how it regards who is there.
+            _ctx.Relations.TryGet(id, out var dossier);
             var sc = new ScoreContext
             {
                 Needs = needs.V, W = w, Person = person,
                 Hour = hour, Night = night, Wet = wet, Holiday = holiday,
                 Outdoor = outdoor, Cozy = cozy, Prepotency = PrepotencyGate(needs.V),
                 Px = pos.X, Pz = pos.Z,
+                Self = id, Dossier = dossier,
             };
 
             var ads = ActionDiscovery.GatherAds(_ctx, id);
@@ -185,6 +189,8 @@ namespace DaggerfallWorkshop.Sim
             public bool Night, Wet, Holiday;
             public double Outdoor, Cozy, Prepotency;
             public float Px, Pz;
+            public EntityId Self;            // L3: whose subjective view this is (exclude self from company)
+            public RelationsData Dossier;    // L3: the agent's directed opinions — its interpretation substrate
         }
 
         /// V — the value function. Uniform over EVERY ad: read the activity's
@@ -204,6 +210,7 @@ namespace DaggerfallWorkshop.Sim
                 * (s.Outdoor ? c.Outdoor : 1.0)
                 * (s.Social ? Liveliness(ad) * (c.Hour >= 17 ? 1.5 : 1.0) * c.Cozy : 1.0)
                 * (s.Prepotent ? c.Prepotency : 1.0)
+                * (s.RelationSensitive ? RelationFactor(MeanRegardAt(ad.Building, c)) : 1.0)
                 * (c.Holiday && s.HolidayFactor != 1.0 ? s.HolidayFactor : 1.0)
                 * (s.TraitOnBase ? 1.0 : traitFactor);
 
@@ -215,6 +222,42 @@ namespace DaggerfallWorkshop.Sim
 
         double Liveliness(Ad ad)
             => ad.Building < 0 ? 1.0 : 1.0 + 0.04 * System.Math.Min(_ctx.Occupancy.PlaceCount(ad.Building), 8);
+
+        /// L3 membrane: the deciding agent's subjective read of "who's here" —
+        /// mean directed regard over a place's social occupants (last tick's;
+        /// perceptual staleness is Atoms-acceptable). Self excluded.
+        double MeanRegardAt(int building, ScoreContext c)
+            => building < 0 ? 0.0 : MeanRegard(c.Dossier, _ctx.Occupancy.OccupantsOf(building), c.Self);
+
+        // L3 placeholders (FROZEN — no tuning until the whole L-stack lands).
+        const double RelationGain = 0.5, RelationFloor = 0.5, RelationCeil = 1.5;
+
+        /// Mean directed regard over the company present (self excluded; unknown
+        /// occupants count as neutral, so a crowd of strangers reads ~0). Pure
+        /// for testing.
+        public static double MeanRegard(RelationsData dossier, IReadOnlyList<EntityId> occupants, EntityId self)
+        {
+            if (occupants == null || occupants.Count == 0) return 0.0;
+            double sum = 0; int n = 0;
+            for (int i = 0; i < occupants.Count; i++)
+            {
+                var other = occupants[i];
+                if (other == self) continue;
+                double r = 0;
+                if (dossier != null && dossier.Of.TryGetValue(other, out var rel)) r = rel.Regard;
+                sum += r; n++;
+            }
+            return n > 0 ? sum / n : 0.0;
+        }
+
+        /// Color a place's value by regard for its company: a multiplier in
+        /// [Floor, Ceil] that tilts the choice but can't flip the score's sign or
+        /// swamp the need gap (keeps prepotency/needs dominant). Pure for testing.
+        public static double RelationFactor(double meanRegard)
+        {
+            double f = 1.0 + RelationGain * meanRegard;
+            return f < RelationFloor ? RelationFloor : (f > RelationCeil ? RelationCeil : f);
+        }
 
         static double TraitOf(ScoreContext c, int idx) => c.Person != null ? c.Person.Trait(idx) : 0.5;
 

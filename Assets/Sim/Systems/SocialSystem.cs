@@ -117,6 +117,7 @@ namespace DaggerfallWorkshop.Sim
 
             var company = new Dictionary<EntityId, int>();
             var place = new Dictionary<int, int>();
+            var occupants = new Dictionary<int, List<EntityId>>();
             foreach (var kv in _groups)
             {
                 var group = kv.Value;
@@ -124,13 +125,14 @@ namespace DaggerfallWorkshop.Sim
                 // Deterministic partner order regardless of registry iteration.
                 group.Sort((a, b) => a.Value.CompareTo(b.Value));
                 place[kv.Key] = group.Count;
+                occupants[kv.Key] = new List<EntityId>(group);   // copy: _groups lists are cleared next tick
                 for (int i = 0; i < group.Count; i++)
                     company[group[i]] = group.Count - 1;
 
                 if (group.Count > 1)
                     GrowRelations(kv.Key, group, gameMinutes, tick);
             }
-            _ctx.Occupancy.Swap(company, place);
+            _ctx.Occupancy.Swap(company, place, occupants);
         }
 
         /// Erode every directed relation toward neutral. Runs over ALL relation

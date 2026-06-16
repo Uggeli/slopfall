@@ -42,6 +42,7 @@ namespace DaggerfallWorkshop.Sim
             public bool Outdoor = false;                // gate × weather (storms damp)
             public bool Social = false;                 // gate × liveliness × evening × cozy
             public bool Prepotent = false;              // gate × prepotency (leisure/growth)
+            public bool RelationSensitive = false;      // gate × the agent's regard for who's present (L3 membrane)
             public double HolidayFactor = 1.0;          // gate × this when a holiday is active
             public int Trait = -1;                      // TraitIndex this activity couples to, or -1
             public double TraitBias = 1.0, TraitScale = 0.0, TraitExp = 1.0;  // factor = bias + scale·trait^exp
@@ -165,7 +166,7 @@ namespace DaggerfallWorkshop.Sim
             DurationMinutes = 45,
             Delta = Deltas(hunger: -0.8, coinDef: +0.08, socialDef: -0.1),
             OpenHour = 6, CloseHour = 23,
-            DistanceScale = 150,
+            DistanceScale = 150, RelationSensitive = true,
             // A meal = provisions transformed and served; gated on the tavern
             // having provisions. SaleUnits×SalePrice (1×0.08) matches the coinDef
             // promise; the price tops raw-provisions retail (0.05) — the transform's
@@ -180,7 +181,7 @@ namespace DaggerfallWorkshop.Sim
             Delta = Deltas(socialDef: -0.6, coinDef: +0.04, hunger: +0.05),
             OpenHour = 6, CloseHour = 23,
             DistanceScale = 150,
-            Social = true, Prepotent = true, HolidayFactor = 1.5,
+            Social = true, Prepotent = true, RelationSensitive = true, HolidayFactor = 1.5,
             Trait = TraitIndex.Sociability, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,   // on the gate
             // A round of drink — bought if the tavern has any (revenue), but the
             // gathering (and its social relief) isn't gated on it: a dry tavern is
@@ -198,7 +199,7 @@ namespace DaggerfallWorkshop.Sim
             BaseUtility = 0.05,
             OpenHour = 7, CloseHour = 21,
             DistanceScale = 200,
-            Outdoor = true, Prepotent = true, HolidayFactor = 1.3, Growth = true,
+            Outdoor = true, Prepotent = true, RelationSensitive = true, HolidayFactor = 1.3, Growth = true,
             // At a service institution (temple/guild/bank) a visit is patronage —
             // an offering / dues / fee to the keeper (G5). UNGATED: you may worship
             // or call even with an empty purse (the poor visit free, and receive),
