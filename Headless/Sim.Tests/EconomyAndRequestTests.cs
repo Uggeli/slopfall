@@ -76,6 +76,12 @@ namespace Sim.Tests
 
     public class RequestTests
     {
+        static BehaviorData Doing(ActivityKind kind) => new BehaviorData
+        {
+            Activity = kind, Phase = ActivityPhase.Doing,
+            TargetBuilding = -1, RemainingGameMinutes = 100000,
+        };
+
         static SimHarness Harness(out EntityId pauper, out EntityId mark, bool markIsKeeper, double markRegardForPauper)
         {
             var h = new SimHarness(tickIntervalSeconds: 1.0);
@@ -89,10 +95,13 @@ namespace Sim.Tests
             h.Ctx.Needs.Set(mark, new NeedsData());
             h.Ctx.Coin.Set(mark, 1.0);
 
-            // Embodied asking: the pauper walks to the mark, so both need
-            // somewhere to stand.
+            // Begging: the pauper sits and asks; the mark loiters within sensing
+            // range and gets asked when sensed (no grid in the harness → no
+            // occlusion). Both must be "out and about" to sense / be sensed.
             h.Ctx.Position.Set(pauper, 0f, 0f, 0f, 0f);
-            h.Ctx.Position.Set(mark, 10f, 0f, 0f, 0f);
+            h.Ctx.Position.Set(mark, 5f, 0f, 0f, 0f);
+            h.Ctx.Behavior.Set(pauper, Doing(ActivityKind.Beg));
+            h.Ctx.Behavior.Set(mark, Doing(ActivityKind.Idle));
 
             if (markIsKeeper)
                 h.Ctx.Residency.Set(mark, new ResidencyData { BuildingIndex = 3, Role = ResidentRole.Keeper });
@@ -115,7 +124,7 @@ namespace Sim.Tests
             var h = Harness(out var pauper, out var mark, markIsKeeper: false, markRegardForPauper: 0.5);
             var granted = h.Collect<HelpGrantedEvent>();
 
-            h.Step(10);         // journey decided → walk over → ask → impulses land
+            h.Step(12);         // sit begging → sense the mark → ask → impulses land
 
             Assert.Single(granted);
             Assert.Equal(pauper, granted[0].Asker);
@@ -139,7 +148,7 @@ namespace Sim.Tests
             var h = Harness(out var pauper, out var mark, markIsKeeper: false, markRegardForPauper: -0.5);
             var refused = h.Collect<HelpRefusedEvent>();
 
-            h.Step(10);
+            h.Step(12);
 
             Assert.Single(refused);
             Assert.Equal(0.0, h.Ctx.Coin.Get(pauper), 3);
@@ -155,8 +164,8 @@ namespace Sim.Tests
         [Fact]
         public void KeepersExtendCharity_ToStrangers()
         {
-            // No relations at all: the pauper falls back to the richest
-            // keeper, who tolerates strangers.
+            // No relations at all: a keeper who passes the beggar still gives —
+            // keepers tolerate strangers (the charity bar).
             var h = new SimHarness(tickIntervalSeconds: 1.0);
             var pauper = h.SpawnEntity("Pauper");
             var keeper = h.SpawnEntity("Keeper");
@@ -168,11 +177,13 @@ namespace Sim.Tests
             h.Ctx.Coin.Set(keeper, 1.0);
             h.Ctx.Residency.Set(keeper, new ResidencyData { BuildingIndex = 3, Role = ResidentRole.Keeper });
             h.Ctx.Position.Set(pauper, 0f, 0f, 0f, 0f);
-            h.Ctx.Position.Set(keeper, 10f, 0f, 0f, 0f);
+            h.Ctx.Position.Set(keeper, 5f, 0f, 0f, 0f);
+            h.Ctx.Behavior.Set(pauper, Doing(ActivityKind.Beg));
+            h.Ctx.Behavior.Set(keeper, Doing(ActivityKind.Idle));
             h.SeedClock(hour: 12, timeScale: 60f);
             var granted = h.Collect<HelpGrantedEvent>();
 
-            h.Step(10);
+            h.Step(12);
 
             Assert.Single(granted);
             Assert.Equal(keeper, granted[0].Giver);

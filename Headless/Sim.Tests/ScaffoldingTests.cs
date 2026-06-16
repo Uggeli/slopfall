@@ -31,7 +31,7 @@ namespace Sim.Tests
         {
             Assert.Contains(ActivityKind.EatTavern, AffordanceCatalog.Public(BuildingKind.Tavern));
             Assert.Contains(ActivityKind.Socialize, AffordanceCatalog.Public(BuildingKind.Tavern));
-            Assert.Equal(new[] { ActivityKind.Visit }, AffordanceCatalog.Public(BuildingKind.Temple));
+            Assert.Equal(new[] { ActivityKind.Visit, ActivityKind.Beg }, AffordanceCatalog.Public(BuildingKind.Temple));
             Assert.Empty(AffordanceCatalog.Public(BuildingKind.House1));   // homes are agent-relative, not public
             Assert.Contains(ActivityKind.Sleep, AffordanceCatalog.Home);
             Assert.Contains(ActivityKind.Work, AffordanceCatalog.Workplace);

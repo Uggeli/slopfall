@@ -61,7 +61,7 @@ namespace DaggerfallWorkshop.Sim
     {
         public static CensusSnapshot Capture(SimulationContext ctx)
         {
-            var s = new CensusSnapshot { Doing = new int[(int)ActivityKind.SeekHelp + 1] };
+            var s = new CensusSnapshot { Doing = new int[(int)ActivityKind.Beg + 1] };
 
             // --- Activity mix ---
             foreach (var kv in ctx.Behavior.All)

@@ -94,7 +94,8 @@ namespace DaggerfallWorkshop.Sim
             if (b.Phase == ActivityPhase.Moving) return true;
             return b.Activity == ActivityKind.Wander
                 || b.Activity == ActivityKind.Visit
-                || b.Activity == ActivityKind.Idle;
+                || b.Activity == ActivityKind.Idle
+                || b.Activity == ActivityKind.Beg;        // a beggar sits in public, watching for passers-by (L4)
         }
 
         static long CellKey(float x, float z) => Key((int)(x / CellSize), (int)(z / CellSize));

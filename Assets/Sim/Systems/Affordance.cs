@@ -22,8 +22,12 @@ namespace DaggerfallWorkshop.Sim
     {
         static readonly ActivityKind[] None = new ActivityKind[0];
         static readonly ActivityKind[] TavernVerbs = { ActivityKind.EatTavern, ActivityKind.Socialize };
-        static readonly ActivityKind[] ShopVerbs = { ActivityKind.Buy };
-        static readonly ActivityKind[] LandmarkVerbs = { ActivityKind.Visit };
+        // Beg is offered at shops and temples — the alms-giving venues, where a
+        // keeper with coin is present (L4). Taverns stay social halls. A poor
+        // agent picks Beg only when poverty is loud; the comfortable score it ~0
+        // (its value comes from the coinDef gap).
+        static readonly ActivityKind[] ShopVerbs = { ActivityKind.Buy, ActivityKind.Beg };
+        static readonly ActivityKind[] LandmarkVerbs = { ActivityKind.Visit, ActivityKind.Beg };
 
         /// Public affordances — any agent who senses or remembers the building
         /// can use them. Landmark set matches OddSystem.EnsureLandmarks so the

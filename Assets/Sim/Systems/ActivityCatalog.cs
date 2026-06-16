@@ -235,10 +235,26 @@ namespace DaggerfallWorkshop.Sim
 
         /// Walking to a mark to ask for alms — entered via RequestSystem,
         /// never chosen by the marketplace. The "conversation" on arrival.
+        /// (Legacy: superseded by Beg; kept until the journey path is removed.)
         public static readonly Spec SeekHelp = new Spec
         {
             Kind = ActivityKind.SeekHelp,
             DurationMinutes = 5,
+        };
+
+        /// Begging (L4): the poor sit at a public venue and ask passers-by for
+        /// alms. The marketplace picks it whenever poverty is loud — its value
+        /// comes from the coinDef gap, so the comfortable never beg (no bespoke
+        /// trigger). The asking is a proximity interaction RequestSystem runs
+        /// while the agent is Doing this (it senses passers-by), not a journey.
+        /// The coinDef delta is a scoring estimate; real relief = alms received.
+        public static readonly Spec Beg = new Spec
+        {
+            Kind = ActivityKind.Beg,
+            DurationMinutes = 120,
+            Delta = Deltas(coinDef: -0.2, energyDef: +0.03),
+            OpenHour = 8, CloseHour = 20,
+            DistanceScale = 150,
         };
 
         /// Per-axis scoring weights, ported from ODD's WeightsRegistry idea as
@@ -275,6 +291,7 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Buy:       return Buy;
                 case ActivityKind.Chat:      return Chat;
                 case ActivityKind.SeekHelp:  return SeekHelp;
+                case ActivityKind.Beg:       return Beg;
                 default:                     return null;
             }
         }

@@ -20,7 +20,8 @@ namespace DaggerfallWorkshop.Sim
         Visit,       // growth drive: spend time at a landmark; engagement is the reward
         Buy,         // shop: refill household goods, pays the shopkeeper (revenue)
         Chat,        // interrupt: stopped on the street to greet a passing friend
-        SeekHelp,    // embodied request: walking to someone to ask for alms
+        SeekHelp,    // (legacy) embodied request — superseded by Beg; kept until the journey path is removed
+        Beg,         // sit at a public venue and ask passers-by for alms (L4); RequestSystem drives the asking
     }
 
     public enum ActivityPhase
