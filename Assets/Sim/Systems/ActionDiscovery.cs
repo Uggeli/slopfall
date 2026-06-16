@@ -66,6 +66,7 @@ namespace DaggerfallWorkshop.Sim
             {
                 var verb = empBldg.Kind == BuildingKind.Farm ? ActivityKind.Farm
                          : empBldg.Kind == BuildingKind.Fishery ? ActivityKind.Fish
+                         : empBldg.Kind == BuildingKind.Mine ? ActivityKind.Mine
                          : ActivityKind.Labor;
                 ads.Add(new Ad
                 {

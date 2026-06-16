@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace DaggerfallWorkshop.Sim
@@ -7,22 +8,45 @@ namespace DaggerfallWorkshop.Sim
         public float X, Z;
     }
 
-    /// Hierarchical town pathfinding over TownGridData.
+    /// Hierarchical town pathfinding over TownGridData, on the baked component graph
+    /// (BlockConnectivity):
     ///
-    /// Coarse layer: A* across the block graph using precomputed BlockGates —
-    /// "can this block be crossed from edge A to edge B" — so the search space
-    /// is blocks, not cells. The same flags work at province scale later.
-    /// Fine layer: A* over 1.6 m cells, restricted to the corridor of blocks
-    /// the coarse path chose (falls back to the full grid if the corridor
-    /// approximation fails, then gives up and lets the caller walk straight).
+    ///   - MACRO: BFS over connected components — "which block-components must I cross,
+    ///     and where" — bounded to one settlement (inter-settlement buffers are
+    ///     unwalkable, so they disconnect the graph). Unreachable → fail; there is NO
+    ///     full-grid fallback.
+    ///   - FINE: A*/Dijkstra confined to ONE 64×64 block at a time, from the entry
+    ///     crossing to any exit crossing toward the next component (multi-goal). Scratch
+    ///     is block-local (64×64), so a search never allocates or touches the combined
+    ///     grid — the cost is bounded by a block, not the region.
+    ///
+    /// A clear straight shot skips both layers (a Bresenham line is cheaper still).
     public static class TownPathfinder
     {
         const int NearWalkableRadius = 10;
+        const int B = TownGridData.CellsPerBlock;   // 64
 
-        /// `approachTarget`: append the exact destination as a final waypoint
-        /// even if it sits on a blocked cell (a building door). Pass false for
-        /// targets with no business inside a building (wandering) so strollers
-        /// stop on walkable ground instead of inside someone's house.
+        /// Reusable, block-local fine-search buffers (64×64), generation-stamped so a
+        /// reset is O(1). One PER THREAD ([ThreadStatic]) — a parallel MovementSystem
+        /// needs no pathfinder changes.
+        sealed class PathScratch
+        {
+            public readonly int[] GScore = new int[B * B];
+            public readonly int[] CameFrom = new int[B * B];
+            public readonly int[] Stamp = new int[B * B];
+            public int Gen;
+            public readonly BinaryHeap Open = new BinaryHeap();
+            public readonly List<int> CellPath = new List<int>();   // stitched global-cell path (the output)
+            public readonly List<int> Recon = new List<int>();      // per-segment reconstruct temp
+            public readonly HashSet<int> Goals = new HashSet<int>(); // this segment's exit cells (global)
+        }
+
+        [ThreadStatic] static PathScratch _scratch;
+        static PathScratch Scratch => _scratch ?? (_scratch = new PathScratch());
+
+        /// `approachTarget`: append the exact destination as a final waypoint even if it
+        /// sits on a blocked cell (a building door). Pass false for targets with no
+        /// business inside a building (wandering) so strollers stop on walkable ground.
         public static bool FindPath(TownGridData g, float fromX, float fromZ, float toX, float toZ,
             List<PathPoint> result, bool approachTarget = true)
         {
@@ -32,22 +56,59 @@ namespace DaggerfallWorkshop.Sim
             if (!NearestWalkable(g, g.CellX(fromX), g.CellY(fromZ), out int sx, out int sy)) return false;
             if (!NearestWalkable(g, g.CellX(toX), g.CellY(toZ), out int gx, out int gy)) return false;
 
-            List<int> cellPath = null;
-            var corridor = CoarseCorridor(g, sx / TownGridData.CellsPerBlock, sy / TownGridData.CellsPerBlock,
-                gx / TownGridData.CellsPerBlock, gy / TownGridData.CellsPerBlock);
-            if (corridor != null)
-                cellPath = FineAStar(g, sx, sy, gx, gy, corridor);
-            if (cellPath == null)
-                cellPath = FineAStar(g, sx, sy, gx, gy, null);      // corridor lied; search everything
-            if (cellPath == null) return false;
-
-            // Thin collinear runs into waypoints, then approach the exact
-            // target (typically a building door on a blocked cell).
-            int prevDx = int.MinValue, prevDy = int.MinValue;
-            for (int i = 1; i < cellPath.Count; i++)
+            // Straight-shot short-circuit: if walkable start and goal already see each
+            // other across walkable ground, skip the graph entirely (most journeys at
+            // soak timescale are short hops). Same arrival, so determinism holds.
+            if (g.LineClear(g.WorldX(sx), g.WorldZ(sy), g.WorldX(gx), g.WorldZ(gy)))
             {
-                int x0 = cellPath[i - 1] % g.Width, y0 = cellPath[i - 1] / g.Width;
-                int x1 = cellPath[i] % g.Width, y1 = cellPath[i] / g.Width;
+                result.Add(new PathPoint { X = g.WorldX(gx), Z = g.WorldZ(gy) });
+                if (approachTarget) result.Add(new PathPoint { X = toX, Z = toZ });
+                return true;
+            }
+
+            var conn = g.Connectivity ?? (g.Connectivity = BlockConnectivity.Build(g));
+            int startCell = sy * g.Width + sx, goalCell = gy * g.Width + gx;
+            int fromComp = conn.CompOfCell(g, sx, sy);
+            int toComp = conn.CompOfCell(g, gx, gy);
+            if (fromComp < 0 || toComp < 0) return false;
+
+            var s = Scratch;
+            var path = s.CellPath;
+            path.Clear();
+            path.Add(startCell);
+
+            if (fromComp == toComp)
+            {
+                // Same block-component: one bounded fine search to the goal.
+                s.Goals.Clear(); s.Goals.Add(goalCell);
+                if (FineInBlock(g, startCell, s, path) < 0) return false;
+            }
+            else
+            {
+                var route = conn.MacroRoute(fromComp, toComp);
+                if (route == null) return false;        // unreachable — no full-grid fallback
+
+                int entry = startCell;
+                for (int i = 0; i < route.Count; i++)
+                {
+                    var link = route[i];
+                    s.Goals.Clear();
+                    for (int e = 0; e < link.ExitCells.Length; e++) s.Goals.Add(link.ExitCells[e]);
+                    int reached = FineInBlock(g, entry, s, path);   // bounded to entry's block
+                    if (reached < 0) return false;                  // intra-block break (shouldn't happen on a real route)
+                    entry = reached + link.Delta;                   // step across the border into the next block
+                    path.Add(entry);
+                }
+                s.Goals.Clear(); s.Goals.Add(goalCell);             // last block → the goal
+                if (FineInBlock(g, entry, s, path) < 0) return false;
+            }
+
+            // Thin collinear runs into waypoints, then approach the exact target.
+            int prevDx = int.MinValue, prevDy = int.MinValue;
+            for (int i = 1; i < path.Count; i++)
+            {
+                int x0 = path[i - 1] % g.Width, y0 = path[i - 1] / g.Width;
+                int x1 = path[i] % g.Width, y1 = path[i] / g.Width;
                 int dx = x1 - x0, dy = y1 - y0;
                 if (dx != prevDx || dy != prevDy)
                 {
@@ -55,11 +116,71 @@ namespace DaggerfallWorkshop.Sim
                     prevDx = dx; prevDy = dy;
                 }
             }
-            int lx = cellPath[cellPath.Count - 1] % g.Width, ly = cellPath[cellPath.Count - 1] / g.Width;
+            int lx = path[path.Count - 1] % g.Width, ly = path[path.Count - 1] / g.Width;
             result.Add(new PathPoint { X = g.WorldX(lx), Z = g.WorldZ(ly) });
             if (approachTarget)
                 result.Add(new PathPoint { X = toX, Z = toZ });
             return true;
+        }
+
+        /// Dijkstra confined to the block containing `startCell`, to the nearest cell in
+        /// `s.Goals` (global cell ids). Appends the reconstructed cells (excluding
+        /// startCell, which the caller already placed) to `path`. Block-local scratch,
+        /// so it never touches the combined grid. Returns the reached goal cell, or −1.
+        static int FineInBlock(TownGridData g, int startCell, PathScratch s, List<int> path)
+        {
+            int W = g.Width;
+            int sx = startCell % W, sy = startCell / W;
+            int bx0 = (sx / B) * B, by0 = (sy / B) * B;     // block origin (cells)
+
+            int gen = ++s.Gen;
+            if (gen == int.MaxValue) { Array.Clear(s.Stamp, 0, s.Stamp.Length); s.Gen = 1; gen = 1; }
+            var gScore = s.GScore; var cameFrom = s.CameFrom; var stamp = s.Stamp; var open = s.Open;
+            open.Clear();
+
+            int startLocal = (sy - by0) * B + (sx - bx0);
+            gScore[startLocal] = 0; cameFrom[startLocal] = startLocal; stamp[startLocal] = gen;
+            open.Push(startLocal, 0);
+
+            int reached = -1;
+            while (open.Count > 0)
+            {
+                int curLocal = open.Pop();
+                int cx = bx0 + curLocal % B, cy = by0 + curLocal / B;
+                int curGlobal = cy * W + cx;
+                if (s.Goals.Contains(curGlobal)) { reached = curLocal; break; }
+
+                StepFine(g, s, gen, bx0, by0, W, cx + 1, cy, curLocal);
+                StepFine(g, s, gen, bx0, by0, W, cx - 1, cy, curLocal);
+                StepFine(g, s, gen, bx0, by0, W, cx, cy + 1, curLocal);
+                StepFine(g, s, gen, bx0, by0, W, cx, cy - 1, curLocal);
+            }
+            if (reached < 0) return -1;
+
+            // Reconstruct reached → start (local), then append start→reached (global),
+            // skipping the start cell the caller already added.
+            var recon = s.Recon; recon.Clear();
+            int c = reached;
+            while (c != startLocal) { recon.Add(c); c = cameFrom[c]; }
+            for (int i = recon.Count - 1; i >= 0; i--)
+            {
+                int local = recon[i];
+                path.Add((by0 + local / B) * W + (bx0 + local % B));
+            }
+            return (by0 + reached / B) * W + (bx0 + reached % B);
+        }
+
+        static void StepFine(TownGridData g, PathScratch s, int gen, int bx0, int by0, int W, int nx, int ny, int curLocal)
+        {
+            if (nx < bx0 || nx >= bx0 + B || ny < by0 || ny >= by0 + B) return;   // bounded to this block
+            byte cost = g.Cost[ny * W + nx];
+            if (cost == 0) return;
+            int nl = (ny - by0) * B + (nx - bx0);
+            int t = s.GScore[curLocal] + cost;
+            int ns = s.Stamp[nl] == gen ? s.GScore[nl] : int.MaxValue;
+            if (t >= ns) return;
+            s.GScore[nl] = t; s.CameFrom[nl] = curLocal; s.Stamp[nl] = gen;
+            s.Open.Push(nl, t);     // Dijkstra: priority = gScore
         }
 
         /// Spiral out from (cx, cy) to the closest walkable cell.
@@ -71,7 +192,7 @@ namespace DaggerfallWorkshop.Sim
                 {
                     for (int dx = -r; dx <= r; dx++)
                     {
-                        if (System.Math.Max(System.Math.Abs(dx), System.Math.Abs(dy)) != r) continue;
+                        if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
                         if (g.Walkable(cx + dx, cy + dy)) { x = cx + dx; y = cy + dy; return true; }
                     }
                 }
@@ -80,188 +201,23 @@ namespace DaggerfallWorkshop.Sim
             return false;
         }
 
-        // ---- Coarse layer ----
-
-        // Side indices: 0=N (y-), 1=S (y+), 2=E (x+), 3=W (x-).
-        static readonly int[] SideDx = { 0, 0, 1, -1 };
-        static readonly int[] SideDy = { -1, 1, 0, 0 };
-        static readonly int[] Opposite = { 1, 0, 3, 2 };
-
-        static bool GateConnects(BlockGates gates, int sideA, int sideB)
-        {
-            if (sideA > sideB) { int t = sideA; sideA = sideB; sideB = t; }
-            if (sideA == 0 && sideB == 1) return (gates & BlockGates.NS) != 0;
-            if (sideA == 0 && sideB == 2) return (gates & BlockGates.NE) != 0;
-            if (sideA == 0 && sideB == 3) return (gates & BlockGates.NW) != 0;
-            if (sideA == 1 && sideB == 2) return (gates & BlockGates.SE) != 0;
-            if (sideA == 1 && sideB == 3) return (gates & BlockGates.SW) != 0;
-            return (gates & BlockGates.EW) != 0;                    // E-W
-        }
-
-        static bool TouchesSide(BlockGates gates, int side)
-        {
-            switch (side)
-            {
-                case 0: return (gates & (BlockGates.NS | BlockGates.NE | BlockGates.NW)) != 0;
-                case 1: return (gates & (BlockGates.NS | BlockGates.SE | BlockGates.SW)) != 0;
-                case 2: return (gates & (BlockGates.NE | BlockGates.SE | BlockGates.EW)) != 0;
-                default: return (gates & (BlockGates.NW | BlockGates.SW | BlockGates.EW)) != 0;
-            }
-        }
-
-        /// BFS over (block, entry-side) states; returns the set of block
-        /// indices on a shortest coarse route, or null if blocks disconnect.
-        static HashSet<int> CoarseCorridor(TownGridData g, int sbx, int sby, int gbx, int gby)
-        {
-            int bw = g.BlocksWide, bh = g.BlocksHigh;
-            if (sbx == gbx && sby == gby)
-                return new HashSet<int> { sby * bw + sbx };
-
-            // state = (block * 4 + entrySide); -1 parent = unvisited.
-            var parent = new int[bw * bh * 4];
-            for (int i = 0; i < parent.Length; i++) parent[i] = -1;
-            var queue = new Queue<int>();
-
-            // From the start block we may leave via any side its gates touch.
-            for (int side = 0; side < 4; side++)
-            {
-                var gates = g.Gates[sby * bw + sbx];
-                if (!TouchesSide(gates, side)) continue;
-                int nbx = sbx + SideDx[side], nby = sby + SideDy[side];
-                if (nbx < 0 || nbx >= bw || nby < 0 || nby >= bh) continue;
-                int entry = Opposite[side];
-                int state = (nby * bw + nbx) * 4 + entry;
-                if (parent[state] >= 0) continue;
-                parent[state] = state;          // root marker
-                queue.Enqueue(state);
-            }
-
-            while (queue.Count > 0)
-            {
-                int state = queue.Dequeue();
-                int block = state / 4, entry = state % 4;
-                int bx = block % bw, by = block / bw;
-
-                if (bx == gbx && by == gby)
-                    return CollectCorridor(parent, state, bw, sby * bw + sbx);
-
-                var gates = g.Gates[block];
-                for (int exit = 0; exit < 4; exit++)
-                {
-                    if (exit == entry || !GateConnects(gates, entry, exit)) continue;
-                    int nbx = bx + SideDx[exit], nby = by + SideDy[exit];
-                    if (nbx < 0 || nbx >= bw || nby < 0 || nby >= bh) continue;
-                    int next = (nby * bw + nbx) * 4 + Opposite[exit];
-                    if (parent[next] >= 0) continue;
-                    parent[next] = state;
-                    queue.Enqueue(next);
-                }
-            }
-            return null;
-        }
-
-        static HashSet<int> CollectCorridor(int[] parent, int endState, int bw, int startBlock)
-        {
-            var corridor = new HashSet<int> { startBlock };
-            int state = endState;
-            while (true)
-            {
-                corridor.Add(state / 4);
-                if (parent[state] == state) break;
-                state = parent[state];
-            }
-            return corridor;
-        }
-
-        // ---- Fine layer ----
-
-        /// A* over cells (4-neighbor). `corridor` of allowed block indices, or
-        /// null for unrestricted. Returns cell-index path including endpoints.
-        static List<int> FineAStar(TownGridData g, int sx, int sy, int gx, int gy, HashSet<int> corridor)
-        {
-            int w = g.Width, h = g.Height;
-            int start = sy * w + sx, goal = gy * w + gx;
-            int cellsPerBlock = TownGridData.CellsPerBlock;
-
-            var gScore = new int[w * h];
-            for (int i = 0; i < gScore.Length; i++) gScore[i] = int.MaxValue;
-            var cameFrom = new int[w * h];
-            var open = new BinaryHeap(w * h);
-
-            gScore[start] = 0;
-            cameFrom[start] = start;
-            open.Push(start, Heuristic(sx, sy, gx, gy));
-
-            int[] dx = { 1, -1, 0, 0 };
-            int[] dy = { 0, 0, 1, -1 };
-
-            while (open.Count > 0)
-            {
-                int current = open.Pop();
-                if (current == goal)
-                    return Reconstruct(cameFrom, goal, start);
-
-                int cx = current % w, cy = current / w;
-                for (int d = 0; d < 4; d++)
-                {
-                    int nx = cx + dx[d], ny = cy + dy[d];
-                    if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-                    int next = ny * w + nx;
-                    byte cost = g.Cost[next];
-                    if (cost == 0) continue;
-                    if (corridor != null
-                        && !corridor.Contains((ny / cellsPerBlock) * g.BlocksWide + nx / cellsPerBlock))
-                        continue;
-
-                    int tentative = gScore[current] + cost;
-                    if (tentative >= gScore[next]) continue;
-                    gScore[next] = tentative;
-                    cameFrom[next] = current;
-                    open.Push(next, tentative + Heuristic(nx, ny, gx, gy));
-                }
-            }
-            return null;
-        }
-
-        static int Heuristic(int x, int y, int gx, int gy) =>
-            System.Math.Abs(x - gx) + System.Math.Abs(y - gy);      // min cost is 1 (roads)
-
-        static List<int> Reconstruct(int[] cameFrom, int goal, int start)
-        {
-            var path = new List<int>();
-            int current = goal;
-            while (current != start)
-            {
-                path.Add(current);
-                current = cameFrom[current];
-            }
-            path.Add(start);
-            path.Reverse();
-            return path;
-        }
-
-        /// Minimal binary min-heap of (cellIndex, priority). Duplicate pushes
-        /// allowed; stale pops are filtered by gScore monotonicity upstream.
+        /// Minimal binary min-heap of (cell, priority). Reused across searches (Clear),
+        /// duplicate pushes allowed; stale pops are filtered by gScore monotonicity.
         sealed class BinaryHeap
         {
-            int[] _items;
-            int[] _priorities;
+            int[] _items = new int[64];
+            int[] _priorities = new int[64];
             int _count;
 
-            public BinaryHeap(int capacity)
-            {
-                _items = new int[64];
-                _priorities = new int[64];
-            }
-
             public int Count => _count;
+            public void Clear() => _count = 0;
 
             public void Push(int item, int priority)
             {
                 if (_count == _items.Length)
                 {
-                    System.Array.Resize(ref _items, _count * 2);
-                    System.Array.Resize(ref _priorities, _count * 2);
+                    Array.Resize(ref _items, _count * 2);
+                    Array.Resize(ref _priorities, _count * 2);
                 }
                 _items[_count] = item;
                 _priorities[_count] = priority;

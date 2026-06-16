@@ -32,7 +32,7 @@ namespace DaggerfallWorkshop.Sim
         public double MoneySupply => CoinTotal + Treasury;
 
         // Goods on shelves (total stock across all buildings, by good)
-        public double StockProvisions, StockDrink, StockWares;
+        public double StockProvisions, StockDrink, StockWares, StockOre;
 
         // Needs (population-average deficit per axis)
         public double Hunger, Energy, Social, Poverty;
@@ -112,6 +112,7 @@ namespace DaggerfallWorkshop.Sim
                 s.StockProvisions += g[(int)Good.Provisions];
                 s.StockDrink += g[(int)Good.Drink];
                 s.StockWares += g[(int)Good.Wares];
+                s.StockOre += g[(int)Good.Ore];
             }
 
             // --- Needs ---

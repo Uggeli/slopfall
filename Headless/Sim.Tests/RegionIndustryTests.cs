@@ -16,15 +16,21 @@ namespace Sim.Tests
         static bool Available => Directory.Exists(Arena2);
 
         [Fact]
-        public void Workplaces_AddFishery_OnlyWhenCoastal()
+        public void Workplaces_AddFisheryOrMine_FromTheGeography()
         {
-            var inland = new SettlementData { Coastal = false };
-            var coast = new SettlementData { Coastal = true };
+            var inland = new SettlementData { Coastal = false, Mountainous = false };
+            var coast = new SettlementData { Coastal = true, Mountainous = false };
+            var mountain = new SettlementData { Coastal = false, Mountainous = true };
+            var fjord = new SettlementData { Coastal = true, Mountainous = true };
 
-            Assert.DoesNotContain(BuildingKind.Fishery, RegionIndustry.Workplaces(inland));
-            Assert.Contains(BuildingKind.Farm, RegionIndustry.Workplaces(inland));
+            // Farmland everywhere; fishery only at the coast; mine only in the hills.
+            Assert.Equal(new[] { BuildingKind.Farm }, RegionIndustry.Workplaces(inland));
             Assert.Contains(BuildingKind.Fishery, RegionIndustry.Workplaces(coast));
-            Assert.Contains(BuildingKind.Farm, RegionIndustry.Workplaces(coast));
+            Assert.DoesNotContain(BuildingKind.Mine, RegionIndustry.Workplaces(coast));
+            Assert.Contains(BuildingKind.Mine, RegionIndustry.Workplaces(mountain));
+            Assert.DoesNotContain(BuildingKind.Fishery, RegionIndustry.Workplaces(mountain));
+            Assert.Contains(BuildingKind.Fishery, RegionIndustry.Workplaces(fjord));
+            Assert.Contains(BuildingKind.Mine, RegionIndustry.Workplaces(fjord));
         }
 
         [Fact]
@@ -33,8 +39,8 @@ namespace Sim.Tests
             var island = new SettlementData { RegionName = "Betony" };
             var mainland = new SettlementData { RegionName = "Daggerfall" };
 
-            RegionIndustry.DetectInto(null, island);     // no world map → authored fallback
-            RegionIndustry.DetectInto(null, mainland);
+            RegionIndustry.DetectInto(null, null, island);     // no world map → authored fallback
+            RegionIndustry.DetectInto(null, null, mainland);
 
             Assert.True(island.Coastal, "Betony is a known coastal region in the fallback table");
             Assert.False(mainland.Coastal);
@@ -62,6 +68,27 @@ namespace Sim.Tests
             Assert.Equal(settlements.Count, climated);
             Assert.True(coastal > 0, "an island should have coastal settlements");
             Assert.True(inland > 0, "some interior Betony settlements should not reach the sea");
+        }
+
+        [Fact]
+        public void MountainRegion_IsMined_LowlandIsNot()
+        {
+            if (!Available) return;
+
+            var dragon = SimBoot.CreateRegion(Arena2, "Dragontail Mountains", 600f);
+            int mtn = 0, mines = 0;
+            foreach (var s in dragon.Ctx.Settlements.All)
+            {
+                if (s.Mountainous) mtn++;
+                foreach (var bi in s.Buildings)
+                    if (dragon.Ctx.Buildings.TryGet(bi, out var b) && b.Kind == BuildingKind.Mine) mines++;
+            }
+            Assert.True(mtn > 0, "a mountain region should have mountainous settlements");
+            Assert.True(mines > 0, "mountainous settlements should get a mine synthesized");
+
+            // A lowland island mines nothing.
+            foreach (var s in SimBoot.CreateRegion(Arena2, "Betony", 600f).Ctx.Settlements.All)
+                Assert.False(s.Mountainous, s.Name + " (lowland Betony) shouldn't read mountainous");
         }
     }
 }

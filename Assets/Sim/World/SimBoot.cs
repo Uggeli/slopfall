@@ -33,8 +33,9 @@ namespace DaggerfallWorkshop.Sim
             if (!location.Loaded)
                 throw new ArgumentException("location not found: " + regionName + "/" + locationName);
 
+            var woods = new WoodsFile(System.IO.Path.Combine(arena2Path, "WOODS.WLD"), FileUsage.UseMemory, true);
             var boot = NewSim(seed);
-            var town = TownLoader.Load(boot.Ctx, location, blocks, maps);   // maps → climate/coast detection
+            var town = TownLoader.Load(boot.Ctx, location, blocks, maps, woods);   // maps+woods → climate/coast/elevation detection
             SeedStart(boot.Ctx, timeScale);
             boot.Town = town;
             return boot;
@@ -45,9 +46,10 @@ namespace DaggerfallWorkshop.Sim
         {
             var maps = new MapsFile(System.IO.Path.Combine(arena2Path, "MAPS.BSA"), FileUsage.UseMemory, true);
             var blocks = new BlocksFile(System.IO.Path.Combine(arena2Path, "BLOCKS.BSA"), FileUsage.UseMemory, true);
+            var woods = new WoodsFile(System.IO.Path.Combine(arena2Path, "WOODS.WLD"), FileUsage.UseMemory, true);
 
             var boot = NewSim(seed);
-            boot.Region = RegionLoader.LoadRegion(boot.Ctx, maps, blocks, regionName);
+            boot.Region = RegionLoader.LoadRegion(boot.Ctx, maps, blocks, regionName, woods);
             SeedStart(boot.Ctx, timeScale);
             return boot;
         }

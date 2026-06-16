@@ -26,6 +26,10 @@ namespace DaggerfallWorkshop.Sim
         readonly Dictionary<EntityId, Plan> _plans = new Dictionary<EntityId, Plan>();
         readonly List<PathPoint> _scratch = new List<PathPoint>();
 
+        // Profiling: pathfinds vs moving-agent-ticks. Ratio near 1 = per-tick
+        // replanning (churn); near 0 = the per-journey cache is doing its job.
+        public long PathfindCalls, MovingAgentTicks;
+
         public void Init(SimulationContext ctx) { _ctx = ctx; }
         public void ProcessEvents() { }
 
@@ -42,6 +46,7 @@ namespace DaggerfallWorkshop.Sim
                 var behavior = kv.Value;
                 if (behavior.Phase != ActivityPhase.Moving) continue;
                 if (!_ctx.Position.TryGet(kv.Key, out var pos)) continue;
+                MovingAgentTicks++;
 
                 var plan = EnsurePlan(kv.Key, grid, pos, behavior);
 
@@ -92,6 +97,7 @@ namespace DaggerfallWorkshop.Sim
                     return plan;
             }
 
+            PathfindCalls++;
             plan = new Plan { TargetX = behavior.TargetX, TargetZ = behavior.TargetZ };
             bool enterBuilding = behavior.TargetBuilding >= 0;
             if (grid != null && TownPathfinder.FindPath(grid, pos.X, pos.Z,

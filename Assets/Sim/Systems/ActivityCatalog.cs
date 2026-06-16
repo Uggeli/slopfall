@@ -139,6 +139,18 @@ namespace DaggerfallWorkshop.Sim
             Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,
         };
 
+        /// Mining the hills — primary ore production in mountain regions, out at the
+        /// diggings (a distinct place). Hard labour (steepest fatigue); otherwise like
+        /// the other primary-sector work.
+        public static readonly Spec Mine = new Spec
+        {
+            Kind = ActivityKind.Mine,
+            DurationMinutes = 180,
+            Delta = Deltas(coinDef: -0.15, energyDef: +0.14),
+            OpenHour = 6, CloseHour = 18,
+            Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,
+        };
+
         public static readonly Spec EatHome = new Spec
         {
             Kind = ActivityKind.EatHome,
@@ -254,6 +266,7 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Labor:     return Labor;
                 case ActivityKind.Farm:      return Farm;
                 case ActivityKind.Fish:      return Fish;
+                case ActivityKind.Mine:      return Mine;
                 case ActivityKind.EatHome:   return EatHome;
                 case ActivityKind.EatTavern: return EatTavern;
                 case ActivityKind.Socialize: return Socialize;

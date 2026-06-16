@@ -9,6 +9,7 @@ namespace DaggerfallWorkshop.Sim
         Provisions = 0,  // food/raw — imported by general stores, served as meals by taverns
         Drink,           // ale — imported/brewed; sold by taverns
         Wares,           // clothing, arms, sundries, gems — made by craftsmen, sold by their shops
+        Ore,             // raw metal/stone — mined in the hills; export-only (no local buyer yet)
     }
 
     /// Where a good sits along the supply chain — price rises with each step:
@@ -40,7 +41,7 @@ namespace DaggerfallWorkshop.Sim
     /// reads its price from here. Pure data; no per-instance state.
     public static class GoodsCatalog
     {
-        public const int Count = 3;
+        public const int Count = 4;
 
         // Indexed by (int)Good. The single source of authored prices.
         public static readonly GoodDef[] Defs =
@@ -48,6 +49,7 @@ namespace DaggerfallWorkshop.Sim
             new GoodDef { Good = Good.Provisions, Name = "provisions", Base = 0.02,  WholesaleMarkup = 1.5, RetailMarkup = 2.5 },
             new GoodDef { Good = Good.Drink,      Name = "drink",      Base = 0.015, WholesaleMarkup = 1.5, RetailMarkup = 2.5 },
             new GoodDef { Good = Good.Wares,      Name = "wares",      Base = 0.05,  WholesaleMarkup = 2.0, RetailMarkup = 3.0 },
+            new GoodDef { Good = Good.Ore,        Name = "ore",        Base = 0.04,  WholesaleMarkup = 1.5, RetailMarkup = 2.5 },
         };
 
         public static GoodDef Def(Good good) => Defs[(int)good];
@@ -56,7 +58,7 @@ namespace DaggerfallWorkshop.Sim
         /// whose output scales with the hands working it. Drives the worker-scaling and
         /// wage-share in EconomySystem so a second industry slots in as data.
         public static bool IsPrimaryWorkplace(BuildingKind kind)
-            => kind == BuildingKind.Farm || kind == BuildingKind.Fishery;
+            => kind == BuildingKind.Farm || kind == BuildingKind.Fishery || kind == BuildingKind.Mine;
 
         /// Price of a good at a point in the supply chain.
         public static double PriceOf(Good good, PriceTier tier)
@@ -81,6 +83,8 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.Farm:
                 case BuildingKind.Fishery:
                     return ProvisionsOnly; // the harvest/catch it produces and sells on
+                case BuildingKind.Mine:
+                    return OreOnly;        // the ore it digs and exports
                 case BuildingKind.GeneralStore:
                     return Staples;        // provisions (sourced local) + drink (imported)
                 case BuildingKind.Tavern:
@@ -131,6 +135,8 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.Farm:
                 case BuildingKind.Fishery:
                     return ProvisionsOnly;   // local food: the primary-sector faucet
+                case BuildingKind.Mine:
+                    return OreOnly;          // raw ore: the mountain-town export faucet
                 default:
                     return System.Array.Empty<Good>();
             }
@@ -210,5 +216,6 @@ namespace DaggerfallWorkshop.Sim
         static readonly Good[] WaresOnly = { Good.Wares };
         static readonly Good[] ProvisionsOnly = { Good.Provisions };
         static readonly Good[] DrinkOnly = { Good.Drink };
+        static readonly Good[] OreOnly = { Good.Ore };
     }
 }

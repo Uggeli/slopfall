@@ -88,7 +88,14 @@ namespace DaggerfallWorkshop.Sim.Host
             PrintTable(series);
             Console.WriteLine();
             if (perSettlement) PrintSettlements(ctx);
-            return Verdict(series) ? 0 : 1;
+            bool ok = Verdict(series);
+            Console.WriteLine();
+            Console.WriteLine(loop.Profile());     // where the tick spends its time (parallelization target)
+            foreach (var sys in loop.Systems)
+                if (sys is MovementSystem m)
+                    Console.WriteLine("movement: " + m.PathfindCalls + " pathfinds / " + m.MovingAgentTicks
+                        + " moving-agent-ticks = " + (m.MovingAgentTicks > 0 ? (100.0 * m.PathfindCalls / m.MovingAgentTicks).ToString("F1") : "0") + "% replan rate");
+            return ok ? 0 : 1;
         }
 
         /// Final per-settlement economy breakdown — does each settlement behave like
@@ -142,7 +149,7 @@ namespace DaggerfallWorkshop.Sim.Host
             public double Exports, CrownSubsidy;        // G6 faucets: export income / crown remittance
             public double MoneySupply;                 // private purses + treasury (conservation holds on this)
             // goods on shelves (instantaneous total stock by good)
-            public double StockProvisions, StockDrink, StockWares;
+            public double StockProvisions, StockDrink, StockWares, StockOre;
             // needs (population average deficit per axis)
             public double Hunger, Energy, Social, Poverty;
             public int Starving;                    // any axis ≥ 1.4 (near VMax 1.5)
@@ -173,7 +180,7 @@ namespace DaggerfallWorkshop.Sim.Host
                 SalesRevenue = c.SalesRevenue, ServiceRevenue = c.ServiceRevenue, Wholesale = c.Wholesale,
                 Taxes = c.Taxes, GuardPay = c.GuardPay, Treasury = c.Treasury, MoneySupply = c.MoneySupply,
                 Exports = c.Exports, CrownSubsidy = c.CrownSubsidy,
-                StockProvisions = c.StockProvisions, StockDrink = c.StockDrink, StockWares = c.StockWares,
+                StockProvisions = c.StockProvisions, StockDrink = c.StockDrink, StockWares = c.StockWares, StockOre = c.StockOre,
                 Hunger = c.Hunger, Energy = c.Energy, Social = c.Social, Poverty = c.Poverty, Starving = c.Starving,
                 Edges = c.Edges, Acquaintances = c.Acquaintances, FriendEdges = c.FriendEdges,
                 MeanRegard = c.MeanRegard, MeanFamiliarity = c.MeanFamiliarity,
@@ -293,7 +300,8 @@ namespace DaggerfallWorkshop.Sim.Host
             // 4c. Goods supply (shape) — is the chain producing/importing stock,
             //     and is consumption drawing it back down?
             Console.WriteLine("  [obs]  goods on shelves: provisions " + last.StockProvisions.ToString("F0")
-                + ", drink " + last.StockDrink.ToString("F0") + ", wares " + last.StockWares.ToString("F0"));
+                + ", drink " + last.StockDrink.ToString("F0") + ", wares " + last.StockWares.ToString("F0")
+                + ", ore " + last.StockOre.ToString("F0"));
 
             // 5. Coin concentration (shape, not fail).
             Console.WriteLine("  [obs]  wealth: Gini " + first.Gini.ToString("F2") + " → " + last.Gini.ToString("F2")

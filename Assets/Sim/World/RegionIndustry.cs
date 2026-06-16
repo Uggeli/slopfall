@@ -13,29 +13,54 @@ namespace DaggerfallWorkshop.Sim
     /// next branch here, once those primary goods exist.
     public static class RegionIndustry
     {
-        const int CoastRadius = 2;   // sea within this many map-pixels → the town can fish
+        const int CoastRadius = 2;          // sea within this many map-pixels → the town can fish
 
-        /// Read the settlement's geography off the world map and record it (climate +
-        /// whether the coast is near). Loaders call this once per settlement before the
-        /// employment seed reads Workplaces. `maps` may be null (no world map loaded) —
-        /// then fall back to the authored coastal table so behaviour stays defined.
-        public static void DetectInto(MapsFile maps, SettlementData s)
+        /// Read the settlement's geography off the world maps and record it: climate +
+        /// whether the coast is near (CLIMATE.PAK), and the ground elevation (WOODS.WLD).
+        /// Loaders call this once per settlement before the employment seed reads
+        /// Workplaces. `maps` may be null (no world map loaded) — then fall back to the
+        /// authored coastal table so behaviour stays defined.
+        ///
+        /// "Mountainous" is read from the CLIMATE map's terrain class (Mountain /
+        /// MountainWoods), NOT the heightmap: settlements are founded in the valleys,
+        /// so their pixel elevation doesn't separate a mountain region from a lowland
+        /// one (probed: Dragontail towns 27–55 vs lowland Betony 7–45 — overlapping).
+        /// Bethesda's climate map already classifies the terrain type, so it's the
+        /// reliable signal; the WOODS elevation is recorded for observability + later
+        /// refinement (e.g. high-camp vs valley mining, terrain-aware travel).
+        public static void DetectInto(MapsFile maps, WoodsFile woods, SettlementData s)
         {
             if (maps == null)
             {
                 s.ClimateIndex = 0;
                 s.Coastal = IsCoastalRegion(s.RegionName);
+                s.Elevation = 0;
+                s.Mountainous = false;
                 return;
             }
             s.ClimateIndex = SampleClimate(maps, s.MapPixelX, s.MapPixelY);
             s.Coastal = SeaNear(maps, s.MapPixelX, s.MapPixelY, CoastRadius);
+            s.Elevation = woods != null ? woods.GetHeightMapValue(s.MapPixelX, s.MapPixelY) : 0;
+            s.Mountainous = IsMountainClimate(s.ClimateIndex);
         }
 
+        /// Mountain terrain per the climate map — where the rock is worth mining.
+        static bool IsMountainClimate(int climateIndex)
+            => climateIndex == (int)MapsFile.Climates.Mountain
+            || climateIndex == (int)MapsFile.Climates.MountainWoods;
+
         /// The primary-sector workplace kinds this settlement's surroundings support:
-        /// farmland always, plus a fishery where the sea is near (so an island's idle
-        /// hands fish, not just work the few fields).
+        /// farmland always (every settlement grows some food), plus a fishery where the
+        /// sea is near and a mine in mountain country — so an island's idle hands fish
+        /// and a mountain town's hands dig, instead of crowding the few fields.
         public static IReadOnlyList<BuildingKind> Workplaces(SettlementData s)
-            => s != null && s.Coastal ? FarmAndFishery : FarmOnly;
+        {
+            if (s == null) return FarmOnly;
+            if (s.Coastal && s.Mountainous) return FarmFisheryMine;
+            if (s.Coastal) return FarmAndFishery;
+            if (s.Mountainous) return FarmAndMine;
+            return FarmOnly;
+        }
 
         /// True if any map-pixel within `r` of (px,py) is open sea.
         static bool SeaNear(MapsFile maps, int px, int py, int r)
@@ -69,5 +94,7 @@ namespace DaggerfallWorkshop.Sim
 
         static readonly BuildingKind[] FarmOnly = { BuildingKind.Farm };
         static readonly BuildingKind[] FarmAndFishery = { BuildingKind.Farm, BuildingKind.Fishery };
+        static readonly BuildingKind[] FarmAndMine = { BuildingKind.Farm, BuildingKind.Mine };
+        static readonly BuildingKind[] FarmFisheryMine = { BuildingKind.Farm, BuildingKind.Fishery, BuildingKind.Mine };
     }
 }

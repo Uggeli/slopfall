@@ -13,6 +13,7 @@ namespace DaggerfallWorkshop.Sim
         Labor,       // residents' generic day-work for an employer, serves CoinDef, hours-gated
         Farm,        // working the settlement's farmland — primary food production, out at the fields
         Fish,        // working the coast — primary food production, out at the shore
+        Mine,        // working the diggings — primary ore production (mountain regions), out in the hills
         EatHome,     // home, serves Hunger weakly, free
         EatTavern,   // tavern, serves Hunger well, costs coin
         Socialize,   // tavern, serves SocialDef, evening-boosted

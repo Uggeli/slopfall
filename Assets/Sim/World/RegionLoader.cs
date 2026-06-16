@@ -35,7 +35,7 @@ namespace DaggerfallWorkshop.Sim
             t == DFRegion.LocationTypes.ReligionTemple ||
             t == DFRegion.LocationTypes.Tavern;
 
-        public static RegionLoadResult LoadRegion(SimulationContext ctx, MapsFile maps, BlocksFile blocks, string regionName)
+        public static RegionLoadResult LoadRegion(SimulationContext ctx, MapsFile maps, BlocksFile blocks, string regionName, WoodsFile woods = null)
         {
             var region = maps.GetRegion(regionName);
             var result = new RegionLoadResult { RegionName = regionName };
@@ -98,7 +98,7 @@ namespace DaggerfallWorkshop.Sim
                 var pix = MapsFile.LongitudeLatitudeToMapPixel(loc.MapTableData.Longitude, loc.MapTableData.Latitude);
                 s.MapPixelX = pix.X;
                 s.MapPixelY = pix.Y;
-                RegionIndustry.DetectInto(maps, s);   // read climate/coast before the employment seed
+                RegionIndustry.DetectInto(maps, woods, s);   // read climate/coast/elevation before the employment seed
 
                 var sub = new TownLoadResult
                 {

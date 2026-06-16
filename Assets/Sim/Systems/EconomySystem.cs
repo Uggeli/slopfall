@@ -134,7 +134,7 @@ namespace DaggerfallWorkshop.Sim
             {
                 var bh = kvb.Value;
                 if (bh.Phase != ActivityPhase.Doing || bh.TargetBuilding < 0) continue;
-                if (bh.Activity != ActivityKind.Farm && bh.Activity != ActivityKind.Fish) continue;
+                if (bh.Activity != ActivityKind.Farm && bh.Activity != ActivityKind.Fish && bh.Activity != ActivityKind.Mine) continue;
                 if (!_ctx.Buildings.TryGet(bh.TargetBuilding, out var wb) || wb == null || !GoodsCatalog.IsPrimaryWorkplace(wb.Kind)) continue;
                 _farmWorkers.TryGetValue(bh.TargetBuilding, out var c);
                 _farmWorkers[bh.TargetBuilding] = c + 1;
@@ -200,9 +200,10 @@ namespace DaggerfallWorkshop.Sim
                             break;
                         case ActivityKind.Farm:
                         case ActivityKind.Fish:
+                        case ActivityKind.Mine:
                         case ActivityKind.Labor:
                             // Working the employer's premises out at its place — the farm
-                            // fields or the shore. Those hands scale the workplace's harvest
+                            // fields, the shore, or the diggings. Those hands scale the workplace's harvest
                             // (counted above); they're paid an even share of its till (its
                             // sale + export income) rather than a flat wage, so the proceeds
                             // reach the whole workforce. A transfer from the employer's

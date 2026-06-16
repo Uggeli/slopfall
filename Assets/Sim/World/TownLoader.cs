@@ -32,7 +32,7 @@ namespace DaggerfallWorkshop.Sim
         public const float GlobalScale = 0.025f;    // matches MeshReader.GlobalScale
         const double InitialStock = 20.0;            // units a shop/tavern holds at load; G2 replenishes
 
-        public static TownLoadResult Load(SimulationContext ctx, in DFLocation location, BlocksFile blocksFile, MapsFile maps = null)
+        public static TownLoadResult Load(SimulationContext ctx, in DFLocation location, BlocksFile blocksFile, MapsFile maps = null, WoodsFile woods = null)
         {
             int width = location.Exterior.ExteriorData.Width;
             int height = location.Exterior.ExteriorData.Height;
@@ -55,7 +55,7 @@ namespace DaggerfallWorkshop.Sim
             var pix = MapsFile.LongitudeLatitudeToMapPixel(location.MapTableData.Longitude, location.MapTableData.Latitude);
             settlement.MapPixelX = pix.X;
             settlement.MapPixelY = pix.Y;
-            RegionIndustry.DetectInto(maps, settlement);   // climate/coast (maps==null → authored fallback)
+            RegionIndustry.DetectInto(maps, woods, settlement);   // climate/coast/elevation (maps==null → authored fallback)
 
             LoadLocationInto(ctx, location, blocksFile, grid, 0, 0, settlement, result);
 

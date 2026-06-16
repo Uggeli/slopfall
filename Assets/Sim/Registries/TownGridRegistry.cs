@@ -33,6 +33,7 @@ namespace DaggerfallWorkshop.Sim
         public int RegionIndex;             // classic region of the loaded town (holidays)
         public byte[] Cost;                 // Width * Height
         public BlockGates[] Gates;          // BlocksWide * BlocksHigh
+        public BlockConnectivity Connectivity;   // baked component reachability graph (lazy; built on first pathfind)
 
         public bool InBounds(int x, int y) => x >= 0 && x < Width && y >= 0 && y < Height;
         public byte CostAt(int x, int y) => Cost[y * Width + x];

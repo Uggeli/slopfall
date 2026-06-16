@@ -44,6 +44,7 @@ namespace DaggerfallWorkshop.Sim
         // and the 0x74..0xfa specials.
         Farm = 0x100,       // primary food production (a settlement's farmland/hinterland)
         Fishery = 0x101,    // primary food production at the coast (island/coastal regions)
+        Mine = 0x102,       // primary ore production in the hills (mountain-climate regions); ore is exported
     }
 
     public sealed class BuildingRow
