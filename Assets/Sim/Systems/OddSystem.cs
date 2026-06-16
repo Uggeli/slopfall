@@ -105,6 +105,12 @@ namespace DaggerfallWorkshop.Sim
             int incumbentBuilding = current != null ? current.TargetBuilding : -2;
             const double Sticky = 1.4;
 
+            // Prepotency hysteresis: an agent already in a leisure/growth activity
+            // judges the cull at the higher Enter threshold (keep playing until a
+            // deficiency clearly bites); otherwise at the lower Exit.
+            var incumbentSpec = incumbent != ActivityKind.None ? ActivityCatalog.SpecFor(incumbent) : null;
+            bool incumbentLeisure = incumbentSpec != null && incumbentSpec.Prepotent;
+
             // --- The marketplace: Collect (ActionDiscovery, precondition-filtered),
             // Score each ad uniformly with V, argmax. No hand-built candidate
             // blocks and no per-verb branching: a new action is a catalog row. ---
@@ -114,7 +120,7 @@ namespace DaggerfallWorkshop.Sim
             {
                 Needs = needs.V, W = w, Person = person,
                 Hour = hour, Night = night, Wet = wet, Holiday = holiday,
-                Outdoor = outdoor, Cozy = cozy, Prepotency = PrepotencyGate(needs.V),
+                Outdoor = outdoor, Cozy = cozy, Prepotency = PrepotencyGate(needs.V, incumbentLeisure),
                 Px = pos.X, Pz = pos.Z,
                 Self = id,
                 IsGuard = _ctx.Employment.TryGet(id, out var emp0) && emp0 != null && !emp0.PublicOwner.IsNone,
@@ -381,20 +387,25 @@ namespace DaggerfallWorkshop.Sim
         /// Prepotency (Atoms, two-regime): leisure only wins when deficiency
         /// drives are quiet — graded suppression as the loudest deficiency
         /// rises, hard cull at the threshold ("a starving bunny can't binky").
-        /// The deficiency sources are no longer hardcoded: they're the drives
-        /// that carry a HardCull edge (DriveGraph.HardCullSources, = hunger +
-        /// energy today), so adding a prepotent pole extends the gate from the
-        /// table. Hysteresis deferred; hourly decisions + sticky damp the
-        /// boundary flicker for now.
-        public const double CullThreshold = 0.8;
+        /// The deficiency sources are read from the table (DriveGraph.HardCullSources
+        /// = hunger + energy + fear today), so adding a prepotent pole extends the
+        /// gate for free.
+        ///
+        /// Hysteresis (V2b): the cull threshold depends on whether the agent is
+        /// CURRENTLY in leisure — it must clearly cross the higher Enter to START
+        /// suppressing, and fall back below the lower Exit to STOP, so behavior
+        /// doesn't flicker at the boundary.
+        public const double CullEnterThreshold = 0.7;
+        public const double CullExitThreshold = 0.6;
 
-        public static double PrepotencyGate(double[] v)
+        public static double PrepotencyGate(double[] v, bool incumbentLeisure)
         {
             double loudest = 0;
             var sources = DriveGraph.HardCullSources;
             for (int i = 0; i < sources.Length; i++)
                 if (v[sources[i]] > loudest) loudest = v[sources[i]];
-            return loudest >= CullThreshold ? 0 : 1.0 - loudest / CullThreshold;
+            double threshold = incumbentLeisure ? CullEnterThreshold : CullExitThreshold;
+            return loudest >= threshold ? 0 : 1.0 - loudest / threshold;
         }
 
         static bool IsNight(int hour) => hour >= 21 || hour < 6;

@@ -152,19 +152,31 @@ namespace Sim.Tests
         }
 
         [Fact]
-        public void PrepotencyGate_GradedThenHardCull()
+        public void PrepotencyGate_GradedThenHardCull_WithHysteresis()
         {
+            // At rest, leisure is ungated. (incumbentLeisure is moot when quiet.)
             var quiet = MakeNeeds();
-            Assert.Equal(1.0, OddSystem.PrepotencyGate(quiet.V), 5);
+            Assert.Equal(1.0, OddSystem.PrepotencyGate(quiet.V, incumbentLeisure: true), 5);
 
-            var peckish = MakeNeeds(hunger: 0.4);
-            Assert.Equal(0.5, OddSystem.PrepotencyGate(peckish.V), 5);
+            // Graded in the mid-range, against the ACTIVE threshold. Already in
+            // leisure → judged at Enter (0.7): hunger 0.35 → 1 − 0.35/0.7 = 0.5.
+            var peckish = MakeNeeds(hunger: 0.35);
+            Assert.Equal(0.5, OddSystem.PrepotencyGate(peckish.V, incumbentLeisure: true), 5);
 
+            // Hysteresis: at hunger 0.65, an agent ALREADY in leisure keeps a
+            // sliver (below Enter 0.7), but one NOT in leisure is fully culled
+            // (at/above Exit 0.6) — the band that stops boundary flicker.
+            var boundary = MakeNeeds(hunger: 0.65);
+            Assert.True(OddSystem.PrepotencyGate(boundary.V, incumbentLeisure: true) > 0,
+                "an agent mid-leisure shouldn't be culled until Enter");
+            Assert.Equal(0.0, OddSystem.PrepotencyGate(boundary.V, incumbentLeisure: false), 5);
+
+            // Hard cull once clearly deficient, either way.
             var starving = MakeNeeds(hunger: 0.85);
-            Assert.Equal(0.0, OddSystem.PrepotencyGate(starving.V), 5);
+            Assert.Equal(0.0, OddSystem.PrepotencyGate(starving.V, incumbentLeisure: true), 5);
 
             var exhausted = MakeNeeds(energyDef: 0.9);
-            Assert.Equal(0.0, OddSystem.PrepotencyGate(exhausted.V), 5);
+            Assert.Equal(0.0, OddSystem.PrepotencyGate(exhausted.V, incumbentLeisure: true), 5);
         }
 
         static double[] WarmTraits()

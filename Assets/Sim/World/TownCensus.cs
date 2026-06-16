@@ -36,6 +36,7 @@ namespace DaggerfallWorkshop.Sim
 
         // Threat layer (V2a): mobile hostiles currently roaming.
         public int Creatures;
+        public int Fleeing, Fighting;   // V2b: civilians Doing Flee / Attack right now
 
         // Food in households (total provisions across all home larders) — the
         // subsistence buffer EatHome draws on (Subsistence slice).
@@ -135,6 +136,8 @@ namespace DaggerfallWorkshop.Sim
             }
             s.LarderHouseholds = ctx.Larder.Count;
             s.Creatures = ctx.Creatures.Count;
+            s.Fleeing = s.Doing[(int)ActivityKind.Flee];
+            s.Fighting = s.Doing[(int)ActivityKind.Attack];
 
             // --- Needs ---
             int n = 0;
