@@ -21,14 +21,6 @@
   <label><input type="checkbox" id="wire"> wireframe</label>
   <label><input type="checkbox" id="grid" checked> grid</label>
   <label><input type="checkbox" id="terr" checked> terrain</label>
-  <hr style="border-color:#2c3444">
-  <div style="color:#9fd0ff">terrain alignment</div>
-  <label><input type="checkbox" id="tflipx"> flip terrain X</label>
-  <label><input type="checkbox" id="tflipz"> flip terrain Z</label>
-  <label><input type="checkbox" id="tmiru"> mirror tile U (E-W tex)</label>
-  <label><input type="checkbox" id="tmirv"> mirror tile V (N-S tex)</label>
-  <label>nudge X <input type="range" id="tnx" min="-820" max="820" value="0" step="6.4" style="width:120px"><span id="tnxv">0</span></label>
-  <label>nudge Z <input type="range" id="tnz" min="-820" max="820" value="0" step="6.4" style="width:120px"><span id="tnzv">0</span></label>
   <div id="speed" style="margin-top:6px">speed
     <button data-s="0">⏸</button><button data-s="1">1×</button><button data-s="4">4×</button>
     <button data-s="12">12×</button><button data-s="60">60×</button>
@@ -80,7 +72,7 @@ scene.add(terrainGroup);
 
 // Build a per-cell textured terrain mesh: heightfield (129x129) + a 128x128
 // tilemap that picks a ground-tile (record + rotate/flip) per cell from the
-// ground atlas (8x7, 64px tiles). flipX/flipZ + nudge reconcile alignment by eye.
+// ground atlas (8x7, 64px tiles). Tile UV frame baked below (see luv).
 const ATLAS_COLS = 8, ATLAS_ROWS = 7;
 
 function ensureTerrainMat(archive) {
@@ -109,11 +101,9 @@ function buildTileMesh(d) {
   const dim = d.dim, step = d.worldSize / (dim - 1), td = d.tileDim;
   // byte[] arrives as base64 from System.Text.Json; decode to bytes.
   const tilemap = Uint8Array.from(atob(d.tilemap), c => c.charCodeAt(0));
-  const flipX = ui('tflipx').checked, flipZ = ui('tflipz').checked;
-  const mirU = ui('tmiru').checked, mirV = ui('tmirv').checked;
   const H = (gx, gy) => d.heights[Math.min(dim - 1, Math.max(0, gx)) * dim + Math.min(dim - 1, Math.max(0, gy))];
-  const wx = gx => (flipX ? (dim - 1 - gx) : gx) * step;
-  const wz = gy => (flipZ ? (dim - 1 - gy) : gy) * step;
+  const wx = gx => gx * step;
+  const wz = gy => gy * step;
   // Smooth normal per heightfield grid point (central differences).
   const N = (gx, gy) => {
     const nx = H(gx - 1, gy) - H(gx + 1, gy), nz = H(gx, gy - 1) - H(gx, gy + 1);
@@ -133,12 +123,11 @@ function buildTileMesh(d) {
       const col = rec % ATLAS_COLS, row = (rec / ATLAS_COLS) | 0;
       const u0 = col / ATLAS_COLS + eps, u1 = (col + 1) / ATLAS_COLS - eps;
       const v0 = row / ATLAS_ROWS + eps, v1 = (row + 1) / ATLAS_ROWS - eps;
-      // tile-local UV per quad corner [ (cx,cy),(cx+1,cy),(cx,cy+1),(cx+1,cy+1) ]
-      let luv = [[0, 0], [1, 0], [0, 1], [1, 1]];
-      if (mirU) luv = luv.map(([u, v]) => [1 - u, v]);   // E-W texture orientation
-      if (mirV) luv = luv.map(([u, v]) => [u, 1 - v]);   // N-S texture orientation
-      // flip = 180° (both axes, matching ImageProcessing.FlipColors); rot = 90°
-      // ((u,v)->(v,1-u), matching RotateColors); composed flip-then-rotate.
+      // tile-local UV per quad corner [ (cx,cy),(cx+1,cy),(cx,cy+1),(cx+1,cy+1) ].
+      // Baked (M3b, verified in-browser): (u,v)->(1-v,u) = transpose + mirror-U
+      // aligns DF ground-tile art to our cell frame; then per-tile flip (180°,
+      // ImageProcessing.FlipColors) + rotate (90°, RotateColors) from the tilemap byte.
+      let luv = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([u, v]) => [1 - v, u]);
       const xf = (p) => { let [u, v] = p; if (flip) { u = 1 - u; v = 1 - v; } if (rot) { const t = u; u = v; v = 1 - t; } return [u, v]; };
       luv = luv.map(xf);
 
@@ -167,7 +156,6 @@ function buildTileMesh(d) {
 }
 
 function positionTerrain() {
-  terrainGroup.position.set(+ui('tnx').value, 0, +ui('tnz').value);
   terrainGroup.visible = ui('terr').checked;
 }
 
@@ -217,11 +205,6 @@ function applyToggles() {
   grid.visible = ui('grid').checked;
 }
 for (const id of ['mirx', 'mirz', 'wire', 'grid']) ui(id).addEventListener('change', applyToggles);
-for (const id of ['tflipx', 'tflipz', 'tmiru', 'tmirv']) ui(id).addEventListener('change', () => terrainTiles && buildTerrain(terrainTiles));
-for (const id of ['tnx', 'tnz']) ui(id).addEventListener('input', () => {
-  ui('tnxv').textContent = ui('tnx').value; ui('tnzv').textContent = ui('tnz').value;
-  positionTerrain();
-});
 ui('terr').addEventListener('change', () => positionTerrain());
 
 addEventListener('resize', () => {
