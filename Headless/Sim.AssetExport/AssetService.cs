@@ -206,6 +206,28 @@ namespace Sim.AssetExport
             }
         }
 
+        private readonly Dictionary<int, (byte[] png, SpriteMeta meta)> _spriteCache = new();
+
+        /// <summary>Person sprite sheet (PNG) for an archive, built + cached on demand.</summary>
+        public byte[] GetSpriteSheet(int archive) => GetSprite(archive).png;
+
+        /// <summary>Person sprite metadata (cell sizes, frame counts, world size).</summary>
+        public SpriteMeta GetSpriteMeta(int archive) => GetSprite(archive).meta;
+
+        /// <summary>The civilian archive list the client hashes entity ids into.</summary>
+        public int[] CivilianArchives => SpritePerson.CivilianArchives;
+
+        private (byte[] png, SpriteMeta meta) GetSprite(int archive)
+        {
+            lock (_gate)
+            {
+                if (_spriteCache.TryGetValue(archive, out var c)) return c;
+                var built = SpritePerson.Build(_arena2, archive);
+                _spriteCache[archive] = built;
+                return built;
+            }
+        }
+
         private TextureFile Tex(int archive)
         {
             if (!_texCache.TryGetValue(archive, out var tex))

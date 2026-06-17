@@ -224,7 +224,101 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
-(function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); })();
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  if (civilianArchives && curSnap.size) updateAgents(performance.now() / 1000);
+  renderer.render(scene, camera);
+}
+
+// ---- Live agents (M4a): the sim's people as animated sprite billboards ----
+const agents = new THREE.Group();
+scene.add(agents);
+let civilianArchives = null;
+const sheets = new Map();          // archive -> { tex, meta, mat, sheetW, sheetH } | 'loading'
+const people = new Map();          // entityId -> { mesh, archive }
+let prevSnap = new Map(), curSnap = new Map();   // id -> [x,z,yaw]
+let prevTime = 0, curTime = 0;
+const SNAP_INTERVAL = 0.2;         // ~5 Hz
+const WALK_FPS = 4;
+
+function hash32(n) { n = (n ^ 61) ^ (n >>> 16); n = (n + (n << 3)) | 0; n ^= n >>> 4; n = Math.imul(n, 0x27d4eb2d); n ^= n >>> 15; return n >>> 0; }
+
+function getSheet(archive) {
+  let s = sheets.get(archive);
+  if (s) return s === 'loading' ? null : s;
+  sheets.set(archive, 'loading');
+  Promise.all([
+    fetch(`/asset/spritemeta/${archive}`).then(r => r.json()),
+    new Promise(res => texLoader.load(`/asset/spritesheet/${archive}`, res)),
+  ]).then(([meta, tex]) => {
+    tex.flipY = false; tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide });
+    sheets.set(archive, { tex, meta, mat, sheetW: meta.cols * meta.cellW, sheetH: meta.rows * meta.cellH });
+  }).catch(() => sheets.delete(archive));
+  return null;
+}
+
+// Set a plane's UVs to a sheet cell (record row, frame col); optional horizontal flip.
+function setCellUV(geo, s, record, frame, flip) {
+  const m = s.meta;
+  const uL = (frame * m.cellW) / s.sheetW, uR = ((frame + 1) * m.cellW) / s.sheetW;
+  const vT = (record * m.cellH) / s.sheetH, vB = ((record + 1) * m.cellH) / s.sheetH;  // flipY=false: v=0 top
+  const a = flip ? uR : uL, b = flip ? uL : uR;
+  const uv = geo.attributes.uv;
+  uv.setXY(0, a, vT); uv.setXY(1, b, vT); uv.setXY(2, a, vB); uv.setXY(3, b, vB);
+  uv.needsUpdate = true;
+}
+
+function updateAgents(t) {
+  const alpha = curTime ? Math.min(1, (t - curTime) / SNAP_INTERVAL) : 0;
+  const walkFrame = Math.floor(t * WALK_FPS);
+  const seen = new Set();
+
+  for (const [id, c] of curSnap) {
+    seen.add(id);
+    const archive = civilianArchives[hash32(id) % civilianArchives.length];
+    const s = getSheet(archive);
+    if (!s) continue;
+
+    let p = people.get(id);
+    if (!p || p.archive !== archive) {
+      if (p) agents.remove(p.mesh);
+      const geo = new THREE.PlaneGeometry(s.meta.worldW, s.meta.worldH);
+      const mesh = new THREE.Mesh(geo, s.mat);
+      agents.add(mesh);
+      p = { mesh, archive, geo };
+      people.set(id, p);
+    }
+
+    // interpolate position prev->cur
+    const pr = prevSnap.get(id) || c;
+    const x = pr[0] + (c[0] - pr[0]) * alpha, z = pr[1] + (c[1] - pr[1]) * alpha;
+    p.mesh.position.set(x, s.meta.worldH / 2, z);
+    p.mesh.lookAt(camera.position.x, s.meta.worldH / 2, camera.position.z);   // upright billboard
+
+    // M4a: front-facing walk (record 0), animated. Direction (yaw) comes in M4b.
+    const fc = s.meta.frames[0] || 1;
+    setCellUV(p.geo, s, 0, walkFrame % fc, false);
+  }
+
+  for (const [id, p] of people) if (!seen.has(id)) { agents.remove(p.mesh); p.geo.dispose(); people.delete(id); }
+}
+
+function onSnap(msg) {
+  prevSnap = curSnap; prevTime = curTime;
+  curSnap = new Map(msg.entities.map(e => [e[0], [e[1], e[2], e[5]]]));   // id -> [x,z,yaw]
+  curTime = performance.now() / 1000;
+}
+
+function connectAgents() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'snap') onSnap(msg);   // ignore the 'world' frame; we have /asset/town
+  };
+  ws.onclose = () => setTimeout(connectAgents, 1000);
+}
 
 async function init() {
   stat('fetching town layout…');
@@ -261,9 +355,14 @@ async function init() {
   frame(data.min, data.max);
 
   const climates = ['Desert', 'Mountain', 'Temperate', 'Swamp'];
-  stat(`${data.region} · ${data.location}\nclimate: ${climates[climate] ?? climate}\nplacements: ${placed}/${data.placements.length}\nunique models: ${data.modelIds.length} (loaded ${[...protos.values()].filter(Boolean).length})`);
+  stat(`${data.region} · ${data.location}\nclimate: ${climates[climate] ?? climate}\nplacements: ${placed}/${data.placements.length}\nunique models: ${data.modelIds.length}\nconnecting agents…`);
+
+  // Live agents: the civilian sprite set, then the snapshot stream.
+  civilianArchives = await (await fetch('/asset/civilians')).json();
+  connectAgents();
 }
 init().catch(e => { stat('error: ' + (e?.message || e)); console.error(e); });
+animate();   // start the render loop after all declarations are initialised
 </script>
 </body>
 </html>

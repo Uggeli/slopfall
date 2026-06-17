@@ -9,7 +9,9 @@ namespace Sim.AssetExport
 {
     public static class TextureDecode
     {
-        public static byte[] Rgba(DFBitmap bmp, TextureFile tex, out int w, out int h)
+        /// <param name="transparentIndex0">true for sprites — palette index 0 is the
+        /// transparent colour; false for ground/building textures (fully opaque).</param>
+        public static byte[] Rgba(DFBitmap bmp, TextureFile tex, out int w, out int h, bool transparentIndex0 = false)
         {
             w = bmp.Width;
             h = bmp.Height;
@@ -22,7 +24,7 @@ namespace Sim.AssetExport
                 rgba[i * 4 + 0] = pal.PaletteBuffer[off];
                 rgba[i * 4 + 1] = pal.PaletteBuffer[off + 1];
                 rgba[i * 4 + 2] = pal.PaletteBuffer[off + 2];
-                rgba[i * 4 + 3] = 255;
+                rgba[i * 4 + 3] = (transparentIndex0 && idx == 0) ? (byte)0 : (byte)255;
             }
             return rgba;
         }

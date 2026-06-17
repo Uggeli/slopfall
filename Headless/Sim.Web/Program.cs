@@ -141,6 +141,26 @@ app.MapGet("/asset/groundatlas/{archive:int}", (HttpContext ctx, int archive) =>
     return Results.Bytes(png, "image/png");
 });
 
+// Live agents (render plane 3): person sprite sheet + metadata, and the civilian
+// archive set the client hashes entity ids into.
+app.MapGet("/asset/civilians", () => Results.Json(assets.CivilianArchives, jsonOptions));
+
+app.MapGet("/asset/spritesheet/{archive:int}", (HttpContext ctx, int archive) =>
+{
+    var png = assets.GetSpriteSheet(archive);
+    if (png == null) return Results.NotFound();
+    ctx.Response.Headers.CacheControl = "public, max-age=86400";
+    return Results.Bytes(png, "image/png");
+});
+
+app.MapGet("/asset/spritemeta/{archive:int}", (HttpContext ctx, int archive) =>
+{
+    var meta = assets.GetSpriteMeta(archive);
+    if (meta == null) return Results.NotFound();
+    ctx.Response.Headers.CacheControl = "public, max-age=86400";
+    return Results.Json(meta, jsonOptions);
+});
+
 app.MapGet("/asset/texture/{archive:int}/{record:int}", (HttpContext ctx, int archive, int record) =>
 {
     var png = assets.GetTexturePng(archive, record);
@@ -189,9 +209,11 @@ app.Map("/ws", async context =>
                     sun = snap.SunIntensity,
                     weather = snap.Weather.ToString(),
                     speed = boot.Ctx.WorldClock.Current.TimeScale,
-                    // Compact rows: [id, x, z, activity, phase]
+                    // Compact rows: [id, x, z, activity, phase, yaw, kind]
+                    // (2D spectator reads [0..4]; 3D viewer also uses yaw+kind.)
                     entities = snap.Entities.Select(e => new object[]
-                        { e.Id, MathF.Round(e.X, 1), MathF.Round(e.Z, 1), (int)e.Activity, (int)e.Phase }),
+                        { e.Id, MathF.Round(e.X, 1), MathF.Round(e.Z, 1), (int)e.Activity, (int)e.Phase,
+                          MathF.Round(e.Yaw, 3), (int)e.Kind }),
                 }, jsonOptions);
                 await Send(payload);
             }
