@@ -12,6 +12,8 @@ namespace DaggerfallWorkshop.Sim.Host
     ///        dotnet run --probe [regionName [locationName]]
     ///        dotnet run --town <regionName> <locationName> [--ticks N] [--timescale X]
     ///        dotnet run --soak <regionName> <locationName> [--days N]
+    ///        dotnet run --roads <regionName>   (derive + print the invented road network)
+    ///        dotnet run --benchregion <regionName> [--ticks N]   (whole-region sim throughput)
     ///        dotnet run --view <regionName> <locationName> [--timescale X] [--frames N]
     ///        dotnet run --serve <regionName> <locationName> [--port N] [--timescale X]
     ///        dotnet run --connect <host:port> [--frames N]
@@ -27,6 +29,9 @@ namespace DaggerfallWorkshop.Sim.Host
             string townRegion = null, townLocation = null;
             string soakRegion = null, soakLocation = null;
             string loadRegion = null;
+            string roadsRegion = null;
+            string benchRegion = null;
+            int startHour = -1;
             string soakRegionWhole = null;
             string viewRegionWhole = null;
             int days = 7;
@@ -51,6 +56,9 @@ namespace DaggerfallWorkshop.Sim.Host
                     case "--town": townRegion = args[++i]; townLocation = args[++i]; break;
                     case "--soak": soakRegion = args[++i]; soakLocation = args[++i]; break;
                     case "--loadregion": loadRegion = args[++i]; break;
+                    case "--roads": roadsRegion = args[++i]; break;
+                    case "--benchregion": benchRegion = args[++i]; break;
+                    case "--starthour": startHour = int.Parse(args[++i]); break;
                     case "--soakregion": soakRegionWhole = args[++i]; break;
                     case "--viewregion": viewRegionWhole = args[++i]; break;
                     case "--days": days = int.Parse(args[++i]); break;
@@ -77,6 +85,10 @@ namespace DaggerfallWorkshop.Sim.Host
                 return TownViewer.RunLocal(viewRegion, viewLocation, timeScale, frames);
             if (loadRegion != null)
                 return RegionProbe.Run(loadRegion);
+            if (roadsRegion != null)
+                return RoadProbe.Run(roadsRegion);
+            if (benchRegion != null)
+                return RegionBench.Run(benchRegion, ticks, startHour);
             if (soakRegionWhole != null)
                 return Soak.RunRegion(soakRegionWhole, days);
             if (viewRegionWhole != null)
