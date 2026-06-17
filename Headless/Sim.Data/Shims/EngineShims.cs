@@ -32,6 +32,19 @@ namespace UnityEngine
     {
         public byte r, g, b, a;
         public Color32(byte r, byte g, byte b, byte a) { this.r = r; this.g = g; this.b = b; this.a = a; }
+
+        public static implicit operator Color(Color32 c) =>
+            new Color(c.r / 255f, c.g / 255f, c.b / 255f, c.a / 255f);
+
+        public static Color32 Lerp(Color32 a, Color32 b, float t)
+        {
+            t = t < 0f ? 0f : (t > 1f ? 1f : t);
+            return new Color32(
+                (byte)(a.r + (b.r - a.r) * t),
+                (byte)(a.g + (b.g - a.g) * t),
+                (byte)(a.b + (b.b - a.b) * t),
+                (byte)(a.a + (b.a - a.a) * t));
+        }
     }
 
     public struct Color
@@ -39,9 +52,40 @@ namespace UnityEngine
         public float r, g, b, a;
         public Color(float r, float g, float b, float a) { this.r = r; this.g = g; this.b = b; this.a = a; }
         public static Color clear => new Color(0f, 0f, 0f, 0f);
+        public static Color black => new Color(0f, 0f, 0f, 1f);
+        public static Color white => new Color(1f, 1f, 1f, 1f);
 
         public static implicit operator Color32(Color c) =>
             new Color32((byte)(c.r * 255f), (byte)(c.g * 255f), (byte)(c.b * 255f), (byte)(c.a * 255f));
+
+        public static Color Lerp(Color a, Color b, float t)
+        {
+            t = t < 0f ? 0f : (t > 1f ? 1f : t);
+            return new Color(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t);
+        }
+
+        // Standard RGB->HSV (only referenced by spectral-emission paths the headless
+        // export never calls; present so BaseImageFile compiles).
+        public static void RGBToHSV(Color c, out float h, out float s, out float v)
+        {
+            float max = System.Math.Max(c.r, System.Math.Max(c.g, c.b));
+            float min = System.Math.Min(c.r, System.Math.Min(c.g, c.b));
+            float d = max - min;
+            v = max;
+            s = (max <= 0f) ? 0f : d / max;
+            if (d <= 0f) { h = 0f; return; }
+            if (max == c.r) h = ((c.g - c.b) / d) % 6f;
+            else if (max == c.g) h = (c.b - c.r) / d + 2f;
+            else h = (c.r - c.g) / d + 4f;
+            h /= 6f;
+            if (h < 0f) h += 1f;
+        }
+    }
+
+    public static class Mathf
+    {
+        public static float Pow(float f, float p) => (float)System.Math.Pow(f, p);
+        public static float Clamp01(float v) => v < 0f ? 0f : (v > 1f ? 1f : v);
     }
 }
 
