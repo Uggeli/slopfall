@@ -32,12 +32,15 @@ namespace DaggerfallWorkshop.Sim
         public Exception LastException => _lastException;
         public bool IsRunning => _running;
 
+        readonly Thread _snapshotThread;
+
         public SimThread(TickLoop loop, SimulationContext ctx, SnapshotPublisher publisher)
         {
             _loop = loop;
             _ctx = ctx;
             _publisher = publisher;
             _thread = new Thread(Run) { Name = "DFU-Sim", IsBackground = true };
+            _snapshotThread = new Thread(SnapshotLoop) { Name = "DFU-Snapshot", IsBackground = true };
         }
 
         public void Start()
@@ -45,12 +48,28 @@ namespace DaggerfallWorkshop.Sim
             _running = true;
             _wallClock.Start();
             _thread.Start();
+            _snapshotThread.Start();
         }
 
         public void Stop()
         {
             _running = false;
             _thread.Join(TimeSpan.FromSeconds(2));
+            _snapshotThread.Join(TimeSpan.FromSeconds(2));
+        }
+
+        // Snapshots are a CLIENT read, not the sim's job: build them on their own
+        // thread at a steady ~20 Hz, independent of the tick rate. Safe to read the
+        // registries concurrently with the sim thread — they're ConcurrentDictionary
+        // with atomically-swapped immutable values, so a reader sees coherent values
+        // (across-registry coherence is loose by a sub-tick, invisible for a view).
+        void SnapshotLoop()
+        {
+            while (_running)
+            {
+                try { PublishSnapshot(); } catch (Exception ex) { _lastException = ex; }
+                Thread.Sleep((int)(PublishInterval * 1000));
+            }
         }
 
         void Run()
@@ -59,14 +78,13 @@ namespace DaggerfallWorkshop.Sim
             {
                 double tickStep = _ctx.Time.TickIntervalSeconds;   // fixed sim-seconds per tick
                 double nextTickAt = 0;
-                double nextPublishAt = 0;
                 while (_running)
                 {
                     // Fixed step; speed = how fast we fire ticks. No cap: when behind
                     // schedule the loop steps every iteration (no sleep), so high
                     // speeds run as fast as the CPU can tick. Paused/unseeded (ts ≤ 0):
                     // tick at a base rate so inputs (seed, unpause) still process —
-                    // TimeSystem advances 0.
+                    // TimeSystem advances 0. Snapshots are built on a separate thread.
                     double ts = _ctx.WorldClock.Current.TimeScale;
                     double interval = ts <= 0.0 ? 0.1 : tickStep / ts;
 
@@ -74,9 +92,6 @@ namespace DaggerfallWorkshop.Sim
                     if (now >= nextTickAt)
                     {
                         _loop.Step();
-                        // Decouple snapshot building from the tick rate: at high tps we
-                        // step finely but only publish ~20 Hz (viewer consumes ~5 Hz).
-                        if (now >= nextPublishAt) { PublishSnapshot(); nextPublishAt = now + PublishInterval; }
                         nextTickAt += interval;
                         // Catch-up cap: if we're > 1s behind (GC, can't keep up at high
                         // speed), resync rather than firing a tick storm.
