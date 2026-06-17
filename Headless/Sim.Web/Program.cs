@@ -120,7 +120,7 @@ app.MapGet("/asset/model/{objectId}", (HttpContext ctx, uint objectId, int? clim
 app.MapGet("/asset/town", (HttpContext ctx) =>
 {
     var town = assets.GetTown(region, location);
-    ctx.Response.Headers.CacheControl = "public, max-age=3600";
+    ctx.Response.Headers.CacheControl = "no-cache";   // live aggregate; evolves during dev
     return Results.Json(town, jsonOptions);
 });
 
@@ -128,7 +128,7 @@ app.MapGet("/asset/town", (HttpContext ctx) =>
 app.MapGet("/asset/terrain", (HttpContext ctx) =>
 {
     var terrain = assets.GetTownTerrain(region, location);
-    ctx.Response.Headers.CacheControl = "public, max-age=3600";
+    ctx.Response.Headers.CacheControl = "no-cache";   // live aggregate; evolves during dev
     return Results.Json(terrain, jsonOptions);
 });
 

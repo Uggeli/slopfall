@@ -26,6 +26,7 @@ namespace Sim.AssetExport
         private readonly object _gate = new();
         private MapsFile _maps;
         private WoodsFile _woods;
+        private BlocksFile _blocks;
 
         /// <summary>URL path a glTF material points at for its texture.</summary>
         public static string TextureUri(int archive, int record) => $"/asset/texture/{archive}/{record}";
@@ -99,7 +100,7 @@ namespace Sim.AssetExport
         /// Terrain tile for the booted town's map pixel, flattened under the city to
         /// y=0 with the climate ground texture. (M3b-1: the location's own tile only.)
         /// </summary>
-        public TerrainTileData GetTownTerrain(string region, string location)
+        public List<TerrainTileData> GetTownTerrain(string region, string location)
         {
             lock (_gate)
             {
@@ -108,8 +109,30 @@ namespace Sim.AssetExport
                 var pix = MapsFile.LongitudeLatitudeToMapPixel(loc.MapTableData.Longitude, loc.MapTableData.Latitude);
                 int worldClimate = _maps.GetClimateIndex(pix.X, pix.Y);
                 int groundArchive = MapsFile.GetWorldClimateSettings(worldClimate).GroundArchive;
-                return TerrainTile.Generate(_woods, pix.X, pix.Y, groundArchive,
-                    loc.Exterior.ExteriorData.Width, loc.Exterior.ExteriorData.Height);
+
+                // Centre tile carries the location (buildings + flatten + own ground tiles).
+                var center = TerrainTile.Generate(_woods, pix.X, pix.Y, groundArchive,
+                    loc.Exterior.ExteriorData.Width, loc.Exterior.ExteriorData.Height,
+                    _blocks, loc.Exterior.ExteriorData.BlockNames);
+
+                var tiles = new List<TerrainTileData> { center };
+
+                // 8 surrounding tiles, plain overworld, sharing the centre's vertical
+                // datum so the seam heights are continuous. (3x3; region streaming
+                // later just widens this.)
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        var nb = TerrainTile.Generate(_woods, pix.X + dx, pix.Y + dy, groundArchive,
+                            0, 0, null, null, center.Floor);
+                        nb.OriginX = center.OriginX + dx * TerrainTile.TileWorldSize;
+                        nb.OriginZ = center.OriginZ + dy * TerrainTile.TileWorldSize;
+                        tiles.Add(nb);
+                    }
+                }
+                return tiles;
             }
         }
 
@@ -117,6 +140,7 @@ namespace Sim.AssetExport
         {
             _maps ??= new MapsFile(Path.Combine(_arena2, "MAPS.BSA"), FileUsage.UseMemory, true);
             _woods ??= new WoodsFile(Path.Combine(_arena2, "WOODS.WLD"), FileUsage.UseMemory, true);
+            _blocks ??= new BlocksFile(Path.Combine(_arena2, "BLOCKS.BSA"), FileUsage.UseMemory, true);
         }
 
         public const int GroundTileSize = 64;   // ground tile records are 64x64

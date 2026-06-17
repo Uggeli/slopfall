@@ -25,6 +25,8 @@
   <div style="color:#9fd0ff">terrain alignment</div>
   <label><input type="checkbox" id="tflipx"> flip terrain X</label>
   <label><input type="checkbox" id="tflipz"> flip terrain Z</label>
+  <label><input type="checkbox" id="tmiru"> mirror tile U (E-W tex)</label>
+  <label><input type="checkbox" id="tmirv"> mirror tile V (N-S tex)</label>
   <label>nudge X <input type="range" id="tnx" min="-820" max="820" value="0" step="6.4" style="width:120px"><span id="tnxv">0</span></label>
   <label>nudge Z <input type="range" id="tnz" min="-820" max="820" value="0" step="6.4" style="width:120px"><span id="tnzv">0</span></label>
   <div id="stat">loading…</div>
@@ -66,20 +68,45 @@ scene.add(grid);
 const town = new THREE.Group();    // all building instances
 scene.add(town);
 
-let terrainMesh = null;
-let terrainData = null;
+let terrainTiles = null;        // array of tile data (centre + neighbours)
+let terrainMat = null;          // shared ground-atlas material
 const texLoader = new THREE.TextureLoader();
+const terrainGroup = new THREE.Group();
+scene.add(terrainGroup);
 
 // Build a per-cell textured terrain mesh: heightfield (129x129) + a 128x128
 // tilemap that picks a ground-tile (record + rotate/flip) per cell from the
 // ground atlas (8x7, 64px tiles). flipX/flipZ + nudge reconcile alignment by eye.
 const ATLAS_COLS = 8, ATLAS_ROWS = 7;
-function buildTerrain(d) {
-  if (terrainMesh) { scene.remove(terrainMesh); terrainMesh.geometry.dispose(); }
+
+function ensureTerrainMat(archive) {
+  if (terrainMat) return terrainMat;
+  terrainMat = new THREE.MeshLambertMaterial({ color: 0x8a8a8a });
+  texLoader.load(`/asset/groundatlas/${archive}`, t => {
+    t.flipY = false;   // atlas is top-down; UV v=0 at top
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+    terrainMat.map = t; terrainMat.color.set(0xffffff); terrainMat.needsUpdate = true;
+  });
+  return terrainMat;
+}
+
+// Rebuild all tile meshes (centre + neighbours) into terrainGroup.
+function buildTerrain(tiles) {
+  while (terrainGroup.children.length) { const m = terrainGroup.children.pop(); m.geometry.dispose(); }
+  for (const d of tiles) {
+    const m = buildTileMesh(d);
+    m.position.set(d.originX, 0, d.originZ);
+    terrainGroup.add(m);
+  }
+  positionTerrain();
+}
+
+function buildTileMesh(d) {
   const dim = d.dim, step = d.worldSize / (dim - 1), td = d.tileDim;
   // byte[] arrives as base64 from System.Text.Json; decode to bytes.
   const tilemap = Uint8Array.from(atob(d.tilemap), c => c.charCodeAt(0));
   const flipX = ui('tflipx').checked, flipZ = ui('tflipz').checked;
+  const mirU = ui('tmiru').checked, mirV = ui('tmirv').checked;
   const H = (gx, gy) => d.heights[Math.min(dim - 1, Math.max(0, gx)) * dim + Math.min(dim - 1, Math.max(0, gy))];
   const wx = gx => (flipX ? (dim - 1 - gx) : gx) * step;
   const wz = gy => (flipZ ? (dim - 1 - gy) : gy) * step;
@@ -104,7 +131,11 @@ function buildTerrain(d) {
       const v0 = row / ATLAS_ROWS + eps, v1 = (row + 1) / ATLAS_ROWS - eps;
       // tile-local UV per quad corner [ (cx,cy),(cx+1,cy),(cx,cy+1),(cx+1,cy+1) ]
       let luv = [[0, 0], [1, 0], [0, 1], [1, 1]];
-      const xf = (p) => { let [u, v] = p; if (flip) u = 1 - u; if (rot) { const t = u; u = v; v = 1 - t; } return [u, v]; };
+      if (mirU) luv = luv.map(([u, v]) => [1 - u, v]);   // E-W texture orientation
+      if (mirV) luv = luv.map(([u, v]) => [u, 1 - v]);   // N-S texture orientation
+      // flip = 180° (both axes, matching ImageProcessing.FlipColors); rot = 90°
+      // ((u,v)->(v,1-u), matching RotateColors); composed flip-then-rotate.
+      const xf = (p) => { let [u, v] = p; if (flip) { u = 1 - u; v = 1 - v; } if (rot) { const t = u; u = v; v = 1 - t; } return [u, v]; };
       luv = luv.map(xf);
 
       const corners = [[cx, cy], [cx + 1, cy], [cx, cy + 1], [cx + 1, cy + 1]];
@@ -128,21 +159,12 @@ function buildTerrain(d) {
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
 
-  const mat = new THREE.MeshLambertMaterial({ color: 0x8a8a8a });
-  texLoader.load(`/asset/groundatlas/${d.groundArchive}`, t => {
-    t.flipY = false;   // atlas is top-down; UV v=0 at top
-    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
-    mat.map = t; mat.color.set(0xffffff); mat.needsUpdate = true;
-  });
-  terrainMesh = new THREE.Mesh(geo, mat);
-  scene.add(terrainMesh);
-  positionTerrain(d);
+  return new THREE.Mesh(geo, ensureTerrainMat(d.groundArchive));
 }
 
-function positionTerrain(d) {
-  if (!terrainMesh) return;
-  terrainMesh.position.set(d.originX + (+ui('tnx').value), 0, d.originZ + (+ui('tnz').value));
-  terrainMesh.visible = ui('terr').checked;
+function positionTerrain() {
+  terrainGroup.position.set(+ui('tnx').value, 0, +ui('tnz').value);
+  terrainGroup.visible = ui('terr').checked;
 }
 
 const manager = new THREE.LoadingManager();
@@ -191,12 +213,12 @@ function applyToggles() {
   grid.visible = ui('grid').checked;
 }
 for (const id of ['mirx', 'mirz', 'wire', 'grid']) ui(id).addEventListener('change', applyToggles);
-for (const id of ['tflipx', 'tflipz']) ui(id).addEventListener('change', () => terrainData && buildTerrain(terrainData));
+for (const id of ['tflipx', 'tflipz', 'tmiru', 'tmirv']) ui(id).addEventListener('change', () => terrainTiles && buildTerrain(terrainTiles));
 for (const id of ['tnx', 'tnz']) ui(id).addEventListener('input', () => {
   ui('tnxv').textContent = ui('tnx').value; ui('tnzv').textContent = ui('tnz').value;
-  if (terrainData) positionTerrain(terrainData);
+  positionTerrain();
 });
-ui('terr').addEventListener('change', () => terrainData && positionTerrain(terrainData));
+ui('terr').addEventListener('change', () => positionTerrain());
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -206,13 +228,15 @@ addEventListener('resize', () => {
 
 async function init() {
   stat('fetching town layout…');
-  const data = await (await fetch('/asset/town')).json();
+  // no-store: these aggregate payloads change as the renderer evolves; the
+  // per-asset model/texture/atlas endpoints stay cacheable (immutable).
+  const data = await (await fetch('/asset/town', { cache: 'no-store' })).json();
   const climate = data.climateBase, season = data.season;
 
   // Terrain first, so buildings visibly sit on it.
   try {
-    terrainData = await (await fetch('/asset/terrain')).json();
-    buildTerrain(terrainData);
+    terrainTiles = await (await fetch('/asset/terrain', { cache: 'no-store' })).json();
+    buildTerrain(terrainTiles);
   } catch (e) { console.warn('terrain load failed', e); }
 
   stat(`loading ${data.modelIds.length} unique models…`);

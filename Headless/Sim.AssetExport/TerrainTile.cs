@@ -30,6 +30,7 @@ namespace Sim.AssetExport
         public int TileDim;             // tilemap resolution (128)
         public byte[] Tilemap;          // TileDim*TileDim lookup bytes: index=b&63, rot=b&64, flip=b&128
         public bool HasLocation;        // town tile? (flatten applied)
+        public float Floor;             // this tile's mean normalised height (the shared datum)
         // Sim-world position of this tile's (x=0,y=0) corner, so the centered
         // location aligns to the sim's town origin.
         public float OriginX, OriginZ;
@@ -53,7 +54,8 @@ namespace Sim.AssetExport
         /// Build the heightfield for a map pixel. If a location sits here, pass its
         /// block width/height to flatten the city footprint to y=0 (matching the sim).
         public static TerrainTileData Generate(WoodsFile woods, int mx, int my, int groundArchive,
-            int locWidth = 0, int locHeight = 0)
+            int locWidth = 0, int locHeight = 0, BlocksFile blocks = null, string[] blockNames = null,
+            float datumNorm = float.NaN)
         {
             int hDim = HDim;
             float div = (hDim - 1) / 3f;
@@ -149,10 +151,19 @@ namespace Sim.AssetExport
             // flattened normalised heights (absolute elevation drives ocean/beach).
             byte[] tilemap = BuildTilemap(norm, hDim, mx, my);
 
-            // To world metres, offset so the city floor sits at y=0 (sim's flat town).
+            // Overlay the location's own ground tiles (roads/courtyards/cobble from
+            // the RMB blocks) over the city footprint — DFU's SetLocationTiles. Same
+            // ground atlas; centering matches the heightfield + buildings.
+            if (hasLoc && blocks != null && blockNames != null)
+                PaintLocationTiles(tilemap, locWidth, locHeight, blocks, blockNames);
+
+            // To world metres, offset by the datum so the town floor sits at y=0.
+            // Neighbour tiles pass the centre tile's floor as datum so heights are
+            // continuous across the shared seam (no per-tile re-levelling).
+            float datum = float.IsNaN(datumNorm) ? floor : datumNorm;
             var heights = new float[norm.Length];
             for (int i = 0; i < norm.Length; i++)
-                heights[i] = (norm[i] - floor) * MaxTerrainHeight;
+                heights[i] = (norm[i] - datum) * MaxTerrainHeight;
 
             return new TerrainTileData
             {
@@ -166,6 +177,7 @@ namespace Sim.AssetExport
                 TileDim = TDim,
                 Tilemap = tilemap,
                 HasLocation = hasLoc,
+                Floor = floor,
                 OriginX = originX,
                 OriginZ = originZ,
             };
@@ -219,6 +231,43 @@ namespace Sim.AssetExport
                 }
             }
             return tilemap;
+        }
+
+        // Overlay the location's RMB ground tiles (roads/courtyards/cobble) onto the
+        // centered city footprint — ports DFU's TerrainHelper.SetLocationTiles. The
+        // tile's record/rotation/flip re-encode into our lookup-byte format and index
+        // the same ground atlas. Cell (xpos,ypos) -> tilemap[xpos*TDim + ypos], the
+        // same convention the heightfield + buildings use (verified aligned).
+        private static void PaintLocationTiles(byte[] tilemap, int width, int height, BlocksFile blocks, string[] blockNames)
+        {
+            int tilePosX = (RMBTilesPerTerrain - width * RMBTilesPerBlock) / 2;
+            int tilePosY = (RMBTilesPerTerrain - height * RMBTilesPerBlock) / 2;
+
+            for (int blockY = 0; blockY < height; blockY++)
+            {
+                for (int blockX = 0; blockX < width; blockX++)
+                {
+                    string name = blockNames[blockY * width + blockX];
+                    var block = blocks.GetBlock(name);
+                    if (block.Type != DFBlock.BlockTypes.Rmb) continue;
+                    var ground = block.RmbBlock.FldHeader.GroundData.GroundTiles;
+                    if (ground == null) continue;
+
+                    for (int tileY = 0; tileY < RMBTilesPerBlock; tileY++)
+                    {
+                        for (int tileX = 0; tileX < RMBTilesPerBlock; tileX++)
+                        {
+                            var t = ground[tileX, (RMBTilesPerBlock - 1) - tileY];
+                            if (t.TextureRecord < 0 || t.TextureRecord >= 56) continue;
+                            int xpos = tilePosX + blockX * RMBTilesPerBlock + tileX;
+                            int ypos = tilePosY + blockY * RMBTilesPerBlock + tileY;
+                            if (xpos < 0 || xpos >= TDim || ypos < 0 || ypos >= TDim) continue;
+                            byte b = (byte)(t.TextureRecord | (t.IsRotated ? 64 : 0) | (t.IsFlipped ? 128 : 0));
+                            tilemap[xpos * TDim + ypos] = b;
+                        }
+                    }
+                }
+            }
         }
 
         // Deterministic +/-1.5 jitter on the beach line (replaces Unity.Mathematics.Random).
