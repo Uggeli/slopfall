@@ -29,6 +29,10 @@
   <label><input type="checkbox" id="tmirv"> mirror tile V (N-S tex)</label>
   <label>nudge X <input type="range" id="tnx" min="-820" max="820" value="0" step="6.4" style="width:120px"><span id="tnxv">0</span></label>
   <label>nudge Z <input type="range" id="tnz" min="-820" max="820" value="0" step="6.4" style="width:120px"><span id="tnzv">0</span></label>
+  <div id="speed" style="margin-top:6px">speed
+    <button data-s="0">⏸</button><button data-s="1">1×</button><button data-s="4">4×</button>
+    <button data-s="12">12×</button><button data-s="60">60×</button>
+  </div>
   <div id="stat">loading…</div>
 </div>
 
@@ -239,8 +243,13 @@ const sheets = new Map();          // archive -> { tex, meta, mat, sheetW, sheet
 const people = new Map();          // entityId -> { mesh, archive }
 let prevSnap = new Map(), curSnap = new Map();   // id -> [x,z,yaw]
 let prevTime = 0, curTime = 0;
-const SNAP_INTERVAL = 0.2;         // ~5 Hz
+const SNAP_INTERVAL = 0.1;         // server ticks + publishes at 10 Hz
 const WALK_FPS = 4;
+// 8-direction -> (record, flip): records 0-4 = facing S/SW/W/NW/N; NE/E/SE reuse
+// records 3/2/1 mirrored (DFU MobilePersonBillboard). Idle = record 5.
+const ORI_RECORD = [0, 1, 2, 3, 4, 3, 2, 1];
+const ORI_FLIP   = [false, false, false, false, false, true, true, true];
+const DIR_SIGN = 1;   // verified: maps walk direction to the correct facing sprite
 
 function hash32(n) { n = (n ^ 61) ^ (n >>> 16); n = (n + (n << 3)) | 0; n ^= n >>> 4; n = Math.imul(n, 0x27d4eb2d); n ^= n >>> 15; return n >>> 0; }
 
@@ -297,9 +306,23 @@ function updateAgents(t) {
     p.mesh.position.set(x, s.meta.worldH / 2, z);
     p.mesh.lookAt(camera.position.x, s.meta.worldH / 2, camera.position.z);   // upright billboard
 
-    // M4a: front-facing walk (record 0), animated. Direction (yaw) comes in M4b.
-    const fc = s.meta.frames[0] || 1;
-    setCellUV(p.geo, s, 0, walkFrame % fc, false);
+    // Facing from actual movement (cur-prev); idle sprite when stationary.
+    const mvx = c[0] - pr[0], mvz = c[1] - pr[1];
+    const speed = Math.hypot(mvx, mvz);
+    let record, flip;
+    if (speed < 0.05) {            // standing → idle record 5 (or last row)
+      record = Math.min(5, s.meta.rows - 1); flip = false;
+    } else {
+      const fl = 1 / speed, fx = mvx * fl, fz = mvz * fl;       // forward (walk dir)
+      let dx = camera.position.x - x, dz = camera.position.z - z;
+      const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;   // dir to camera
+      const dot = dx * fx + dz * fz, cross = dx * fz - dz * fx;
+      let ori = Math.round(DIR_SIGN * Math.atan2(cross, dot) / (Math.PI / 4));
+      ori = ((ori % 8) + 8) % 8;
+      record = ORI_RECORD[ori]; flip = ORI_FLIP[ori];
+    }
+    const fc = s.meta.frames[record] || 1;
+    setCellUV(p.geo, s, record, walkFrame % fc, flip);
   }
 
   for (const [id, p] of people) if (!seen.has(id)) { agents.remove(p.mesh); p.geo.dispose(); people.delete(id); }
@@ -311,14 +334,29 @@ function onSnap(msg) {
   curTime = performance.now() / 1000;
 }
 
+let agentWs = null;
 function connectAgents() {
-  const ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onmessage = (ev) => {
+  agentWs = new WebSocket(`ws://${location.host}/ws`);
+  agentWs.onopen = () => setSpeed(1);   // start at real-time walking, not the launch default
+  agentWs.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'snap') onSnap(msg);   // ignore the 'world' frame; we have /asset/town
   };
-  ws.onclose = () => setTimeout(connectAgents, 1000);
+  agentWs.onclose = () => setTimeout(connectAgents, 1000);
 }
+
+function setSpeed(scale) {
+  if (agentWs && agentWs.readyState === 1)
+    agentWs.send(JSON.stringify({ type: 'speed', scale }));
+  document.querySelectorAll('#speed button').forEach(b =>
+    b.style.color = Number(b.dataset.s) === scale ? '#9fd0ff' : '#8893a7');
+}
+
+// Speed control → SetTimeScaleInput (server handles {type:"speed",scale}). 1× ≈
+// real-time walking (1.4 m/s); higher to watch the day cycle.
+document.querySelectorAll('#speed button').forEach(btn => {
+  btn.addEventListener('click', () => setSpeed(Number(btn.dataset.s)));
+});
 
 async function init() {
   stat('fetching town layout…');
