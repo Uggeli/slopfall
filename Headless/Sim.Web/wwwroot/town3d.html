@@ -21,6 +21,7 @@
   <label><input type="checkbox" id="wire"> wireframe</label>
   <label><input type="checkbox" id="grid" checked> grid</label>
   <label><input type="checkbox" id="terr" checked> terrain</label>
+  <div id="clock" style="margin-top:6px;color:#ffd479">--:-- · —</div>
   <div id="speed" style="margin-top:6px">speed
     <button data-s="0">⏸</button><button data-s="1">1×</button><button data-s="4">4×</button>
     <button data-s="12">12×</button><button data-s="60">60×</button>
@@ -49,12 +50,14 @@ renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0e1117);
+scene.background = new THREE.Color(0x9fc0e8);
+scene.fog = new THREE.Fog(0x9fc0e8, 400, 1600);   // hides the 3x3 terrain edge too
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-const sun = new THREE.DirectionalLight(0xffffff, 1.3);
+const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambient);
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
 sun.position.set(0.5, 1, 0.4);
 scene.add(sun);
 
@@ -211,11 +214,69 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+let lastFrame = performance.now() / 1000;
 function animate() {
   requestAnimationFrame(animate);
+  const now = performance.now() / 1000;
+  const dt = Math.min(0.1, now - lastFrame); lastFrame = now;
   controls.update();
-  if (civilianArchives && curSnap.size) updateAgents(performance.now() / 1000);
+  updateAtmosphere(dt);
+  if (civilianArchives && curSnap.size) updateAgents(now);
   renderer.render(scene, camera);
+}
+
+// ---- M5a: day/night sky, sun arc, weather tint, fog ----
+const world = { hour: 12, minute: 0, night: false, sun: 1, weather: 'Sunny' };
+const SKY_DAY = new THREE.Color(0x9fc0e8), SKY_NIGHT = new THREE.Color(0x10141f);
+const SKY_DUSK = new THREE.Color(0xd98a4a);   // dawn/dusk warm
+const tmpA = new THREE.Color(), tmpB = new THREE.Color();
+
+// Weather → (sky desaturation toward grey, sun scale, fog tightness).
+function weatherMods(w) {
+  switch (w) {
+    case 'Cloudy':   return { grey: 0.35, sun: 0.7, fog: 1.0 };
+    case 'Overcast': return { grey: 0.6,  sun: 0.45, fog: 0.8 };
+    case 'Fog':      return { grey: 0.5,  sun: 0.5, fog: 0.35 };
+    case 'Rain':     return { grey: 0.7,  sun: 0.35, fog: 0.6 };
+    case 'Thunder':  return { grey: 0.8,  sun: 0.25, fog: 0.5 };
+    case 'Snow':     return { grey: 0.55, sun: 0.6, fog: 0.55, white: true };
+    default:         return { grey: 0.0,  sun: 1.0, fog: 1.0 };   // Sunny
+  }
+}
+
+function updateAtmosphere(dt) {
+  // dawn/dusk weighting: peaks near 6:00 and 18:00
+  const h = world.hour + world.minute / 60;
+  const twilight = Math.max(0, 1 - Math.min(Math.abs(h - 6), Math.abs(h - 18)) / 2.5);
+  const sun01 = Math.max(0, Math.min(1, world.sun));
+  const wm = weatherMods(world.weather);
+
+  // target sky: night→day by daylight, warm push at twilight, grey by weather
+  tmpA.copy(SKY_NIGHT).lerp(SKY_DAY, sun01);
+  tmpA.lerp(SKY_DUSK, twilight * 0.6 * sun01);
+  tmpB.setRGB((tmpA.r + tmpA.g + tmpA.b) / 3, (tmpA.r + tmpA.g + tmpA.b) / 3, (tmpA.r + tmpA.g + tmpA.b) / 3);
+  if (wm.white) tmpB.setRGB(0.85, 0.87, 0.9);
+  tmpA.lerp(tmpB, wm.grey);
+
+  const k = 1 - Math.pow(0.001, dt);   // ~frame-rate-independent smoothing
+  scene.background.lerp(tmpA, k);
+  scene.fog.color.copy(scene.background);
+  scene.fog.far = 1600 * wm.fog;
+  scene.fog.near = scene.fog.far * 0.25;
+
+  // sun light: arc by hour (east→west), intensity by daylight*weather, warm at twilight
+  const az = (h / 24) * Math.PI * 2 - Math.PI / 2;   // rough azimuth
+  const pitch = Math.max(0.05, sun01);
+  sun.position.set(Math.cos(az), pitch * 1.2 + 0.15, Math.sin(az));
+  const sunTargetI = sun01 * wm.sun * 1.4;
+  sun.intensity += (sunTargetI - sun.intensity) * k;
+  tmpB.setRGB(1, 1 - twilight * 0.35, 1 - twilight * 0.55);   // warm at dawn/dusk
+  sun.color.lerp(tmpB, k);
+  const ambTarget = 0.25 + sun01 * 0.45 * (1 - wm.grey * 0.4);
+  ambient.intensity += (ambTarget - ambient.intensity) * k;
+
+  // HUD clock
+  ui('clock').textContent = `${String(world.hour).padStart(2,'0')}:${String(world.minute).padStart(2,'0')} · ${world.weather}`;
 }
 
 // ---- Live agents (M4a): the sim's people as animated sprite billboards ----
@@ -226,7 +287,7 @@ const sheets = new Map();          // archive -> { tex, meta, mat, sheetW, sheet
 const people = new Map();          // entityId -> { mesh, archive }
 let prevSnap = new Map(), curSnap = new Map();   // id -> [x,z,yaw]
 let prevTime = 0, curTime = 0;
-const SNAP_INTERVAL = 0.1;         // server ticks + publishes at 10 Hz
+const SNAP_INTERVAL = 0.2;         // fallback gap; web pump publishes ~5 Hz
 const WALK_FPS = 4;
 // 8-direction -> (record, flip): records 0-4 = facing S/SW/W/NW/N; NE/E/SE reuse
 // records 3/2/1 mirrored (DFU MobilePersonBillboard). Idle = record 5.
@@ -263,7 +324,10 @@ function setCellUV(geo, s, record, frame, flip) {
 }
 
 function updateAgents(t) {
-  const alpha = curTime ? Math.min(1, (t - curTime) / SNAP_INTERVAL) : 0;
+  // Interpolate prev->cur over the ACTUAL snapshot gap (the web pump runs ~5 Hz,
+  // not the 10 tps tick rate), so movement glides instead of teleport-then-freeze.
+  const interval = (curTime - prevTime) || SNAP_INTERVAL;
+  const alpha = curTime ? Math.min(1, (t - curTime) / interval) : 0;
   const walkFrame = Math.floor(t * WALK_FPS);
   const seen = new Set();
 
@@ -315,17 +379,22 @@ function onSnap(msg) {
   prevSnap = curSnap; prevTime = curTime;
   curSnap = new Map(msg.entities.map(e => [e[0], [e[1], e[2], e[5]]]));   // id -> [x,z,yaw]
   curTime = performance.now() / 1000;
+  world.hour = msg.hour; world.minute = msg.minute; world.night = msg.night;
+  world.sun = msg.sun; world.weather = msg.weather;
+  stat(`live · ${curSnap.size} agents · ${String(msg.hour).padStart(2,'0')}:${String(msg.minute).padStart(2,'0')} · ${msg.weather}`);
 }
 
 let agentWs = null;
 function connectAgents() {
+  stat('agents: connecting…');
   agentWs = new WebSocket(`ws://${location.host}/ws`);
-  agentWs.onopen = () => setSpeed(1);   // start at real-time walking, not the launch default
+  agentWs.onopen = () => { stat('agents: stream open, waiting…'); setSpeed(1); };
+  agentWs.onerror = () => stat('agents: WebSocket error');
   agentWs.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'snap') onSnap(msg);   // ignore the 'world' frame; we have /asset/town
   };
-  agentWs.onclose = () => setTimeout(connectAgents, 1000);
+  agentWs.onclose = () => { stat('agents: stream closed, retrying…'); setTimeout(connectAgents, 1000); };
 }
 
 function setSpeed(scale) {
