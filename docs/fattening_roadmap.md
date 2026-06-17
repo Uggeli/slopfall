@@ -53,14 +53,22 @@ L4-deferred **person-directed ads** (`Ad.Target`: Visit-a-friend, Ask-a-specific
 reciprocity/obligation ("owes a favor back" — ties to S4 guilt).
 *Dependency: goals/intentions NEED the tree; person-directed ads ride on it + S1 valence.*
 
-### V4 — World sanity (the economy, E-track)
-The one structural soak `[FAIL]` throughout. A working economy — resident jobs (E1 in
+### V4 — Measurement (recalibrate the ruler; the economy isn't broken)
+The one standing soak `[FAIL]` is **not a broken economy — it's a broken measure.** The regional
+economy behaves like a real one: it concentrates, and a settlement can decline — both are *valid*
+outcomes, not defects (the regional rewrite treats decline as a legitimate result, not a failure;
+see `economy.md`). The `[FAIL]` is the *ruler* being miscalibrated — the soak's pass/fail criteria
+encode a wrong picture of "healthy" (flagging concentration / poverty / decline as failure). Fix
+the criteria, not the world. This is **high-leverage** precisely because the other three verticals
+are currently judged against a mis-read baseline: we can't trust a soak verdict on the S2/S3/S4
+equilibria while the economic ruler is wrong.
+
+Economy *depth* stays on the table as behavior-pull, not repair: resident jobs (E1 in
 `economy.md`), the **larder/goods-consumption sink** (deferred from `living_world_L1_entropy.md`
-§L1.4), price discovery (prices respond to shortage/glut), and the money-supply-collapse fix —
-changes *everything downstream*: right now nearly everyone is poor → everyone begs → it distorts
-the S2/S3/S4 social and conscience equilibria. **Arguably highest-leverage**, because the other
-three verticals are currently measured against a broken baseline.
-*Dependency: a healthy social/begging/conscience equilibrium NEEDS this.*
+§L1.4), price discovery (prices respond to shortage/glut). Pull these when a target behavior
+demands them (an apprentice saving to open a shop needs "saving" to mean something) — not to
+"repair" a world that already works.
+*Dependency: a trustworthy soak verdict on the social/begging/conscience equilibria NEEDS a correct ruler first.*
 
 ## Per-system depth (behavior-pull; no enabler required)
 
@@ -76,7 +84,7 @@ three verticals are currently measured against a broken baseline.
 ## Dependency graph
 
 ```
-V4 economy ───────────────────────────► sane baseline for ALL measurement
+V4 measurement ───────────────────────► trustworthy soak for ALL the other verticals
 V1: S3-full ──► S4-learned (installer needs consolidation)
             └─► S1 individual recognition (richer interpret)
 V2: creatures + verbs ──► S2 fear ─┐
@@ -87,8 +95,9 @@ L2 generational transmission ──► consumes V1 (seeds memory/conscience acro
 
 ## Recommended sequence (a lean, to argue with)
 
-1. **V4 economy first** — unblock the baseline; it's the only standing `[FAIL]` and everything
-   else is being judged against it broken.
+1. **Fix measurement first** — recalibrate the soak so its one standing `[FAIL]` reflects a real
+   failure, not a valid outcome (concentration / decline) mislabeled; it's the cheap prerequisite
+   for trusting any soak verdict on the other three.
 2. **V1 Mind depth (S3-full → S4-learned)** — the natural continuation of what we just built; the
    consolidation keystone, and it makes conscience *learned* rather than seeded.
 3. **V2 Drama (threats + verbs → fear/crime/combat)** — the biggest behavioral expansion; turns a
@@ -104,6 +113,11 @@ Per-system depth gets pulled in as target behaviors demand, not as a separate ph
   next target behavior and let it define the next proto-subset (the same way S3/S4 were scoped).
 - **Tune after, not during.** All current numbers are frozen placeholders, now coupled across
   L+S; fatten a coherent chunk, *then* one tuning pass on the regional soak.
+- **Numbers are the last resort, not the first.** A bad outcome is almost always a *missing
+  system* or a *missing way for an agent to express itself* (a problem it can't voice, an action
+  it can't take) — not a mis-set constant. Reach for the dials only when you genuinely can't
+  imagine a structural or expressive alternative; that exhaustion is the actual signal you've hit
+  a tuning problem. As long as a non-numeric fix is still thinkable, it isn't one.
 - **Determinism grows with the systems.** As MEANINGS gains running statistics, adopt the memory
   doc's fixed-point (8.8) discipline (A4/A5) so consolidation stays replay-exact/machine-portable.
 - **Test what matters** (the refactor steer): systems wired in + entities use them, not brittle
@@ -111,8 +125,9 @@ Per-system depth gets pulled in as target behaviors demand, not as a separate ph
 
 ## Open questions for the next-session discussion
 
-1. **Lead vertical** — economy (unblock baseline) vs Mind depth (continue the build)? My lean is
-   economy, but Mind is the more exciting continuation.
+1. **Lead vertical** — measurement-recalibration is a cheap prerequisite, not a competing
+   vertical; the real lead choice is Mind depth (continue the build) vs Drama. My lean is Mind,
+   the natural continuation.
 2. **Scope of the threat layer** — do we introduce creatures/combat soon (unlocks fear + crime),
    or stay civilian-only longer and lean on social conflict for "drama"?
 3. **L2 turnover** — is reproduction worth its complexity (decades of aging), or is immigration
