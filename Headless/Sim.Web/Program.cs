@@ -124,6 +124,14 @@ app.MapGet("/asset/town", (HttpContext ctx) =>
     return Results.Json(town, jsonOptions);
 });
 
+// Terrain heightfield for the booted town's map pixel (render plane 2).
+app.MapGet("/asset/terrain", (HttpContext ctx) =>
+{
+    var terrain = assets.GetTownTerrain(region, location);
+    ctx.Response.Headers.CacheControl = "public, max-age=3600";
+    return Results.Json(terrain, jsonOptions);
+});
+
 app.MapGet("/asset/texture/{archive:int}/{record:int}", (HttpContext ctx, int archive, int record) =>
 {
     var png = assets.GetTexturePng(archive, record);

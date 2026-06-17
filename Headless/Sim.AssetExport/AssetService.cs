@@ -24,6 +24,8 @@ namespace Sim.AssetExport
         private readonly Arch3dFile _arch;
         private readonly Dictionary<int, TextureFile> _texCache = new();
         private readonly object _gate = new();
+        private MapsFile _maps;
+        private WoodsFile _woods;
 
         /// <summary>URL path a glTF material points at for its texture.</summary>
         public static string TextureUri(int archive, int record) => $"/asset/texture/{archive}/{record}";
@@ -91,6 +93,30 @@ namespace Sim.AssetExport
         {
             lock (_gate)
                 return TownLayout.Resolve(_arena2, region, location);
+        }
+
+        /// <summary>
+        /// Terrain tile for the booted town's map pixel, flattened under the city to
+        /// y=0 with the climate ground texture. (M3b-1: the location's own tile only.)
+        /// </summary>
+        public TerrainTileData GetTownTerrain(string region, string location)
+        {
+            lock (_gate)
+            {
+                EnsureMapsWoods();
+                DFLocation loc = _maps.GetLocation(region, location);
+                var pix = MapsFile.LongitudeLatitudeToMapPixel(loc.MapTableData.Longitude, loc.MapTableData.Latitude);
+                int worldClimate = _maps.GetClimateIndex(pix.X, pix.Y);
+                int groundArchive = MapsFile.GetWorldClimateSettings(worldClimate).GroundArchive;
+                return TerrainTile.Generate(_woods, pix.X, pix.Y, groundArchive,
+                    loc.Exterior.ExteriorData.Width, loc.Exterior.ExteriorData.Height);
+            }
+        }
+
+        private void EnsureMapsWoods()
+        {
+            _maps ??= new MapsFile(Path.Combine(_arena2, "MAPS.BSA"), FileUsage.UseMemory, true);
+            _woods ??= new WoodsFile(Path.Combine(_arena2, "WOODS.WLD"), FileUsage.UseMemory, true);
         }
 
         /// <summary>PNG bytes for a texture record, or null if it can't be read.</summary>

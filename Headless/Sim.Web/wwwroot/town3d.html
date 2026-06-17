@@ -20,6 +20,13 @@
   <label><input type="checkbox" id="mirz"> mirror Z</label>
   <label><input type="checkbox" id="wire"> wireframe</label>
   <label><input type="checkbox" id="grid" checked> grid</label>
+  <label><input type="checkbox" id="terr" checked> terrain</label>
+  <hr style="border-color:#2c3444">
+  <div style="color:#9fd0ff">terrain alignment</div>
+  <label><input type="checkbox" id="tflipx"> flip terrain X</label>
+  <label><input type="checkbox" id="tflipz"> flip terrain Z</label>
+  <label>nudge X <input type="range" id="tnx" min="-820" max="820" value="0" step="6.4" style="width:120px"><span id="tnxv">0</span></label>
+  <label>nudge Z <input type="range" id="tnz" min="-820" max="820" value="0" step="6.4" style="width:120px"><span id="tnzv">0</span></label>
   <div id="stat">loading…</div>
 </div>
 
@@ -58,6 +65,61 @@ scene.add(grid);
 
 const town = new THREE.Group();    // all building instances
 scene.add(town);
+
+let terrainMesh = null;
+let terrainData = null;
+const texLoader = new THREE.TextureLoader();
+
+// Build a grid mesh from the heightfield. DFU index = x*dim + y; we map x->world X,
+// y->world Z. flipX/flipZ + nudge let us reconcile handedness/offset against the
+// town by eye (then we bake the result server-side).
+function buildTerrain(d) {
+  if (terrainMesh) { scene.remove(terrainMesh); terrainMesh.geometry.dispose(); }
+  const dim = d.dim, step = d.worldSize / (dim - 1);
+  const flipX = ui('tflipx').checked, flipZ = ui('tflipz').checked;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(dim * dim * 3);
+  const uv = new Float32Array(dim * dim * 2);
+  for (let x = 0; x < dim; x++) {
+    for (let y = 0; y < dim; y++) {
+      const vi = (x * dim + y);
+      const wx = (flipX ? (dim - 1 - x) : x) * step;
+      const wz = (flipZ ? (dim - 1 - y) : y) * step;
+      pos[vi * 3 + 0] = wx;
+      pos[vi * 3 + 1] = d.heights[x * dim + y];
+      pos[vi * 3 + 2] = wz;
+      uv[vi * 2 + 0] = x / (dim - 1) * (d.worldSize / 6.4);  // tile texture repeat
+      uv[vi * 2 + 1] = y / (dim - 1) * (d.worldSize / 6.4);
+    }
+  }
+  const idx = [];
+  for (let x = 0; x < dim - 1; x++) {
+    for (let y = 0; y < dim - 1; y++) {
+      const a = x * dim + y, b = (x + 1) * dim + y, c = (x + 1) * dim + y + 1, e = x * dim + y + 1;
+      idx.push(a, c, b, a, e, c);   // CCW up-facing
+    }
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+
+  const mat = new THREE.MeshLambertMaterial({ color: 0x6b7d52 });   // until ground texture loads
+  texLoader.load(`/asset/texture/${d.groundArchive}/2`, t => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+    mat.map = t; mat.color.set(0xffffff); mat.needsUpdate = true;
+  });
+  terrainMesh = new THREE.Mesh(geo, mat);
+  scene.add(terrainMesh);
+  positionTerrain(d);
+}
+
+function positionTerrain(d) {
+  if (!terrainMesh) return;
+  terrainMesh.position.set(d.originX + (+ui('tnx').value), 0, d.originZ + (+ui('tnz').value));
+  terrainMesh.visible = ui('terr').checked;
+}
 
 const manager = new THREE.LoadingManager();
 manager.onError = url => console.warn('load error', url);
@@ -105,6 +167,12 @@ function applyToggles() {
   grid.visible = ui('grid').checked;
 }
 for (const id of ['mirx', 'mirz', 'wire', 'grid']) ui(id).addEventListener('change', applyToggles);
+for (const id of ['tflipx', 'tflipz']) ui(id).addEventListener('change', () => terrainData && buildTerrain(terrainData));
+for (const id of ['tnx', 'tnz']) ui(id).addEventListener('input', () => {
+  ui('tnxv').textContent = ui('tnx').value; ui('tnzv').textContent = ui('tnz').value;
+  if (terrainData) positionTerrain(terrainData);
+});
+ui('terr').addEventListener('change', () => terrainData && positionTerrain(terrainData));
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
@@ -116,6 +184,13 @@ async function init() {
   stat('fetching town layout…');
   const data = await (await fetch('/asset/town')).json();
   const climate = data.climateBase, season = data.season;
+
+  // Terrain first, so buildings visibly sit on it.
+  try {
+    terrainData = await (await fetch('/asset/terrain')).json();
+    buildTerrain(terrainData);
+  } catch (e) { console.warn('terrain load failed', e); }
+
   stat(`loading ${data.modelIds.length} unique models…`);
 
   const protos = new Map();
