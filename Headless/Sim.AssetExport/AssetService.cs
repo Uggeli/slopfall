@@ -37,7 +37,7 @@ namespace Sim.AssetExport
         public int ModelCount { get { lock (_gate) return _arch.Count; } }
 
         /// <summary>glTF JSON for a model object id, or null if no such model.</summary>
-        public string GetModelGltf(uint objectId)
+        public string GetModelGltf(uint objectId, int climate = (int)DaggerfallWorkshop.ClimateBases.Temperate, int season = 0)
         {
             lock (_gate)
             {
@@ -49,36 +49,48 @@ namespace Sim.AssetExport
                 if (mesh.SubMeshes == null || mesh.SubMeshes.Length == 0)
                     return null;
 
-                var sizes = new Dictionary<(int, int), (int w, int h)>();
+                // Map each submesh's original (archive,record) to the climate-swapped
+                // (archive,record) + size; the primitive then carries the swapped identity.
+                var resolved = new Dictionary<(int, int), (int archive, int record, int w, int h)>();
                 var materials = new List<MaterialDef>();
                 var seen = new HashSet<string>();
 
                 foreach (var sm in mesh.SubMeshes)
                 {
-                    var key = (sm.TextureArchive, sm.TextureRecord);
-                    if (!sizes.ContainsKey(key))
-                    {
-                        int w = 0, h = 0;
-                        try { var sz = Tex(sm.TextureArchive).GetSize(sm.TextureRecord); w = sz.Width; h = sz.Height; }
-                        catch { /* unknown texture -> untextured material */ }
-                        sizes[key] = (w, h);
+                    var orig = (sm.TextureArchive, sm.TextureRecord);
+                    if (resolved.ContainsKey(orig))
+                        continue;
 
-                        string matName = $"tex_{sm.TextureArchive}_{sm.TextureRecord}";
-                        if (seen.Add(matName))
-                            materials.Add(new MaterialDef
-                            {
-                                Name = matName,
-                                Archive = sm.TextureArchive,
-                                Record = sm.TextureRecord,
-                                ImageUri = w > 0 ? TextureUri(sm.TextureArchive, sm.TextureRecord) : null,
-                            });
-                    }
+                    int archive = ClimateSwap.Archive(sm.TextureArchive, sm.TextureRecord, climate, season);
+                    int rec = sm.TextureRecord;
+                    int w = 0, h = 0;
+                    try { var sz = Tex(archive).GetSize(rec); w = sz.Width; h = sz.Height; }
+                    catch { /* unknown texture -> untextured material */ }
+                    resolved[orig] = (archive, rec, w, h);
+
+                    string matName = $"tex_{archive}_{rec}";
+                    if (seen.Add(matName))
+                        materials.Add(new MaterialDef
+                        {
+                            Name = matName,
+                            Archive = archive,
+                            Record = rec,
+                            ImageUri = w > 0 ? TextureUri(archive, rec) : null,
+                        });
                 }
 
-                var prims = MeshExtract.FromDFMesh(mesh, (a, r) => sizes.TryGetValue((a, r), out var s) ? s : (0, 0));
+                var prims = MeshExtract.FromDFMesh(mesh,
+                    (a, r) => resolved.TryGetValue((a, r), out var v) ? v : (a, r, 0, 0));
                 return GltfWriter.BuildGltf($"model_{objectId}", prims, materials,
                     bufferUri: null, imageUriFactory: m => m.ImageUri, out _);
             }
+        }
+
+        /// <summary>Resolved town layout (placements + climate) for the asset endpoint.</summary>
+        public TownLayout.TownData GetTown(string region, string location)
+        {
+            lock (_gate)
+                return TownLayout.Resolve(_arena2, region, location);
         }
 
         /// <summary>PNG bytes for a texture record, or null if it can't be read.</summary>

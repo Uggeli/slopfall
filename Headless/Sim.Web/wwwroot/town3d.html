@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DFSim — town viewer (M3a)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0e1117; color: #cdd6e4; font: 13px/1.5 monospace; overflow: hidden; }
+  #panel { position: absolute; top: 10px; left: 10px; background: rgba(20,24,32,.88); border: 1px solid #2c3444;
+           border-radius: 6px; padding: 10px 12px; max-width: 300px; z-index: 10; }
+  #panel h1 { font-size: 13px; margin: 0 0 6px; color: #9fd0ff; }
+  #panel label { display: block; margin: 2px 0; cursor: pointer; }
+  #stat { margin-top: 6px; color: #8893a7; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>DFSim town viewer · M3a</h1>
+  <label><input type="checkbox" id="mirx"> mirror X (handedness)</label>
+  <label><input type="checkbox" id="mirz"> mirror Z</label>
+  <label><input type="checkbox" id="wire"> wireframe</label>
+  <label><input type="checkbox" id="grid" checked> grid</label>
+  <div id="stat">loading…</div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const ui = id => document.getElementById(id);
+const stat = s => ui('stat').textContent = s;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0e1117);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 10000);
+const controls = new OrbitControls(camera, renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 1.3);
+sun.position.set(0.5, 1, 0.4);
+scene.add(sun);
+
+const grid = new THREE.GridHelper(2000, 200, 0x335577, 0x1c2738);
+scene.add(grid);
+
+const town = new THREE.Group();    // all building instances
+scene.add(town);
+
+const manager = new THREE.LoadingManager();
+manager.onError = url => console.warn('load error', url);
+const loader = new GLTFLoader(manager);
+loader.setResourcePath(location.origin + '/');   // resolve /asset/texture URLs
+
+function applyNearest(root) {
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) if (m.map) {
+      m.map.magFilter = THREE.NearestFilter;
+      m.map.minFilter = THREE.NearestFilter;
+      m.map.generateMipmaps = false;
+      m.map.needsUpdate = true;
+    }
+  });
+}
+
+function loadModel(id, climate, season) {
+  return new Promise(res => {
+    loader.load(`/asset/model/${id}?climate=${climate}&season=${season}`,
+      gltf => { applyNearest(gltf.scene); res(gltf.scene); },
+      undefined,
+      () => res(null));   // missing model -> skip its instances
+  });
+}
+
+function frame(min, max) {
+  const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2;
+  const r = Math.max(max[0] - min[0], max[2] - min[2], 20);
+  controls.target.set(cx, 0, cz);
+  camera.position.set(cx + r * 0.55, r * 0.7, cz + r * 0.95);
+  camera.far = r * 20; camera.updateProjectionMatrix();
+  controls.update();
+}
+
+function applyToggles() {
+  town.scale.set(ui('mirx').checked ? -1 : 1, 1, ui('mirz').checked ? -1 : 1);
+  town.traverse(o => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) { m.wireframe = ui('wire').checked; m.needsUpdate = true; }
+  });
+  grid.visible = ui('grid').checked;
+}
+for (const id of ['mirx', 'mirz', 'wire', 'grid']) ui(id).addEventListener('change', applyToggles);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+(function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); })();
+
+async function init() {
+  stat('fetching town layout…');
+  const data = await (await fetch('/asset/town')).json();
+  const climate = data.climateBase, season = data.season;
+  stat(`loading ${data.modelIds.length} unique models…`);
+
+  const protos = new Map();
+  let loaded = 0;
+  await Promise.all(data.modelIds.map(async id => {
+    protos.set(id, await loadModel(id, climate, season));
+    stat(`loading models ${++loaded}/${data.modelIds.length}…`);
+  }));
+
+  let placed = 0;
+  for (const p of data.placements) {
+    const proto = protos.get(p.modelId);
+    if (!proto) continue;
+    const inst = proto.clone();
+    inst.applyMatrix4(new THREE.Matrix4().fromArray(p.matrix));
+    town.add(inst);
+    placed++;
+  }
+  applyToggles();
+  frame(data.min, data.max);
+
+  const climates = ['Desert', 'Mountain', 'Temperate', 'Swamp'];
+  stat(`${data.region} · ${data.location}\nclimate: ${climates[climate] ?? climate}\nplacements: ${placed}/${data.placements.length}\nunique models: ${data.modelIds.length} (loaded ${[...protos.values()].filter(Boolean).length})`);
+}
+init().catch(e => { stat('error: ' + (e?.message || e)); console.error(e); });
+</script>
+</body>
+</html>

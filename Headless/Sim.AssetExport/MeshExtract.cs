@@ -43,10 +43,11 @@ namespace Sim.AssetExport
 
         /// <summary>
         /// Decompose a DFMesh into one Primitive per textured submesh.
-        /// <paramref name="texSize"/> returns (width,height) in pixels for a
-        /// (textureArchive, textureRecord) pair; pass (0,0) when unknown.
+        /// <paramref name="resolve"/> maps a submesh's (archive,record) to the FINAL
+        /// (archive,record) to use (after any climate swap) plus its pixel size; the
+        /// primitive carries that final identity so it matches the emitted material.
         /// </summary>
-        public static List<Primitive> FromDFMesh(DFMesh mesh, Func<int, int, (int w, int h)> texSize)
+        public static List<Primitive> FromDFMesh(DFMesh mesh, Func<int, int, (int archive, int record, int w, int h)> resolve)
         {
             var prims = new List<Primitive>();
             if (mesh.SubMeshes == null)
@@ -54,14 +55,14 @@ namespace Sim.AssetExport
 
             foreach (var sm in mesh.SubMeshes)
             {
-                var (tw, th) = texSize(sm.TextureArchive, sm.TextureRecord);
+                var (archive, record, tw, th) = resolve(sm.TextureArchive, sm.TextureRecord);
                 if (tw <= 0) tw = 1;
                 if (th <= 0) th = 1;
 
                 var prim = new Primitive
                 {
-                    TextureArchive = sm.TextureArchive,
-                    TextureRecord = sm.TextureRecord,
+                    TextureArchive = archive,
+                    TextureRecord = record,
                 };
 
                 if (sm.Planes != null)
@@ -90,12 +91,15 @@ namespace Sim.AssetExport
                             });
                         }
 
-                        // Triangle fan: (0,1,2),(0,2,3),...,(0,k-2,k-1)
+                        // Triangle fan, wound CCW for glTF front-faces. The (X,-Y,Z)
+                        // vertex transform is a reflection that flips DF's native winding,
+                        // so we emit reversed order (0,i+1,i) — verified by single-sided
+                        // culling showing exteriors (not interiors) across a placed town.
                         for (int i = 1; i + 1 < pts.Length; i++)
                         {
                             prim.Indices.Add(baseIndex);
-                            prim.Indices.Add(baseIndex + (uint)i);
                             prim.Indices.Add(baseIndex + (uint)i + 1);
+                            prim.Indices.Add(baseIndex + (uint)i);
                         }
                     }
                 }

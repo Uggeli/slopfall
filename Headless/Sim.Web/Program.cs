@@ -108,12 +108,20 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseWebSockets();
 
-app.MapGet("/asset/model/{objectId}", (HttpContext ctx, uint objectId) =>
+app.MapGet("/asset/model/{objectId}", (HttpContext ctx, uint objectId, int? climate, int? season) =>
 {
-    var json = assets.GetModelGltf(objectId);
+    var json = assets.GetModelGltf(objectId, climate ?? 2, season ?? 0);
     if (json == null) return Results.NotFound();
     ctx.Response.Headers.CacheControl = "public, max-age=86400";
     return Results.Content(json, "model/gltf+json");
+});
+
+// Resolved layout of the booted town: model placements + climate (render plane 1).
+app.MapGet("/asset/town", (HttpContext ctx) =>
+{
+    var town = assets.GetTown(region, location);
+    ctx.Response.Headers.CacheControl = "public, max-age=3600";
+    return Results.Json(town, jsonOptions);
 });
 
 app.MapGet("/asset/texture/{archive:int}/{record:int}", (HttpContext ctx, int archive, int record) =>

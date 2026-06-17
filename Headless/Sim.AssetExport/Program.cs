@@ -122,7 +122,8 @@ namespace Sim.AssetExport
                     materials.Add(new MaterialDef { Name = matName, ImageUri = pngUri, Archive = sm.TextureArchive, Record = sm.TextureRecord });
             }
 
-            var prims = MeshExtract.FromDFMesh(mesh, (a, r) => sizes.TryGetValue((a, r), out var s) ? s : (0, 0));
+            var prims = MeshExtract.FromDFMesh(mesh,
+                (a, r) => sizes.TryGetValue((a, r), out var s) ? (a, r, s.w, s.h) : (a, r, 0, 0));
             string baseName = $"model_{objectId}";
             GltfWriter.Write(outDir, baseName, prims, materials);
 

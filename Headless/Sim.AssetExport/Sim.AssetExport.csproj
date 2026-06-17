@@ -25,6 +25,7 @@
     <Compile Include="..\..\Assets\Scripts\API\Arch3dFile.cs" />
     <Compile Include="..\..\Assets\Scripts\API\TextureFile.cs" />
     <Compile Include="..\..\Assets\Scripts\API\BaseImageFile.cs" />
+    <Compile Include="..\..\Assets\Scripts\Utility\ClimateSwaps.cs" />
   </ItemGroup>
 
 </Project>
