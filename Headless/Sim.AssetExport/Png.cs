@@ -12,13 +12,26 @@ namespace Sim.AssetExport
     {
         private static readonly byte[] Signature = { 137, 80, 78, 71, 13, 10, 26, 10 };
 
-        /// <summary>Write top-down RGBA pixels (length = w*h*4) as a PNG.</summary>
+        /// <summary>Write top-down RGBA pixels (length = w*h*4) as a PNG file.</summary>
         public static void Write(string path, int w, int h, byte[] rgba)
+        {
+            using var fs = File.Create(path);
+            Encode(fs, w, h, rgba);
+        }
+
+        /// <summary>Encode top-down RGBA pixels (length = w*h*4) to PNG bytes.</summary>
+        public static byte[] Encode(int w, int h, byte[] rgba)
+        {
+            using var ms = new MemoryStream();
+            Encode(ms, w, h, rgba);
+            return ms.ToArray();
+        }
+
+        private static void Encode(Stream fs, int w, int h, byte[] rgba)
         {
             if (rgba == null || rgba.Length != w * h * 4)
                 throw new ArgumentException($"rgba length {rgba?.Length} != {w}*{h}*4");
 
-            using var fs = File.Create(path);
             fs.Write(Signature, 0, Signature.Length);
 
             // IHDR

@@ -15,6 +15,8 @@ namespace Sim.AssetExport
     {
         public string Name;
         public string ImageUri;   // null => untextured (flat colour)
+        public int Archive;
+        public int Record;
     }
 
     public static class GltfWriter
@@ -27,28 +29,42 @@ namespace Sim.AssetExport
         private const int NEAREST = 9728;
         private const int REPEAT = 10497;
 
-        /// <summary>Writes baseName.gltf + baseName.bin into outDir; images by relative URI.</summary>
+        /// <summary>Writes baseName.gltf + baseName.bin into outDir; images by relative .png URI.</summary>
         public static void Write(string outDir, string baseName, List<Primitive> prims, List<MaterialDef> materials)
         {
             Directory.CreateDirectory(outDir);
             string binName = baseName + ".bin";
+            string json = BuildGltf(baseName, prims, materials, binName, m => m.ImageUri, out byte[] binBytes);
+            File.WriteAllBytes(Path.Combine(outDir, binName), binBytes);
+            File.WriteAllText(Path.Combine(outDir, baseName + ".gltf"), json);
+        }
 
+        /// <summary>
+        /// Builds glTF JSON + its binary buffer. <paramref name="bufferUri"/> is what the
+        /// glTF buffer points at — an external ".bin" name, or a base64 "data:" URI for a
+        /// self-contained service response. <paramref name="imageUriFactory"/> returns each
+        /// material's texture URI, or null for an untextured material.
+        /// </summary>
+        public static string BuildGltf(string name, List<Primitive> prims, List<MaterialDef> materials,
+            string bufferUri, Func<MaterialDef, string> imageUriFactory, out byte[] binBytes)
+        {
             var g = new Gltf();
             g.Asset = new Asset();
             g.Scene = 0;
             g.Scenes.Add(new Scene { Nodes = new[] { 0 } });
-            g.Nodes.Add(new Node { Mesh = 0, Name = baseName });
+            g.Nodes.Add(new Node { Mesh = 0, Name = name });
 
             // Samplers / images / textures / materials
             g.Samplers.Add(new Sampler { MagFilter = NEAREST, MinFilter = NEAREST, WrapS = REPEAT, WrapT = REPEAT });
             for (int m = 0; m < materials.Count; m++)
             {
                 var md = materials[m];
+                string imgUri = imageUriFactory(md);
                 var pbr = new PbrMetallicRoughness { MetallicFactor = 0f, RoughnessFactor = 1f };
-                if (md.ImageUri != null)
+                if (imgUri != null)
                 {
                     int imageIndex = g.Images.Count;
-                    g.Images.Add(new Image { Uri = md.ImageUri });
+                    g.Images.Add(new Image { Uri = imgUri });
                     int texIndex = g.Textures.Count;
                     g.Textures.Add(new Texture { Source = imageIndex, Sampler = 0 });
                     pbr.BaseColorTexture = new TextureInfo { Index = texIndex };
@@ -61,14 +77,16 @@ namespace Sim.AssetExport
                 {
                     Name = md.Name,
                     PbrMetallicRoughness = pbr,
-                    DoubleSided = true,        // M1: render double-sided until winding is verified
-                    AlphaMode = "MASK",
-                    AlphaCutoff = 0.5f,
+                    // M2-verified: winding is front-facing, so single-sided culling is
+                    // correct (and cheaper). Building textures are opaque; flats/billboards
+                    // will opt into doubleSided + MASK alpha when we add them.
+                    DoubleSided = false,
+                    AlphaMode = "OPAQUE",
                 });
             }
 
             // Geometry -> .bin + accessors/bufferViews
-            var mesh = new Mesh { Name = baseName };
+            var mesh = new Mesh { Name = name };
             using var bin = new MemoryStream();
             var bw = new BinaryWriter(bin);
 
@@ -120,10 +138,14 @@ namespace Sim.AssetExport
             g.Meshes.Add(mesh);
 
             bw.Flush();
-            byte[] binBytes = bin.ToArray();
-            g.Buffers.Add(new Buffer { Uri = binName, ByteLength = binBytes.Length });
-
-            File.WriteAllBytes(Path.Combine(outDir, binName), binBytes);
+            binBytes = bin.ToArray();
+            // bufferUri null => embed the buffer as a base64 data: URI (self-contained
+            // response for the asset service); otherwise point at the external .bin.
+            g.Buffers.Add(new Buffer
+            {
+                Uri = bufferUri ?? ("data:application/octet-stream;base64," + System.Convert.ToBase64String(binBytes)),
+                ByteLength = binBytes.Length,
+            });
 
             var opts = new JsonSerializerOptions
             {
@@ -131,7 +153,7 @@ namespace Sim.AssetExport
                 DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                 WriteIndented = true,
             };
-            File.WriteAllText(Path.Combine(outDir, baseName + ".gltf"), JsonSerializer.Serialize(g, opts));
+            return JsonSerializer.Serialize(g, opts);
         }
 
         private static int MaterialIndexFor(List<MaterialDef> materials, Primitive prim)

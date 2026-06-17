@@ -119,7 +119,7 @@ namespace Sim.AssetExport
 
                 sizes[key] = (w, h);
                 if (seenMat.Add(matName))
-                    materials.Add(new MaterialDef { Name = matName, ImageUri = pngUri });
+                    materials.Add(new MaterialDef { Name = matName, ImageUri = pngUri, Archive = sm.TextureArchive, Record = sm.TextureRecord });
             }
 
             var prims = MeshExtract.FromDFMesh(mesh, (a, r) => sizes.TryGetValue((a, r), out var s) ? s : (0, 0));
@@ -141,20 +141,7 @@ namespace Sim.AssetExport
 
         private static void WritePng(string path, DFBitmap bmp, TextureFile tex)
         {
-            int w = bmp.Width, h = bmp.Height;
-            DFPalette pal = (bmp.Palette != null && bmp.Palette.PaletteBuffer != null) ? bmp.Palette : tex.Palette;
-            var rgba = new byte[w * h * 4];
-            // bmp.Data is top-down indexed; write straight through (no flip) so PNG
-            // and UV (0,0)=top-left agree. Opaque export for solid building models.
-            for (int i = 0; i < w * h; i++)
-            {
-                int idx = bmp.Data[i];
-                int off = pal.HeaderLength + idx * 3;
-                rgba[i * 4 + 0] = pal.PaletteBuffer[off];
-                rgba[i * 4 + 1] = pal.PaletteBuffer[off + 1];
-                rgba[i * 4 + 2] = pal.PaletteBuffer[off + 2];
-                rgba[i * 4 + 3] = 255;
-            }
+            var rgba = TextureDecode.Rgba(bmp, tex, out int w, out int h);
             Png.Write(path, w, h, rgba);
         }
 

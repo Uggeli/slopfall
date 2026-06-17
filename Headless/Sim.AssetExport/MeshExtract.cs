@@ -7,11 +7,10 @@
 //   uv       = (U / texWidth, V / texHeight)   (DF U/V are absolute pixels)
 // Planes are triangle fans radiating from point 0.
 //
-// NOTE (orientation): glTF is right-handed, +Y up, UV origin top-left, front
-// faces CCW. We export with the DFU transform above + REPEAT wrap and render
-// double-sided in M2; if the model shows up mirrored / inside-out / V-flipped,
-// the single knobs to flip are FlipV and the winding order below — verified
-// visually in the Three.js step (M2), kept isolated here on purpose.
+// M2-VERIFIED in the Three.js viewer: this transform renders upright, stays
+// solid under single-sided backface culling (so the fan winding is front-facing),
+// and textures sit upright with FlipV=false. FlipV remains the single knob should
+// a future texture source ever disagree.
 
 using System;
 using System.Collections.Generic;

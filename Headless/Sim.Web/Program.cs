@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using DaggerfallWorkshop.Sim;
+using Sim.AssetExport;
 
 // Web spectator: pan over the living town in a browser, click a dude, see who
 // he is. Usage: dotnet run <region> <location> [--port 8080] [--timescale 600]
@@ -93,6 +94,11 @@ var worldJson = JsonSerializer.SerializeToUtf8Bytes(new
         }),
 }, jsonOptions);
 
+// Asset service (render-client plane 1): decodes ARENA2 geometry/textures to
+// glTF + PNG on demand. Geometry embeds in each model's glTF; textures are
+// shared URLs so the browser caches each one town-wide.
+var assets = new AssetService(SimBoot.DefaultArena2Path);
+
 var builder = WebApplication.CreateBuilder();
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
@@ -101,6 +107,22 @@ var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseWebSockets();
+
+app.MapGet("/asset/model/{objectId}", (HttpContext ctx, uint objectId) =>
+{
+    var json = assets.GetModelGltf(objectId);
+    if (json == null) return Results.NotFound();
+    ctx.Response.Headers.CacheControl = "public, max-age=86400";
+    return Results.Content(json, "model/gltf+json");
+});
+
+app.MapGet("/asset/texture/{archive:int}/{record:int}", (HttpContext ctx, int archive, int record) =>
+{
+    var png = assets.GetTexturePng(archive, record);
+    if (png == null) return Results.NotFound();
+    ctx.Response.Headers.CacheControl = "public, max-age=86400";
+    return Results.Bytes(png, "image/png");
+});
 
 app.Map("/ws", async context =>
 {
