@@ -70,43 +70,67 @@ let terrainMesh = null;
 let terrainData = null;
 const texLoader = new THREE.TextureLoader();
 
-// Build a grid mesh from the heightfield. DFU index = x*dim + y; we map x->world X,
-// y->world Z. flipX/flipZ + nudge let us reconcile handedness/offset against the
-// town by eye (then we bake the result server-side).
+// Build a per-cell textured terrain mesh: heightfield (129x129) + a 128x128
+// tilemap that picks a ground-tile (record + rotate/flip) per cell from the
+// ground atlas (8x7, 64px tiles). flipX/flipZ + nudge reconcile alignment by eye.
+const ATLAS_COLS = 8, ATLAS_ROWS = 7;
 function buildTerrain(d) {
   if (terrainMesh) { scene.remove(terrainMesh); terrainMesh.geometry.dispose(); }
-  const dim = d.dim, step = d.worldSize / (dim - 1);
+  const dim = d.dim, step = d.worldSize / (dim - 1), td = d.tileDim;
+  // byte[] arrives as base64 from System.Text.Json; decode to bytes.
+  const tilemap = Uint8Array.from(atob(d.tilemap), c => c.charCodeAt(0));
   const flipX = ui('tflipx').checked, flipZ = ui('tflipz').checked;
-  const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(dim * dim * 3);
-  const uv = new Float32Array(dim * dim * 2);
-  for (let x = 0; x < dim; x++) {
-    for (let y = 0; y < dim; y++) {
-      const vi = (x * dim + y);
-      const wx = (flipX ? (dim - 1 - x) : x) * step;
-      const wz = (flipZ ? (dim - 1 - y) : y) * step;
-      pos[vi * 3 + 0] = wx;
-      pos[vi * 3 + 1] = d.heights[x * dim + y];
-      pos[vi * 3 + 2] = wz;
-      uv[vi * 2 + 0] = x / (dim - 1) * (d.worldSize / 6.4);  // tile texture repeat
-      uv[vi * 2 + 1] = y / (dim - 1) * (d.worldSize / 6.4);
-    }
-  }
-  const idx = [];
-  for (let x = 0; x < dim - 1; x++) {
-    for (let y = 0; y < dim - 1; y++) {
-      const a = x * dim + y, b = (x + 1) * dim + y, c = (x + 1) * dim + y + 1, e = x * dim + y + 1;
-      idx.push(a, c, b, a, e, c);   // CCW up-facing
-    }
-  }
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
+  const H = (gx, gy) => d.heights[Math.min(dim - 1, Math.max(0, gx)) * dim + Math.min(dim - 1, Math.max(0, gy))];
+  const wx = gx => (flipX ? (dim - 1 - gx) : gx) * step;
+  const wz = gy => (flipZ ? (dim - 1 - gy) : gy) * step;
+  // Smooth normal per heightfield grid point (central differences).
+  const N = (gx, gy) => {
+    const nx = H(gx - 1, gy) - H(gx + 1, gy), nz = H(gx, gy - 1) - H(gx, gy + 1);
+    const v = new THREE.Vector3(nx, 2 * step, nz); v.normalize(); return v;
+  };
 
-  const mat = new THREE.MeshLambertMaterial({ color: 0x6b7d52 });   // until ground texture loads
-  texLoader.load(`/asset/texture/${d.groundArchive}/2`, t => {
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  const cells = (td) * (td), pos = new Float32Array(cells * 4 * 3),
+        nor = new Float32Array(cells * 4 * 3), uv = new Float32Array(cells * 4 * 2);
+  const idx = new Uint32Array(cells * 6);
+  const eps = 0.5 / (ATLAS_COLS * 64);   // half-texel inset
+  let vp = 0, up = 0, ip = 0, vbase = 0;
+
+  for (let cx = 0; cx < td; cx++) {
+    for (let cy = 0; cy < td; cy++) {
+      const tile = tilemap[cx * td + cy];
+      const rec = tile & 63, rot = (tile & 64) !== 0, flip = (tile & 128) !== 0;
+      const col = rec % ATLAS_COLS, row = (rec / ATLAS_COLS) | 0;
+      const u0 = col / ATLAS_COLS + eps, u1 = (col + 1) / ATLAS_COLS - eps;
+      const v0 = row / ATLAS_ROWS + eps, v1 = (row + 1) / ATLAS_ROWS - eps;
+      // tile-local UV per quad corner [ (cx,cy),(cx+1,cy),(cx,cy+1),(cx+1,cy+1) ]
+      let luv = [[0, 0], [1, 0], [0, 1], [1, 1]];
+      const xf = (p) => { let [u, v] = p; if (flip) u = 1 - u; if (rot) { const t = u; u = v; v = 1 - t; } return [u, v]; };
+      luv = luv.map(xf);
+
+      const corners = [[cx, cy], [cx + 1, cy], [cx, cy + 1], [cx + 1, cy + 1]];
+      for (let k = 0; k < 4; k++) {
+        const [gx, gy] = corners[k];
+        pos[vp++] = wx(gx); pos[vp++] = H(gx, gy); pos[vp++] = wz(gy);
+        const n = N(gx, gy); nor[vp - 3] = n.x; nor[vp - 2] = n.y; nor[vp - 1] = n.z;
+        uv[up++] = u0 + luv[k][0] * (u1 - u0);
+        uv[up++] = v0 + luv[k][1] * (v1 - v0);
+      }
+      // two triangles (CCW up-facing): 0,3,1  0,2,3
+      idx[ip++] = vbase; idx[ip++] = vbase + 3; idx[ip++] = vbase + 1;
+      idx[ip++] = vbase; idx[ip++] = vbase + 2; idx[ip++] = vbase + 3;
+      vbase += 4;
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+
+  const mat = new THREE.MeshLambertMaterial({ color: 0x8a8a8a });
+  texLoader.load(`/asset/groundatlas/${d.groundArchive}`, t => {
+    t.flipY = false;   // atlas is top-down; UV v=0 at top
     t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
     mat.map = t; mat.color.set(0xffffff); mat.needsUpdate = true;
   });

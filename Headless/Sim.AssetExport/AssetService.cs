@@ -119,6 +119,49 @@ namespace Sim.AssetExport
             _woods ??= new WoodsFile(Path.Combine(_arena2, "WOODS.WLD"), FileUsage.UseMemory, true);
         }
 
+        public const int GroundTileSize = 64;   // ground tile records are 64x64
+        public const int GroundAtlasCols = 8;    // 56 tiles -> 8 x 7
+
+        /// <summary>
+        /// Ground-tile atlas PNG for a climate ground archive: records 0..55 laid out
+        /// in an 8x7 grid (top-left origin, row-major). The terrain mesh indexes tiles
+        /// by record; rotation/flip are applied client-side via UVs.
+        /// </summary>
+        public byte[] GetGroundAtlas(int archive)
+        {
+            lock (_gate)
+            {
+                var tex = Tex(archive);
+                int count = Math.Min(56, tex.RecordCount);
+                int cols = GroundAtlasCols, rows = (56 + cols - 1) / cols;
+                int ts = GroundTileSize;
+                int aw = cols * ts, ah = rows * ts;
+                var atlas = new byte[aw * ah * 4];   // transparent by default
+
+                for (int rec = 0; rec < count; rec++)
+                {
+                    DFBitmap bmp;
+                    try { bmp = tex.GetDFBitmap(rec, 0); } catch { continue; }
+                    if (bmp?.Data == null || bmp.Width == 0) continue;
+                    var rgba = TextureDecode.Rgba(bmp, tex, out int w, out int h);
+                    int ox = (rec % cols) * ts, oy = (rec / cols) * ts;
+                    for (int y = 0; y < ts; y++)
+                    {
+                        int sy = h == ts ? y : y * h / ts;
+                        for (int x = 0; x < ts; x++)
+                        {
+                            int sx = w == ts ? x : x * w / ts;
+                            int s = (sy * w + sx) * 4;
+                            int d = ((oy + y) * aw + (ox + x)) * 4;
+                            atlas[d] = rgba[s]; atlas[d + 1] = rgba[s + 1];
+                            atlas[d + 2] = rgba[s + 2]; atlas[d + 3] = rgba[s + 3];
+                        }
+                    }
+                }
+                return Png.Encode(aw, ah, atlas);
+            }
+        }
+
         /// <summary>PNG bytes for a texture record, or null if it can't be read.</summary>
         public byte[] GetTexturePng(int archive, int record)
         {

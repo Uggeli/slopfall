@@ -26,7 +26,9 @@ namespace Sim.AssetExport
         public float WorldSize;         // tile extent in metres (819.2)
         public float MaxHeight;         // 1539
         public float[] Heights;         // Dim*Dim, WORLD metres, offset so the town floor = 0
-        public int GroundArchive;       // climate ground texture archive (single-texture M3b-1)
+        public int GroundArchive;       // climate ground texture archive
+        public int TileDim;             // tilemap resolution (128)
+        public byte[] Tilemap;          // TileDim*TileDim lookup bytes: index=b&63, rot=b&64, flip=b&128
         public bool HasLocation;        // town tile? (flatten applied)
         // Sim-world position of this tile's (x=0,y=0) corner, so the centered
         // location aligns to the sim's town origin.
@@ -143,6 +145,10 @@ namespace Sim.AssetExport
                 originZ = -(tilePosY / (float)RMBTilesPerBlock) * BlockWorld;
             }
 
+            // Per-tile texture painting (classify + marching squares) on the
+            // flattened normalised heights (absolute elevation drives ocean/beach).
+            byte[] tilemap = BuildTilemap(norm, hDim, mx, my);
+
             // To world metres, offset so the city floor sits at y=0 (sim's flat town).
             var heights = new float[norm.Length];
             for (int i = 0; i < norm.Length; i++)
@@ -157,10 +163,116 @@ namespace Sim.AssetExport
                 MaxHeight = MaxTerrainHeight,
                 Heights = heights,
                 GroundArchive = groundArchive,
+                TileDim = TDim,
+                Tilemap = tilemap,
                 HasLocation = hasLoc,
                 OriginX = originX,
                 OriginZ = originZ,
             };
+        }
+
+        // --- Per-tile painting (ports DefaultTerrainTexturing) ---
+        const int TDim = 128;                 // MapsFile.WorldMapTileDim
+        const float scaledBeachElevation = 5.0f * baseHeightScale;   // 40
+        const int NoiseSeed = 417028;
+        const byte Water = 0, Dirt = 1, Grass = 2, Stone = 3;
+
+        private static byte[] BuildTilemap(float[] norm, int hDim, int mx, int my)
+        {
+            // 1) Classify each cell into a base type (water/dirt/grass/stone).
+            var baseType = new byte[TDim * TDim];   // index = cx*TDim + cy
+            for (int cx = 0; cx < TDim; cx++)
+            {
+                int hx = Math.Min(hDim - 1, (int)(hDim * ((float)cx / TDim)));
+                int lat = mx * TDim + cx;
+                for (int cy = 0; cy < TDim; cy++)
+                {
+                    int hy = Math.Min(hDim - 1, (int)(hDim * ((float)cy / TDim)));
+                    float height = norm[hx * hDim + hy] * MaxTerrainHeight;
+
+                    byte t;
+                    if (height <= scaledOceanElevation) t = Water;
+                    else if (height <= scaledBeachElevation + Jitter(cx * TDim + cy)) t = Dirt;
+                    else
+                    {
+                        int lon = (MapsFile.MaxMapPixelY - my) * TDim + cy;
+                        float w = Clamp01f(Noise.Get(lat, lon, 0.05f, 0.9f, 0.4f, 3, NoiseSeed));
+                        t = w < 0.5f ? Dirt : (w > 0.95f ? Stone : Grass);
+                    }
+                    baseType[cx * TDim + cy] = t;
+                }
+            }
+
+            // 2) Marching squares over the 2x2 neighbourhood -> lookup byte.
+            var tilemap = new byte[TDim * TDim];
+            for (int cx = 0; cx < TDim; cx++)
+            {
+                for (int cy = 0; cy < TDim; cy++)
+                {
+                    int b0 = baseType[cx * TDim + cy];
+                    int b1 = baseType[Math.Min(TDim - 1, cx + 1) * TDim + cy];
+                    int b2 = baseType[cx * TDim + Math.Min(TDim - 1, cy + 1)];
+                    int b3 = baseType[Math.Min(TDim - 1, cx + 1) * TDim + Math.Min(TDim - 1, cy + 1)];
+                    int shape = (b0 & 1) | (b1 & 1) << 1 | (b2 & 1) << 2 | (b3 & 1) << 3;
+                    int ring = (b0 + b1 + b2 + b3) >> 2;
+                    tilemap[cx * TDim + cy] = LookupTable[shape | (ring << 4)];
+                }
+            }
+            return tilemap;
+        }
+
+        // Deterministic +/-1.5 jitter on the beach line (replaces Unity.Mathematics.Random).
+        private static float Jitter(int index)
+        {
+            uint h = (uint)index * 2654435761u;
+            h ^= h >> 15;
+            return ((h & 0xffff) / 65535f) * 3f - 1.5f;
+        }
+
+        private static float Clamp01f(float v) => v < 0f ? 0f : (v > 1f ? 1f : v);
+
+        // 64-byte marching-squares lookup, built verbatim from DFU's
+        // CreateLookupTable/AddLookupRange/MakeLookup (TerrainTexturing.cs:244-307).
+        private static readonly byte[] LookupTable = BuildLookup();
+        private static byte[] BuildLookup()
+        {
+            var t = new byte[64];
+            AddRange(t, 0, 1, 5, 48, false, 0);
+            AddRange(t, 2, 1, 10, 51, true, 16);
+            AddRange(t, 2, 3, 15, 53, false, 32);
+            AddRange(t, 3, 3, 15, 53, true, 48);
+            return t;
+        }
+        private static byte Mk(int index, bool rotate, bool flip)
+        {
+            if (rotate) index += 64;
+            if (flip) index += 128;
+            return (byte)index;
+        }
+        private static void AddRange(byte[] t, int baseStart, int baseEnd, int shapeStart, int saddle, bool reverse, int o)
+        {
+            if (reverse)
+            {
+                t[o] = Mk(baseStart, false, false); t[o + 1] = Mk(shapeStart + 2, true, true);
+                t[o + 2] = Mk(shapeStart + 2, false, false); t[o + 3] = Mk(shapeStart + 1, true, true);
+                t[o + 4] = Mk(shapeStart + 2, false, true); t[o + 5] = Mk(shapeStart + 1, false, true);
+                t[o + 6] = Mk(saddle, true, false); t[o + 7] = Mk(shapeStart, true, true);
+                t[o + 8] = Mk(shapeStart + 2, true, false); t[o + 9] = Mk(saddle, false, false);
+                t[o + 10] = Mk(shapeStart + 1, false, false); t[o + 11] = Mk(shapeStart, false, false);
+                t[o + 12] = Mk(shapeStart + 1, true, false); t[o + 13] = Mk(shapeStart, false, true);
+                t[o + 14] = Mk(shapeStart, true, false); t[o + 15] = Mk(baseEnd, false, false);
+            }
+            else
+            {
+                t[o] = Mk(baseStart, false, false); t[o + 1] = Mk(shapeStart, true, false);
+                t[o + 2] = Mk(shapeStart, false, true); t[o + 3] = Mk(shapeStart + 1, true, false);
+                t[o + 4] = Mk(shapeStart, false, false); t[o + 5] = Mk(shapeStart + 1, false, false);
+                t[o + 6] = Mk(saddle, false, false); t[o + 7] = Mk(shapeStart + 2, true, false);
+                t[o + 8] = Mk(shapeStart, true, true); t[o + 9] = Mk(saddle, true, false);
+                t[o + 10] = Mk(shapeStart + 1, false, true); t[o + 11] = Mk(shapeStart + 2, false, true);
+                t[o + 12] = Mk(shapeStart + 1, true, true); t[o + 13] = Mk(shapeStart + 2, false, false);
+                t[o + 14] = Mk(shapeStart + 2, true, true); t[o + 15] = Mk(baseEnd, false, false);
+            }
         }
 
         // Flatten strength 1 inside the rect, ramping to 0 across a blend skirt.
