@@ -86,7 +86,7 @@ namespace DaggerfallWorkshop.Sim
         {
             var clock = _ctx.WorldClock.Current;
             if (clock.Year == 0) return;
-            double gameMinutes = _ctx.Time.TickIntervalSeconds * clock.TimeScale / 60.0;
+            double gameMinutes = clock.DeltaGameSeconds / 60.0;
 
             // --- Erode relations toward neutral on a ~1 game-hour cadence. ---
             // Decaying first, then refreshing co-located pairs below, means net

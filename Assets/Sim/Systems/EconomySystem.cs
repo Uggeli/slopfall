@@ -153,7 +153,7 @@ namespace DaggerfallWorkshop.Sim
             _tick = tick;
             var clock = _ctx.WorldClock.Current;
             if (clock.Year == 0) return;
-            double gameMinutes = _ctx.Time.TickIntervalSeconds * clock.TimeScale / 60.0;
+            double gameMinutes = clock.DeltaGameSeconds / 60.0;
             if (gameMinutes <= 0) return;
 
             double before = SumCoin();

@@ -51,7 +51,7 @@ namespace DaggerfallWorkshop.Sim
             var clock = _ctx.WorldClock.Current;
             if (clock.Year == 0) return;    // clock not seeded yet
 
-            double gameMinutes = _ctx.Time.TickIntervalSeconds * clock.TimeScale / 60.0;
+            double gameMinutes = clock.DeltaGameSeconds / 60.0;
             double gameHours = gameMinutes / 60.0;
 
             foreach (var kv in _ctx.Needs.All)

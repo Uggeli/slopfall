@@ -80,7 +80,7 @@ namespace DaggerfallWorkshop.Sim
         {
             var clock = _ctx.WorldClock.Current;
             if (clock.Year == 0) return;
-            double gameHours = _ctx.Time.TickIntervalSeconds * clock.TimeScale / 3600.0;
+            double gameHours = clock.DeltaGameSeconds / 3600.0;
             if (gameHours <= 0) return;
 
             _keys.Clear();

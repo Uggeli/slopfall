@@ -38,7 +38,7 @@ namespace DaggerfallWorkshop.Sim
             var clock = _ctx.WorldClock.Current;
             if (clock.Year == 0) return;
 
-            float budgetFull = (float)(WalkSpeed * _ctx.Time.TickIntervalSeconds * clock.TimeScale);
+            float budgetFull = (float)(WalkSpeed * clock.DeltaGameSeconds);
             var grid = _ctx.TownGrid.Current;
 
             foreach (var kv in _ctx.Behavior.All)

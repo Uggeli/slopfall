@@ -21,6 +21,7 @@ namespace DaggerfallWorkshop.Sim
         readonly DaggerfallDateTime _clock = new DaggerfallDateTime();
         readonly DaggerfallDateTime _scratch = new DaggerfallDateTime();
         float _timeScale = 12f;
+        double _deltaGameSeconds;   // game-seconds advanced this tick (published to registry)
         bool _seeded;
 
         public void Init(SimulationContext ctx)
@@ -44,6 +45,7 @@ namespace DaggerfallWorkshop.Sim
             _clock.Second = seed.Second;
             if (seed.TimeScale > 0f) _timeScale = seed.TimeScale;
             _seeded = true;
+            _deltaGameSeconds = _ctx.Time.TickIntervalSeconds * _timeScale;   // sane pre-first-tick value
 
             WriteRegistry();
         }
@@ -55,8 +57,12 @@ namespace DaggerfallWorkshop.Sim
             if (!_seeded) return;
 
             ulong before = _clock.ToSeconds();
-            float delta = (float)(_ctx.Time.TickIntervalSeconds * _timeScale);
-            if (delta > 0f) _clock.RaiseTime(delta);
+            // Per-tick game-time step. The live driver (SimThread) may override it
+            // with a small fixed step (running ticks faster for speed); soak/tests
+            // leave the override unset and get the classic interval*scale step.
+            double over = _ctx.Time.LiveStepGameSeconds;
+            _deltaGameSeconds = over >= 0.0 ? over : _ctx.Time.TickIntervalSeconds * _timeScale;
+            if (_deltaGameSeconds > 0.0) _clock.RaiseTime((float)_deltaGameSeconds);
             ulong after = _clock.ToSeconds();
 
             WriteRegistry();
@@ -130,6 +136,7 @@ namespace DaggerfallWorkshop.Sim
                 Minute = _clock.Minute,
                 Second = _clock.Second,
                 TimeScale = _timeScale,
+                DeltaGameSeconds = _deltaGameSeconds,
             });
         }
     }

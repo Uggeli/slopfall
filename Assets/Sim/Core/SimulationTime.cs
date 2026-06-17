@@ -9,6 +9,12 @@ namespace DaggerfallWorkshop.Sim
         public long Tick { get; internal set; }
         public double Elapsed => Tick * TickIntervalSeconds;
 
+        /// Per-tick game-seconds the live driver wants TimeSystem to advance, set
+        /// by SimThread when running real-time so it can keep a small fixed step and
+        /// pace ticks faster with timescale. Negative = unset (soak/tests/seed),
+        /// in which case TimeSystem uses the classic TickIntervalSeconds * TimeScale.
+        public double LiveStepGameSeconds = -1.0;
+
         public SimulationTime(double tickIntervalSeconds)
         {
             TickIntervalSeconds = tickIntervalSeconds;

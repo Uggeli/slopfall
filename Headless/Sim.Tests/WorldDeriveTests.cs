@@ -105,20 +105,26 @@ namespace Sim.Tests
         public void SimThread_TicksAndStopsCleanly()
         {
             var events = new EventBus();
-            var time = new SimulationTime(0.005);    // 200 Hz so the test is quick
+            var time = new SimulationTime(0.1);
             var ctx = new SimulationContext(events, time, new SimRandom(1), new InputBus());
             var loop = new TickLoop(ctx);
             var publisher = new SnapshotPublisher();
             var thread = new SimThread(loop, ctx, publisher);
+
+            // SimThread paces from TimeScale (game-sec/real-sec), running ticks
+            // faster when sped up (capped at MaxTps). Drive it fast for the test.
+            ctx.WorldClock.Set(new WorldClockData { TimeScale = 60f });
 
             thread.Start();
             System.Threading.Thread.Sleep(250);
             thread.Stop();
 
             Assert.Null(thread.LastException);
-            Assert.True(ctx.Time.Tick > 10);
+            Assert.True(ctx.Time.Tick > 10);                         // ~MaxTps × 0.25s
             Assert.NotNull(publisher.Latest);
-            Assert.Equal(ctx.Time.Tick, publisher.Latest.Tick);
+            // Publishing is throttled (~20 Hz) below the tick rate, so the latest
+            // snapshot may lag the current tick — but never lead it.
+            Assert.True(publisher.Latest.Tick > 0 && publisher.Latest.Tick <= ctx.Time.Tick);
         }
     }
 }

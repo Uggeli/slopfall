@@ -36,7 +36,7 @@ namespace DaggerfallWorkshop.Sim
             // civilians fight back; until then this just seeds the initial roam).
             while (_ctx.Creatures.Count < TargetPopulation && TrySpawn(tick)) { }
 
-            double gameSeconds = _ctx.Time.TickIntervalSeconds * clock.TimeScale;
+            double gameSeconds = clock.DeltaGameSeconds;
             float step = (float)(WalkSpeed * gameSeconds);
 
             // Snapshot keys: we mutate creature Position/data inside the loop.

@@ -64,7 +64,7 @@ namespace DaggerfallWorkshop.Sim
         {
             var clock = _ctx.WorldClock.Current;
             if (clock.Year == 0) return;
-            double gameMinutes = _ctx.Time.TickIntervalSeconds * clock.TimeScale / 60.0;
+            double gameMinutes = clock.DeltaGameSeconds / 60.0;
             _gameMinutesSinceDecay += gameMinutes;
             if (_gameMinutesSinceDecay < 60.0) return;          // forget on a ~1 game-hour cadence
             double gameHours = _gameMinutesSinceDecay / 60.0;

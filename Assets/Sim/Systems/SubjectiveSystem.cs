@@ -91,7 +91,7 @@ namespace DaggerfallWorkshop.Sim
         {
             var clock = _ctx.WorldClock.Current;
             if (clock.Year == 0) return;
-            double dt = _ctx.Time.TickIntervalSeconds * clock.TimeScale / 60.0;
+            double dt = clock.DeltaGameSeconds / 60.0;
             if (dt <= 0) return;
             _gameMinutes += dt;
 
