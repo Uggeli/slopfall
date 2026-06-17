@@ -4,23 +4,18 @@ using System.Threading;
 
 namespace DaggerfallWorkshop.Sim
 {
-    /// Background thread that drives the sim TickLoop.
+    /// Background thread that drives the sim TickLoop at a FIXED timestep.
     ///
-    /// Speed (TimeScale = game-seconds per real-second) is achieved by running
-    /// ticks FASTER, not by advancing more game-time per tick: each tick keeps a
-    /// small fixed game-step (DesiredStep) so movement/decisions stay fine-grained
-    /// at any speed, and the real tick rate scales with TimeScale (capped at MaxTps
-    /// for CPU; past the cap the step grows, degrading gracefully). The per-tick
-    /// step is handed to TimeSystem via ctx.Time.LiveStepGameSeconds. Soak/tests
-    /// drive the loop directly (never set the override) and keep the classic
-    /// interval*scale stepping. Wall-clock pacing with a catch-up cap.
+    /// One tick always advances the same sim time (ctx.Time.TickIntervalSeconds,
+    /// 0.1s) — never varied. Speed (TimeScale = sim-seconds per real-second) is
+    /// achieved purely by how fast ticks are FIRED: realInterval = tickStep /
+    /// TimeScale, so 1× fires at 10 tps, 12× at 120 tps, etc. There is no tps cap —
+    /// at high speed the loop ticks as fast as the CPU allows (no sleep while behind
+    /// schedule), so the only limit is raw throughput. Pause (TimeScale ≤ 0): the
+    /// loop keeps ticking at a base rate so inputs/unpause process, but TimeSystem
+    /// advances 0. Soak/tests drive the loop directly and get the same fixed step.
     public sealed class SimThread
     {
-        // Target game-seconds advanced per tick at/below the tps cap. Small =
-        // fine-grained sim; the loop ticks faster to reach the requested speed.
-        const double DesiredStep = 0.1;
-        const double MinTps = 10.0;     // floor so slow speeds still update smoothly
-        const double MaxTps = 200.0;    // ceiling so high speeds don't peg a core
         const double PublishInterval = 0.05;   // build snapshots ≤20 Hz regardless of tick rate
 
         readonly TickLoop _loop;
@@ -62,40 +57,29 @@ namespace DaggerfallWorkshop.Sim
         {
             try
             {
+                double tickStep = _ctx.Time.TickIntervalSeconds;   // fixed sim-seconds per tick
                 double nextTickAt = 0;
                 double nextPublishAt = 0;
                 while (_running)
                 {
-                    // Decide this tick's real cadence + game-step from the current
-                    // speed. timeScale = R * step; keep step≈DesiredStep by varying
-                    // R within [MinTps, MaxTps]; past the cap, step grows.
+                    // Fixed step; speed = how fast we fire ticks. No cap: when behind
+                    // schedule the loop steps every iteration (no sleep), so high
+                    // speeds run as fast as the CPU can tick. Paused/unseeded (ts ≤ 0):
+                    // tick at a base rate so inputs (seed, unpause) still process —
+                    // TimeSystem advances 0.
                     double ts = _ctx.WorldClock.Current.TimeScale;
-                    double r, step;
-                    if (ts <= 0.0)            // paused: keep ticking (snapshots flow) but freeze time
-                    {
-                        r = MinTps; step = 0.0;
-                    }
-                    else
-                    {
-                        r = ts / DesiredStep;
-                        if (r < MinTps) r = MinTps;
-                        else if (r > MaxTps) r = MaxTps;
-                        step = ts / r;
-                    }
-                    double interval = 1.0 / r;
+                    double interval = ts <= 0.0 ? 0.1 : tickStep / ts;
 
                     var now = _wallClock.Elapsed.TotalSeconds;
                     if (now >= nextTickAt)
                     {
-                        _ctx.Time.LiveStepGameSeconds = step;   // TimeSystem advances this much this tick
                         _loop.Step();
-                        // Decouple snapshot building from the tick rate: at high tps
-                        // we step the sim finely but only publish ~20 Hz (the viewer
-                        // consumes ~5 Hz). Always publish the very first tick.
+                        // Decouple snapshot building from the tick rate: at high tps we
+                        // step finely but only publish ~20 Hz (viewer consumes ~5 Hz).
                         if (now >= nextPublishAt) { PublishSnapshot(); nextPublishAt = now + PublishInterval; }
                         nextTickAt += interval;
-                        // Catch-up cap: if we're > 1s behind (debugger pause, GC),
-                        // resync rather than firing a tick storm.
+                        // Catch-up cap: if we're > 1s behind (GC, can't keep up at high
+                        // speed), resync rather than firing a tick storm.
                         if (now - nextTickAt > 1.0) nextTickAt = now + interval;
                     }
                     else

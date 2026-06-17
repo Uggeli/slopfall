@@ -56,8 +56,26 @@ namespace DaggerfallWorkshop.Sim.Host
                 line.Add(c.Hour.ToString("00") + ":" + c.Minute.ToString("00") + " → " + e.Activity);
             });
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             for (int i = 0; i < ticks; i++)
                 loop.Step();
+            sw.Stop();
+            double msPerTick = (double)sw.ElapsedMilliseconds / ticks;
+            Console.WriteLine(ticks + " ticks in " + sw.ElapsedMilliseconds + " ms = "
+                + (ticks * 1000.0 / sw.ElapsedMilliseconds).ToString("F0") + " ticks/s, "
+                + (msPerTick * 1000.0).ToString("F1") + " us/tick");
+
+            // Registry-read / publish cost (what the render server pays per snapshot,
+            // separate from the tick): time a batch of SnapshotBuilder.Build calls.
+            const int snaps = 2000;
+            var sw2 = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < snaps; i++)
+                DaggerfallWorkshop.Sim.SnapshotBuilder.Build(ctx, 0.0);
+            sw2.Stop();
+            Console.WriteLine("snapshot build (reads all registries): "
+                + ((double)sw2.ElapsedMilliseconds / snaps * 1000.0).ToString("F1") + " us/snapshot");
+            Console.WriteLine(loop.Profile());
+            Console.WriteLine();
 
             var clock = ctx.WorldClock.Current;
             Console.WriteLine("after " + ticks + " ticks: "

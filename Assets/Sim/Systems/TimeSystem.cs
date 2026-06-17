@@ -45,7 +45,7 @@ namespace DaggerfallWorkshop.Sim
             _clock.Second = seed.Second;
             if (seed.TimeScale > 0f) _timeScale = seed.TimeScale;
             _seeded = true;
-            _deltaGameSeconds = _ctx.Time.TickIntervalSeconds * _timeScale;   // sane pre-first-tick value
+            _deltaGameSeconds = _ctx.Time.TickIntervalSeconds;   // fixed step (sane pre-first-tick value)
 
             WriteRegistry();
         }
@@ -57,11 +57,13 @@ namespace DaggerfallWorkshop.Sim
             if (!_seeded) return;
 
             ulong before = _clock.ToSeconds();
-            // Per-tick game-time step. The live driver (SimThread) may override it
-            // with a small fixed step (running ticks faster for speed); soak/tests
-            // leave the override unset and get the classic interval*scale step.
-            double over = _ctx.Time.LiveStepGameSeconds;
-            _deltaGameSeconds = over >= 0.0 ? over : _ctx.Time.TickIntervalSeconds * _timeScale;
+            // FIXED timestep: a running tick advances exactly TickIntervalSeconds of
+            // sim time, always — speed is set by how fast SimThread fires ticks, never
+            // by changing this, so per-tick behaviour is identical at any speed and in
+            // the soak/tests. The sole exception is PAUSE (TimeScale ≤ 0): the loop
+            // keeps ticking (to process inputs/unpause) but advances 0 — a clean halt,
+            // not a variable step. TimeScale otherwise only paces the loop + display.
+            _deltaGameSeconds = _timeScale > 0f ? _ctx.Time.TickIntervalSeconds : 0.0;
             if (_deltaGameSeconds > 0.0) _clock.RaiseTime((float)_deltaGameSeconds);
             ulong after = _clock.ToSeconds();
 

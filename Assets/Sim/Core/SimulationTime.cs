@@ -5,15 +5,14 @@ namespace DaggerfallWorkshop.Sim
     /// end of each step.
     public sealed class SimulationTime
     {
+        /// FIXED timestep: the constant SIM time one tick advances (0.1s = 100ms).
+        /// Never varies — speed is set by how fast ticks are FIRED in real time
+        /// (SimThread), not by changing this. A constant step keeps per-tick
+        /// behaviour identical everywhere (live, soak, tests) and avoids the whole
+        /// class of dt-dependent bugs.
         public double TickIntervalSeconds { get; }
         public long Tick { get; internal set; }
         public double Elapsed => Tick * TickIntervalSeconds;
-
-        /// Per-tick game-seconds the live driver wants TimeSystem to advance, set
-        /// by SimThread when running real-time so it can keep a small fixed step and
-        /// pace ticks faster with timescale. Negative = unset (soak/tests/seed),
-        /// in which case TimeSystem uses the classic TickIntervalSeconds * TimeScale.
-        public double LiveStepGameSeconds = -1.0;
 
         public SimulationTime(double tickIntervalSeconds)
         {
