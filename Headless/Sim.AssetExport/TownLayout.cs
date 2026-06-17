@@ -47,20 +47,64 @@ namespace Sim.AssetExport
             var blocks = new BlocksFile(Path.Combine(arena2, "BLOCKS.BSA"), FileUsage.UseMemory, true);
             DFLocation loc = maps.GetLocation(region, location);
 
-            float blockSide = BlocksFile.RMBDimension * GlobalScale;
-            float rd = BlocksFile.RotationDivisor;
-
             var data = new TownData
             {
                 Region = region,
                 Location = location,
-                BlockSide = blockSide,
+                BlockSide = BlocksFile.RMBDimension * GlobalScale,
                 ClimateBase = ClimateSwap.ClimateBasesOf(maps, loc),
                 Season = 0,
             };
 
             var seen = new HashSet<uint>();
-            float minx = 1e30f, miny = 1e30f, minz = 1e30f, maxx = -1e30f, maxy = -1e30f, maxz = -1e30f;
+            var b = new Bounds();
+            AddLocation(blocks, loc, 0f, 0f, data, seen, b);
+            b.WriteInto(data);
+            return data;
+        }
+
+        /// Resolves a whole region into one placement list: every settlement's exterior,
+        /// each offset to its packed origin in the combined grid (the same origins the
+        /// sim's RegionLoader assigns), so the rendered towns land exactly on the agent
+        /// coordinates the snapshot stream carries. Maps/blocks open once, shared across
+        /// settlements. ClimateBase is taken from the first settlement — uniform-climate
+        /// regions (e.g. Betony) are exact; mixed-climate regions mis-texture until
+        /// placements carry per-settlement climate (a follow-up).
+        public static TownData ResolveRegion(string arena2, string region,
+            IReadOnlyList<(string name, float ox, float oz)> settlements)
+        {
+            var maps = new MapsFile(Path.Combine(arena2, "MAPS.BSA"), FileUsage.UseMemory, true);
+            var blocks = new BlocksFile(Path.Combine(arena2, "BLOCKS.BSA"), FileUsage.UseMemory, true);
+
+            var data = new TownData
+            {
+                Region = region,
+                Location = settlements.Count + " settlements",
+                BlockSide = BlocksFile.RMBDimension * GlobalScale,
+                Season = 0,
+            };
+
+            var seen = new HashSet<uint>();
+            var b = new Bounds();
+            bool climateSet = false;
+            foreach (var (name, ox, oz) in settlements)
+            {
+                DFLocation loc = maps.GetLocation(region, name);
+                if (!loc.Loaded) continue;
+                if (!climateSet) { data.ClimateBase = ClimateSwap.ClimateBasesOf(maps, loc); climateSet = true; }
+                AddLocation(blocks, loc, ox, oz, data, seen, b);
+            }
+            b.WriteInto(data);
+            return data;
+        }
+
+        /// Appends one location's model placements, each translated by (offX, offZ) so a
+        /// settlement lands at its combined-grid origin. Mirrors RMBLayout.AddModels.
+        static void AddLocation(BlocksFile blocks, DFLocation loc, float offX, float offZ,
+            TownData data, HashSet<uint> seen, Bounds b)
+        {
+            float blockSide = BlocksFile.RMBDimension * GlobalScale;
+            float rd = BlocksFile.RotationDivisor;
 
             int width = loc.Exterior.ExteriorData.Width;
             int height = loc.Exterior.ExteriorData.Height;
@@ -73,7 +117,7 @@ namespace Sim.AssetExport
                     if (block.Type != DFBlock.BlockTypes.Rmb || block.RmbBlock.SubRecords == null)
                         continue;
 
-                    float[] blockM = Mat.Translate(bx * blockSide, 0f, by * blockSide);
+                    float[] blockM = Mat.Translate(offX + bx * blockSide, 0f, offZ + by * blockSide);
 
                     foreach (var sub in block.RmbBlock.SubRecords)
                     {
@@ -97,18 +141,29 @@ namespace Sim.AssetExport
                             if (seen.Add(obj.ModelIdNum))
                                 data.ModelIds.Add(obj.ModelIdNum);
 
-                            float wx = m[12], wy = m[13], wz = m[14];
-                            if (wx < minx) minx = wx; if (wx > maxx) maxx = wx;
-                            if (wy < miny) miny = wy; if (wy > maxy) maxy = wy;
-                            if (wz < minz) minz = wz; if (wz > maxz) maxz = wz;
+                            b.Add(m[12], m[13], m[14]);
                         }
                     }
                 }
             }
+        }
 
-            data.Min = new[] { minx, miny, minz };
-            data.Max = new[] { maxx, maxy, maxz };
-            return data;
+        /// Accumulates a world-space AABB across one or many locations.
+        sealed class Bounds
+        {
+            float minx = 1e30f, miny = 1e30f, minz = 1e30f;
+            float maxx = -1e30f, maxy = -1e30f, maxz = -1e30f;
+            public void Add(float x, float y, float z)
+            {
+                if (x < minx) minx = x; if (x > maxx) maxx = x;
+                if (y < miny) miny = y; if (y > maxy) maxy = y;
+                if (z < minz) minz = z; if (z > maxz) maxz = z;
+            }
+            public void WriteInto(TownData d)
+            {
+                d.Min = new[] { minx, miny, minz };
+                d.Max = new[] { maxx, maxy, maxz };
+            }
         }
 
         private static float[] ScaleOf(DFBlock.RmbBlock3dObjectRecord o)

@@ -96,6 +96,15 @@ namespace Sim.AssetExport
                 return TownLayout.Resolve(_arena2, region, location);
         }
 
+        /// <summary>Resolved layout for a whole region: every settlement's exterior,
+        /// each offset to its packed combined-grid origin (matching the sim).</summary>
+        public TownLayout.TownData GetRegion(string region,
+            IReadOnlyList<(string name, float ox, float oz)> settlements)
+        {
+            lock (_gate)
+                return TownLayout.ResolveRegion(_arena2, region, settlements);
+        }
+
         /// <summary>
         /// Terrain tile for the booted town's map pixel, flattened under the city to
         /// y=0 with the climate ground texture. (M3b-1: the location's own tile only.)
@@ -133,6 +142,56 @@ namespace Sim.AssetExport
                     }
                 }
                 return tiles;
+            }
+        }
+
+        // Region terrain, streamed per tile. One map pixel == one 819.2 m tile; every
+        // tile levels to a SHARED region datum so adjacent tiles meet without a cliff,
+        // and results are cached (a tile is deterministic from WOODS + climate + datum).
+        private readonly Dictionary<long, TerrainTileData> _regionTileCache = new();
+        private static long TileKey(int mx, int my) => ((long)mx << 20) | (uint)my;
+
+        /// <summary>The flattened floor of one settlement's tile — the shared datum the
+        /// whole region levels against, picked once so every streamed tile agrees.</summary>
+        public float RegionTileFloor(string region, string location, int locW, int locH)
+        {
+            lock (_gate)
+            {
+                EnsureMapsWoods();
+                DFLocation loc = _maps.GetLocation(region, location);
+                var pix = MapsFile.LongitudeLatitudeToMapPixel(loc.MapTableData.Longitude, loc.MapTableData.Latitude);
+                int groundArchive = MapsFile.GetWorldClimateSettings(_maps.GetClimateIndex(pix.X, pix.Y)).GroundArchive;
+                var tile = TerrainTile.Generate(_woods, pix.X, pix.Y, groundArchive,
+                    locW, locH, _blocks, loc.Exterior.ExteriorData.BlockNames);
+                return tile.Floor;
+            }
+        }
+
+        /// <summary>One region terrain tile at map pixel (mx,my), levelled to `datum` and
+        /// shifted to its geographic world position by (addX,addZ). A town pixel has its
+        /// footprint flattened + ground-painted; a wilderness pixel is plain overworld.
+        /// Cached by pixel — the camera re-requests freely as it pans.</summary>
+        public TerrainTileData GetRegionTile(string region, int mx, int my, float datum,
+            float addX, float addZ, string locName, int locW, int locH)
+        {
+            lock (_gate)
+            {
+                long key = TileKey(mx, my);
+                if (_regionTileCache.TryGetValue(key, out var hit)) return hit;
+
+                EnsureMapsWoods();
+                int groundArchive = MapsFile.GetWorldClimateSettings(_maps.GetClimateIndex(mx, my)).GroundArchive;
+                TerrainTileData tile = locName != null
+                    ? TerrainTile.Generate(_woods, mx, my, groundArchive, locW, locH,
+                        _blocks, _maps.GetLocation(region, locName).Exterior.ExteriorData.BlockNames, datum)
+                    : TerrainTile.Generate(_woods, mx, my, groundArchive, 0, 0, null, null, datum);
+
+                // Generate keeps a town centred in its tile (negative origin); add the
+                // geographic offset so the tile lands at the settlement's true position.
+                tile.OriginX += addX;
+                tile.OriginZ += addZ;
+                _regionTileCache[key] = tile;
+                return tile;
             }
         }
 
