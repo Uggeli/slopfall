@@ -27,21 +27,14 @@ namespace DaggerfallWorkshop.Sim
                 // Your own home/shop affords living and working — not being
                 // visited or patronised as a customer. (A keeper lives above the
                 // shop, so it's both home and workplace.)
+                // EatHome is offered even with a bare pantry now: the planner keeps it
+                // as a chain-CHILD of Buy/Steal (stocking the larder enables the meal)
+                // and gates it out of the ROOT set when the larder is empty (OddSystem),
+                // so a hungry agent still won't livelock on an empty pantry, but CAN
+                // value the work→buy→eat chain that fills it (odd_convergence O1). The
+                // larder is read as ground truth there, so the stale-memory cull is gone.
                 foreach (var verb in AffordanceCatalog.Home)
-                {
-                    // Recall (Atoms what_is_memory): don't even offer EatHome if the
-                    // agent REMEMBERS the pantry was bare — the ad doesn't come to
-                    // mind, so a hungry agent reaches past it to Buy/Work/Farm/Steal
-                    // instead of livelocking on a meal it knows it can't have. A
-                    // remembered ProvisionsHere==0 suppresses it; never-seen does not
-                    // (a fresh agent checks home once). Stale by design — corrected
-                    // on the next visit.
-                    if (verb == ActivityKind.EatHome
-                        && ctx.PlaceMemory.Recall(agent, buildingIndex, PlaceFact.ProvisionsHere, out var pf)
-                        && pf.Value <= 0)
-                        continue;
                     Offer(into, verb, buildingIndex, b);
-                }
                 if (res.Role == ResidentRole.Keeper)
                     foreach (var verb in AffordanceCatalog.Workplace)
                         Offer(into, verb, buildingIndex, b);

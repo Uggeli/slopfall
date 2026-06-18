@@ -67,5 +67,39 @@ namespace DaggerfallWorkshop.Sim
                 default:                     return None;
             }
         }
+
+        // The chain edges (docs/odd_spec.md "Enables"): doing the key activity makes
+        // the listed activities' value reachable, so the planner (OddTree) folds their
+        // discounted worth back onto it — "work is worth the meal it eventually buys."
+        // Generic action-TYPE edges, NOT authored per-agent plans: the chains
+        // (earn→buy→eat) emerge per agent from traversal of who-can-reach-what.
+        //
+        // v1 = the money loop only. Earning (Work/Labor) enables the paid, stock-gated
+        // consumption (Buy, EatTavern) a broke agent otherwise can't reach now, so a
+        // hungry-and-broke agent values the work that funds the meal. Everything else
+        // is terminal: Farm/Fish feed in-kind (no coin step); Idle/Sleep are their own
+        // reward. Adding a link is a row here — no decider code changes.
+        static readonly ActivityKind[] PaidConsumption = { ActivityKind.Buy, ActivityKind.EatTavern };
+        static readonly ActivityKind[] HomeMeal = { ActivityKind.EatHome };
+        static readonly ActivityKind[] NoChain = new ActivityKind[0];
+
+        public static ActivityKind[] Enables(ActivityKind activity)
+        {
+            switch (activity)
+            {
+                case ActivityKind.Work:
+                case ActivityKind.Labor:
+                    return PaidConsumption;   // earning → the paid meal (EatTavern) or the groceries (Buy) it funds
+                case ActivityKind.Buy:
+                    return HomeMeal;          // groceries → the home meal: the HUNGER payoff that motivates the work→buy→eat chain
+                // NOT Steal: theft is a desperate REACTION (it relieves GoodsDef when the
+                // conscience permits), not a strategy the planner pursues for its eating
+                // payoff. Chaining Steal→EatHome made free stolen food out-compete honest
+                // Labor (the town turned thief, the looms went idle); real theft
+                // consequences (witnesses, punishment) are a later feature.
+                default:
+                    return NoChain;
+            }
+        }
     }
 }

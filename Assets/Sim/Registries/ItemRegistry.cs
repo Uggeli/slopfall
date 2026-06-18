@@ -19,6 +19,9 @@ namespace DaggerfallWorkshop.Sim
         Valuable = 1,
         // Property atoms — what it IS (feed V() + economy + stacking).
         Weight = 2,
+        // Further affordance atoms — activated as the goods/industry pull them.
+        Drinkable = 3,   // refreshment if drunk (ale)
+        Wearable = 4,    // warmth / protection / status if worn (clothes)
         // The Ownable atom and the identity atoms (Owner/Provenance/Name) are
         // modelled as dedicated ItemData fields, not enum rows — they are
         // always-present structure, not optional affordances.
@@ -50,6 +53,8 @@ namespace DaggerfallWorkshop.Sim
 
         // Affordance atoms (0 = absent).
         public double Edible;        // nutrition served if eaten
+        public double Drinkable;     // refreshment served if drunk
+        public double Wearable;      // warmth / protection served if worn
         public double Valuable;      // worth in coin
 
         // Property atoms.

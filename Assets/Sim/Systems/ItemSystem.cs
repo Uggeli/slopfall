@@ -24,11 +24,7 @@ namespace DaggerfallWorkshop.Sim
         // act re-applies.
         readonly HashSet<EntityId> _applied = new HashSet<EntityId>();
 
-        // A taken loaf: ordinary food, modest worth. FROZEN placeholders (tuned
-        // against behaviour later, not guessed here).
-        const double LoafNutrition = 0.5;
-        const double LoafValue = 0.05;
-        const double TheftGuilt = 0.15;     // committing theft deepens the Steal qualm
+        const double TheftGuilt = 0.15;     // committing theft deepens the Steal qualm (charged on commission)
 
         public void Init(SimulationContext ctx)
         {
@@ -59,17 +55,10 @@ namespace DaggerfallWorkshop.Sim
         /// taker's conscience is charged when it's theft.
         void Individuate(EntityId taker, EntityId owner)
         {
-            var loaf = new ItemData
-            {
-                Name = "loaf of bread",
-                Edible = LoafNutrition,
-                Valuable = LoafValue,
-                Weight = 0.3,
-                Owner = owner,
-                OriginOwner = owner,
-                OriginTick = _ctx.Time.Tick,
-                EquipSlot = -1,
-            };
+            var loaf = GoodsCatalog.NewItem(Good.Provisions);   // the lifted good, as a discrete item
+            loaf.Owner = owner;
+            loaf.OriginOwner = owner;
+            loaf.OriginTick = _ctx.Time.Tick;
             bool theft = ItemOps.Take(loaf, taker);      // into the taker's hands (CarriedBy)
             _ctx.Items.Set(_ctx.Items.Allocate(), loaf);
             if (theft) ItemOps.ChargeCriminalGuilt(_ctx, taker, ActivityKind.Steal, TheftGuilt);

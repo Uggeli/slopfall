@@ -172,7 +172,7 @@ namespace DaggerfallWorkshop.Sim
         {
             Kind = ActivityKind.EatHome,
             DurationMinutes = 30,
-            Delta = Deltas(hunger: -0.5),
+            Delta = Deltas(hunger: -1.0),   // 1 provision = 1 person-day of food (the metabolic anchor)
             NightGate = 0.15,               // kitchens mostly cold in the small hours
             // No longer a free lunch (Subsistence): a meal eats provisions from the
             // household larder, and its hunger relief is gated on them — an empty
@@ -186,7 +186,7 @@ namespace DaggerfallWorkshop.Sim
         {
             Kind = ActivityKind.EatTavern,
             DurationMinutes = 45,
-            Delta = Deltas(hunger: -0.8, coinDef: +0.08, socialDef: -0.1),
+            Delta = Deltas(hunger: -1.0, coinDef: +0.08, socialDef: -0.1),   // one served provision = a full day's meal
             OpenHour = 6, CloseHour = 23,
             DistanceScale = 150, RelationSensitive = true,
             // A meal = provisions transformed and served; gated on the tavern
@@ -366,7 +366,7 @@ namespace DaggerfallWorkshop.Sim
         {
             Kind = ActivityKind.UseItem,
             DurationMinutes = 10,
-            Delta = Deltas(hunger: -0.5),
+            Delta = Deltas(hunger: -1.0),   // a carried loaf is one provision = a full day's food
         };
 
         /// Stash a carried item in your home (carry-home → Drop). A low, steady pull

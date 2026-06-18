@@ -32,7 +32,7 @@ namespace DaggerfallWorkshop.Sim
         // by the land it has — the production throttle that bounds the export faucet
         // without touching craft shops (a lone keeper is no runaway). PLACEHOLDERS
         // tuned against the soak (food self-sufficient, stable money, low poverty).
-        public const double FarmProducePerWorkerMinute = 0.005;     // food per active farmhand (units/game-min)
+        public const double FarmProducePerWorkerMinute = 0.010;     // food per active farmhand (units/game-min) — sized so a staffed farm's MARKET surplus (now keeper-independent) feeds the non-farm population, not just exports
         public const int FarmCapacity = 50;                         // hands a settlement's farmland supports
         // A farm pays its hands out of what it earns (sales + exports), shared evenly
         // among those working it — so income reaches the workforce instead of piling up
@@ -197,6 +197,15 @@ namespace DaggerfallWorkshop.Sim
                 if (keeper.IsNone) continue;
                 _farmWageShare[kv.Key] = _ctx.Coin.Get(keeper) * FarmWagePayoutFraction / kv.Value;
             }
+
+            // Harvest pass: a staffed site's output is produced off the HANDS working
+            // it (counted above), NOT its keeper — so a field full of laborers feeds
+            // the MARKET even when the keeper is asleep, breaking the empty-shelf
+            // deadlock (no shop food → no Buy → no work → no food). Runs before the
+            // trade loop so the day's output is on the shelf when stores source it B2B.
+            foreach (var kvw in _farmWorkers)
+                if (kvw.Value > 0 && _ctx.Buildings.TryGet(kvw.Key, out var wb) && wb != null)
+                    ProduceAtWorkplace(kvw.Key, wb, kvw.Value, gameMinutes);
 
             // Deterministic walk: registry enumeration is unordered, and this pass
             // draws down SHARED shop stock (B2C sales, B2B restock), so when a shelf
@@ -484,11 +493,37 @@ namespace DaggerfallWorkshop.Sim
             return wage;
         }
 
-        /// A laborer's output at a producing workplace (a farm): their work adds the
-        /// site's goods to its stock, free (value made from land + labour, no coin in),
-        /// which the keeper then sells locally and exports. Non-producing workplaces
-        /// (a shop a clerk minds) add nothing here — only the keeper produces there.
-        /// A working keeper stocks their business and trades at the edges:
+        /// Produce a staffed workplace's output from the HANDS working it this tick
+        /// (farm/fishery food, pasture wool, weaver cloth) — keeper-INDEPENDENT, so a
+        /// site with laborers supplies the market even when its keeper idles (the fix
+        /// for the empty-shelf deadlock). Hands-scaled (capped by FarmCapacity),
+        /// recipe-gated (a weaver spins only the wool it holds). Free yield from
+        /// land + labour (no coin in); the keeper's RunBusiness then sells/exports it.
+        void ProduceAtWorkplace(int building, BuildingRow b, int hands, double gameMinutes)
+        {
+            if (hands > FarmCapacity) hands = FarmCapacity;
+            var produced = GoodsCatalog.Produces(b.Kind);
+            var recipeInputs = GoodsCatalog.Inputs(b.Kind);
+            for (int i = 0; i < produced.Length; i++)
+            {
+                var good = produced[i];
+                if (_ctx.Stock.Get(building, good) >= WarehouseCap) continue;     // glut → idle
+                double output = hands * FarmProducePerWorkerMinute * gameMinutes;
+                for (int k = 0; k < recipeInputs.Length; k++)                      // recipe: 1 input per unit out
+                {
+                    double have = _ctx.Stock.Get(building, recipeInputs[k]);
+                    if (have < output) output = have;
+                }
+                if (output <= 0) continue;
+                for (int k = 0; k < recipeInputs.Length; k++)
+                    _ctx.Stock.Add(building, recipeInputs[k], -output);
+                _ctx.Stock.Add(building, good, output);
+                _producedUnits[(int)good] += output;
+            }
+        }
+
+        /// A working keeper stocks their (non-staffed, lone-keeper) business and trades
+        /// at the edges for every business:
         ///   - PRODUCE: craft shops make wares locally (no coin), then EXPORT the
         ///     surplus above StockTarget off-map at the wholesale price (coin IN —
         ///     the productive faucet, G6), reported via `exports`;
@@ -512,15 +547,12 @@ namespace DaggerfallWorkshop.Sim
                 // glutted producer idles instead of piling up forever). A craft keeper
                 // makes a steady amount alone; a farm makes food scaled by the hands
                 // working it this tick, capped by its land.
-                if (_ctx.Stock.Get(building, good) < WarehouseCap)
+                // Staffed workplaces (farm/fishery/pasture/weaver) produce off their
+                // HANDS in the dedicated harvest pass (keeper-independent, runs each
+                // tick); here only lone-keeper craft (e.g. a clothing store) produces.
+                if (!GoodsCatalog.IsStaffedWorkplace(b.Kind) && _ctx.Stock.Get(building, good) < WarehouseCap)
                 {
                     double output = ProducePerMinute * gameMinutes;
-                    if (GoodsCatalog.IsStaffedWorkplace(b.Kind))
-                    {
-                        int hands = _farmWorkers.TryGetValue(building, out var w) ? w : 0;
-                        if (hands > FarmCapacity) hands = FarmCapacity;
-                        output = hands * FarmProducePerWorkerMinute * gameMinutes;
-                    }
                     // A recipe is GATED on its inputs (docs/industry_layers.md): a weaver
                     // makes cloth only from the wool it holds (sourced B2B), 1 input per
                     // unit out. No inputs in stock → no output — the dependency that

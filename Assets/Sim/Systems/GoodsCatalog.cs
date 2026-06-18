@@ -88,6 +88,45 @@ namespace DaggerfallWorkshop.Sim
             }
         }
 
+        /// Mint a fresh DISCRETE item of a good — its atom bundle: the affordance(s) the
+        /// good affords + its market worth + weight. The single place a `Good` becomes
+        /// an `ItemData`, so individuation (theft, carry, buy, wear) is one path for every
+        /// good — `GoodsCatalog` is the item-atom source too (docs/items_and_inventory.md
+        /// "a good IS an item"). Owner/location are the caller's to set.
+        public static ItemData NewItem(Good good)
+        {
+            var item = new ItemData
+            {
+                Name = Def(good).Name,
+                Valuable = PriceOf(good, PriceTier.Retail),   // market worth = the consumer price
+                Weight = WeightOf(good),
+                EquipSlot = -1,
+            };
+            switch (good)
+            {
+                case Good.Provisions: item.Edible = 1.0; break;     // food — one provision = one person-day (the metabolic anchor)
+                case Good.Drink:      item.Drinkable = 0.5; break;  // ale
+                case Good.Clothes:    item.Wearable = 0.5; break;   // worn
+                // Wool / Cloth / Wares / Ore: raw or intermediate materials — no consumer
+                // affordance, only worth + weight (they're inputs, sold or worked, not used).
+            }
+            return item;
+        }
+
+        static double WeightOf(Good good)
+        {
+            switch (good)
+            {
+                case Good.Ore:     return 1.0;   // heavy raw stone/metal
+                case Good.Clothes: return 0.6;
+                case Good.Wool:    return 0.5;
+                case Good.Wares:   return 0.5;
+                case Good.Cloth:   return 0.4;
+                case Good.Drink:   return 0.4;
+                default:           return 0.3;   // provisions
+            }
+        }
+
         /// What goods a building of this kind keeps in stock (and therefore can
         /// sell). General stores carry the imported staples; craft shops carry
         /// their wares; taverns hold raw provisions + drink to serve. Institutions

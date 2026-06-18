@@ -98,6 +98,7 @@ namespace DaggerfallWorkshop.Sim.Host
             for (int d = 1; d <= days; d++)
             {
                 bool lastDay = d == days;
+                if (lastDay) OddSystem.SnapshotEnabled = true;   // capture each agent's final-day ODD tree
                 for (long t = 0; t < ticksPerDay; t++)
                 {
                     loop.Step();
@@ -119,6 +120,7 @@ namespace DaggerfallWorkshop.Sim.Host
             PrintDayMix(dayHist, histSamples, series[series.Count - 1].Population, movingBucket, idleNoneBucket);
             Console.WriteLine();
             PrintEconomyDetail(ctx, series);
+            PrintOddSnapshots(ctx);
             if (perSettlement) PrintSettlements(ctx);
             bool ok = Verdict(series);
             Console.WriteLine();
@@ -226,6 +228,36 @@ namespace DaggerfallWorkshop.Sim.Host
             Console.WriteLine("professions (" + ctx.Residency.Count + " residents):");
             foreach (var e in prof.OrderByDescending(e => e.Value))
                 Console.WriteLine("  " + e.Value.ToString().PadLeft(4) + "  " + e.Key);
+            Console.WriteLine();
+        }
+
+        /// The "do we have snapshots of the odd trees" view: a few agents' final-day
+        /// decision trees. Indented rows are steps reached only via an enabler (Buy
+        /// under Work/Labor) — their discounted value (prop=) is folded up onto the
+        /// parent, which is the lookahead the depth-1 decider lacked. Prefers trees
+        /// that actually exercise a chain so the propagation is visible.
+        static void PrintOddSnapshots(SimulationContext ctx, int max = 6)
+        {
+            var snaps = OddSystem.Snapshots;
+            if (snaps.IsEmpty) return;
+            string Prof(EntityId id) => ctx.Residency.TryGet(id, out var r) ? ProfessionOf(ctx, id, r) : "?";
+            var chained = new List<KeyValuePair<EntityId, string>>();
+            var flat = new List<KeyValuePair<EntityId, string>>();
+            foreach (var kv in snaps)
+                (kv.Value.Contains("\n  ") ? chained : flat).Add(kv);
+            Console.WriteLine("ODD decision trees (final-day snapshots; " + chained.Count
+                + " of " + snaps.Count + " agents had a chain to traverse):");
+            int shown = 0;
+            // Hands first — they're the workforce the chain is meant to mobilise (the
+            // keepers chain trivially at their own shop; the question is the laborers).
+            foreach (var kv in chained.OrderBy(k => Prof(k.Key).Contains("hand") ? 0 : 1).ThenBy(k => k.Key.Value)
+                                      .Concat(flat.OrderBy(k => k.Key.Value)))
+            {
+                if (shown++ >= max) break;
+                Console.WriteLine("  [" + kv.Key.Value + "] " + Prof(kv.Key) + ":");
+                foreach (var line in kv.Value.TrimEnd('\n').Split('\n'))
+                    Console.WriteLine("      " + line);
+            }
             Console.WriteLine();
         }
 

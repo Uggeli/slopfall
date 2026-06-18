@@ -127,17 +127,73 @@ namespace DaggerfallWorkshop.Sim
             };
 
             var ads = ActionDiscovery.GatherAds(_ctx, id);
-            Ad best = default;
-            double bestScore = double.NegativeInfinity;
-            bool any = false;
+
+            // --- ODD planner (docs/odd_spec.md): collapse the ads to one node per verb
+            // (the Enables chain is verb-level), score each with the depth-1 V, then
+            // Build → Propagate → Traverse so an action inherits the geometrically
+            // discounted value of what it ENABLES. When no chain reaches a node the
+            // tree is flat and Traverse == argmax — a strict superset of the old
+            // depth-1 decide, so chainless behaviour is unchanged. ---
+            var verbs = new List<ActivityKind>();
+            var verbAd = new List<Ad>();
+            var verbScore = new List<double>();
+            var verbIndex = new Dictionary<ActivityKind, int>();
             for (int i = 0; i < ads.Count; i++)
             {
                 var ad = ads[i];
                 double s = V(ad, sc);
                 if (s <= 0) continue;
                 if (ad.Verb == incumbent && ad.Building == incumbentBuilding) s *= Sticky;
-                if (!any || s > bestScore) { any = true; bestScore = s; best = ad; }
+                if (verbIndex.TryGetValue(ad.Verb, out int vi))
+                {
+                    if (s > verbScore[vi]) { verbScore[vi] = s; verbAd[vi] = ad; }
+                }
+                else
+                {
+                    verbIndex[ad.Verb] = verbs.Count;
+                    verbs.Add(ad.Verb); verbAd.Add(ad); verbScore.Add(s);
+                }
             }
+
+            // Roots = what's doable NOW. A coin-sink (paid, stock-gated relief: Buy,
+            // EatTavern) is a root only when affordable; broke, it drops from the root
+            // set and is reachable only as a child of Work/Labor — so earning becomes
+            // the path to it and its discounted worth lifts the work that pays for it.
+            // (EconomySystem already fails the unaffordable sale; this stops the agent
+            // walking to a meal it can't buy, and routes it through earning instead.)
+            double coin = _ctx.Coin.Get(id);
+            var roots = new List<int>();
+            for (int vi = 0; vi < verbs.Count; vi++)
+            {
+                var ad = verbAd[vi];
+                var spec = ad.Spec;
+                // A coin-sink (paid, stock-gated consumption: Buy, EatTavern) is a root
+                // only when affordable; a larder-gated meal (EatHome) only when the
+                // pantry has food. Otherwise the verb leaves the root set and is reachable
+                // only as a chain-CHILD of what supplies its precondition — earning →
+                // Buy/Steal → the stocked larder → EatHome — so each supplier inherits the
+                // discounted value of the payoff it unlocks (odd_convergence O1).
+                bool coinSink = spec != null && spec.SaleReliefAxis >= 0 && spec.SalePrice > 0;
+                if (coinSink && coin < spec.SaleUnits * spec.SalePrice) continue;
+                if (spec != null && spec.LarderGated && _ctx.Larder.Get(ad.Building) <= 0) continue;
+                roots.Add(vi);
+            }
+
+            var buffer = new OddNode[verbs.Count + 1];
+            int n = OddTree.Build(buffer, verbs.Count, roots,
+                a => EnabledIndices(verbs[a], verbIndex),
+                _ => true,
+                a => verbScore[a]);
+            OddTree.Propagate(buffer, n, LookaheadDecay);
+            int winner = OddTree.Traverse(buffer, n);
+            // Keep a CHAINED tree once seen — else the agent's last (usually night-time)
+            // flat decision overwrites the daytime one that shows the lookahead. n beyond
+            // root + roots ⟹ an expanded child exists ⟹ a chain was traversed.
+            if (SnapshotEnabled && (n > roots.Count + 1 || !Snapshots.ContainsKey(id)))
+                Snapshots[id] = FormatTree(buffer, n, verbs);
+
+            bool any = winner >= 0;
+            Ad best = any ? verbAd[winner] : default;
 
             ActivityKind bestKind = any ? best.Verb : ActivityKind.Idle;   // Idle always advertises, so `any` holds
             int bestBuilding = any ? best.Building : residency.BuildingIndex;
@@ -205,6 +261,48 @@ namespace DaggerfallWorkshop.Sim
                 Duration = duration,
                 Item = bestItem,
             });
+        }
+
+        /// Geometric lookahead discount (docs/odd_spec.md Propagate): a reward one
+        /// link ahead is worth this fraction of doing it now. <1 so distant payoffs
+        /// fade — work is worth the meal it buys, but less than eating the meal. The
+        /// single planner knob (FROZEN; tuned against the soak, not guessed).
+        public const double LookaheadDecay = 0.6;
+
+        /// Map a verb's Enables list to the node indices present in this decision's
+        /// verb set (an enabled verb the agent can't reach here simply has no node).
+        static IReadOnlyList<int> EnabledIndices(ActivityKind verb, Dictionary<ActivityKind, int> index)
+        {
+            var en = ActionCatalog.Enables(verb);
+            if (en.Length == 0) return System.Array.Empty<int>();
+            var list = new List<int>(en.Length);
+            for (int i = 0; i < en.Length; i++)
+                if (index.TryGetValue(en[i], out int vi)) list.Add(vi);
+            return list;
+        }
+
+        // --- Decision snapshot (observability): off by default (zero overhead); the
+        // soak flips it on to dump a few agents' ODD trees — the "do we have snapshots
+        // of the odd trees" view. Written by this system only (the sole decider). ---
+        public static bool SnapshotEnabled = false;
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<EntityId, string> Snapshots
+            = new System.Collections.Concurrent.ConcurrentDictionary<EntityId, string>();
+
+        static string FormatTree(OddNode[] buf, int n, List<ActivityKind> verbs)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 1; i < n; i++)
+            {
+                int depth = 0, p = buf[i].ParentIndex;
+                while (p > 0) { depth++; p = buf[p].ParentIndex; }
+                sb.Append(' ', depth * 2).Append(verbs[buf[i].Action].ToString())
+                  .Append(" direct=").Append(buf[i].DirectScore.ToString("0.000"))
+                  .Append(" prop=").Append(buf[i].PropagatedScore.ToString("0.000"))
+                  .Append(" total=").Append(buf[i].Total.ToString("0.000"));
+                if (buf[i].ParentIndex == 0) sb.Append("  [root]");
+                sb.Append('\n');
+            }
+            return sb.ToString();
         }
 
         /// Per-decision context for V — the agent's drives, personality, and the

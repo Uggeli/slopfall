@@ -197,8 +197,8 @@ namespace Sim.Tests
             ItemData loaf = null;
             foreach (var kv in h.Ctx.Items.All) loaf = kv.Value;
             Assert.NotNull(loaf);
-            Assert.Equal("loaf of bread", loaf.Name);
-            Assert.True(loaf.Edible > 0);
+            Assert.False(string.IsNullOrEmpty(loaf.Name));   // named after its good — the catalog mints it
+            Assert.True(loaf.Edible > 0);                    // provisions are food
             Assert.Equal(ItemLocationKind.CarriedBy, loaf.LocationKind);
             Assert.Equal(thief, loaf.Holder);      // carried by the thief…
             Assert.Equal(keeper, loaf.Owner);      // …still owned by the keeper: the stolen state

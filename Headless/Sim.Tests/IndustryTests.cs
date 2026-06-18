@@ -35,6 +35,42 @@ namespace Sim.Tests
         }
 
         [Fact]
+        public void Earning_EnablesPaidConsumption_TheMoneyLoop()
+        {
+            // The chain the depth-1 decider was blind to: working funds buying. The
+            // planner folds Buy/EatTavern's discounted value onto Work/Labor, so a
+            // broke agent values the job that pays for the meal (docs/odd_spec.md).
+            Assert.Contains(ActivityKind.Buy, ActionCatalog.Enables(ActivityKind.Labor));
+            Assert.Contains(ActivityKind.Buy, ActionCatalog.Enables(ActivityKind.Work));
+            Assert.Contains(ActivityKind.EatTavern, ActionCatalog.Enables(ActivityKind.Labor));
+            // Terminal: in-kind food (Farm) and pure leisure (Idle) start no money loop.
+            Assert.Empty(ActionCatalog.Enables(ActivityKind.Farm));
+            Assert.Empty(ActionCatalog.Enables(ActivityKind.Idle));
+        }
+
+        [Fact]
+        public void NewItem_MintsEachGood_WithItsAtoms_AndChainValue()
+        {
+            // A good becomes a discrete item through one path: the affordance(s) it
+            // affords + market worth + weight (docs/items_and_inventory.md "a good IS an item").
+            Assert.True(GoodsCatalog.NewItem(Good.Provisions).Edible > 0);    // food
+            Assert.True(GoodsCatalog.NewItem(Good.Drink).Drinkable > 0);      // ale
+            Assert.True(GoodsCatalog.NewItem(Good.Clothes).Wearable > 0);     // worn
+
+            // Raw/intermediate materials carry worth + weight but no consumer affordance —
+            // they're inputs, sold or worked, not used.
+            var cloth = GoodsCatalog.NewItem(Good.Cloth);
+            Assert.Equal(0, cloth.Edible, 9);
+            Assert.Equal(0, cloth.Drinkable, 9);
+            Assert.Equal(0, cloth.Wearable, 9);
+            Assert.True(cloth.Valuable > 0 && cloth.Weight > 0);
+
+            // Item worth climbs the recipe chain too: clothes > cloth.
+            Assert.True(GoodsCatalog.NewItem(Good.Clothes).Valuable
+                      > GoodsCatalog.NewItem(Good.Cloth).Valuable);
+        }
+
+        [Fact]
         public void Weaver_MakesCloth_FromWool_AndStopsWhenItRunsOut()
         {
             var h = new SimHarness(tickIntervalSeconds: 1.0);
