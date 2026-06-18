@@ -28,6 +28,15 @@ namespace DaggerfallWorkshop.Sim
         public double Wholesale;     // transfer breakdown: B2B restock bills business→business (G4)
         public double Taxes;         // transfer breakdown: coin collected from purses → treasury (E3)
         public double GuardPay;      // transfer breakdown: treasury → guards' salaries (E3)
+
+        // Goods-flow audit (UNITS, per Good — not coin): what the economy physically
+        // moved over the run, so production can be told apart from importing. Live
+        // cumulative arrays owned by EconomySystem (sampled + copied by readers, not
+        // per-tick snapshots).
+        public double[] Produced;    // created from the land/craft (incl. farm in-kind to larders)
+        public double[] Imported;    // bought off-map (coin leaves town)
+        public double[] Exported;    // surplus shipped off-map (coin enters town)
+        public double[] Consumed;    // eaten / used up (left the world for good)
     }
 
     /// Single-global ledger. Sole writer: EconomySystem (whole-row swap each

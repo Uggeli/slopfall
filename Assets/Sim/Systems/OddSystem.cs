@@ -143,6 +143,7 @@ namespace DaggerfallWorkshop.Sim
             int bestBuilding = any ? best.Building : residency.BuildingIndex;
             float bestX = any ? best.X : pos.X;
             float bestZ = any ? best.Z : pos.Z;
+            ItemId bestItem = any ? best.Item : ItemId.None;   // item-block target, if the winner is one
 
             // Two activities whose "where" is a decision detail, not a fixed
             // place: Wander ambles to a deterministic random offset; Idle becomes
@@ -202,6 +203,7 @@ namespace DaggerfallWorkshop.Sim
                 Z = bestZ,
                 Resume = resume,
                 Duration = duration,
+                Item = bestItem,
             });
         }
 

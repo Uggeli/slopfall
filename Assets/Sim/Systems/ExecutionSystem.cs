@@ -45,6 +45,7 @@ namespace DaggerfallWorkshop.Sim
                         TargetX = b.TargetX,
                         TargetZ = b.TargetZ,
                         RemainingGameMinutes = b.RemainingGameMinutes,
+                        TargetItem = b.TargetItem,
                     });
                 }
             }
@@ -131,6 +132,7 @@ namespace DaggerfallWorkshop.Sim
                     TargetZ = b.TargetZ,
                     RemainingGameMinutes = b.RemainingGameMinutes - gameMinutes,
                     SinceDecisionGameMinutes = b.SinceDecisionGameMinutes + gameMinutes,
+                    TargetItem = b.TargetItem,
                 });
             }
         }
@@ -170,6 +172,7 @@ namespace DaggerfallWorkshop.Sim
                 TargetZ = targetZ,
                 RemainingGameMinutes = remaining,
                 SinceDecisionGameMinutes = 0,
+                TargetItem = intent.Item,
             });
 
             if (!intent.Resume)

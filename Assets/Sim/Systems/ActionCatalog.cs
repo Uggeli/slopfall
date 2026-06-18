@@ -38,6 +38,8 @@ namespace DaggerfallWorkshop.Sim
         static readonly ActionKind[] JustSpeak = { ActionKind.Speak };
         static readonly ActionKind[] JustAsk = { ActionKind.Ask };
         static readonly ActionKind[] TakeThenSustain = { ActionKind.Take, ActionKind.Sustain };   // steal: grab the goods (Take), then the relief accrues
+        static readonly ActionKind[] JustUse = { ActionKind.Use };       // use a held item per its affordance (eat/drink/read)
+        static readonly ActionKind[] JustDrop = { ActionKind.Drop };     // set a held item down (ground, or into a building = store)
 
         /// The Doing-phase actions an activity performs (MoveTo is implied by the
         /// Moving phase and not listed).
@@ -56,6 +58,8 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Visit:     return JustSustain;
                 case ActivityKind.Buy:       return PayThenSustain;
                 case ActivityKind.Steal:     return TakeThenSustain;
+                case ActivityKind.UseItem:   return JustUse;
+                case ActivityKind.StoreItem: return JustDrop;
                 case ActivityKind.Flee:      return None;             // flee IS movement (like Wander)
                 case ActivityKind.Attack:    return None;             // close the distance; CombatSystem strikes
                 case ActivityKind.Chat:      return JustSpeak;

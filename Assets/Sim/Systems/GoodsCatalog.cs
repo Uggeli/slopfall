@@ -10,6 +10,9 @@ namespace DaggerfallWorkshop.Sim
         Drink,           // ale — imported/brewed; sold by taverns
         Wares,           // clothing, arms, sundries, gems — made by craftsmen, sold by their shops
         Ore,             // raw metal/stone — mined in the hills; export-only (no local buyer yet)
+        Wool,            // raw fibre — sheared at a pasture; material for cloth
+        Cloth,           // material — a weaver turns wool into cloth
+        Clothes,         // finished — a clothier turns cloth into clothes (Wearable)
     }
 
     /// Where a good sits along the supply chain — price rises with each step:
@@ -42,7 +45,7 @@ namespace DaggerfallWorkshop.Sim
     /// reads its price from here. Pure data; no per-instance state.
     public static class GoodsCatalog
     {
-        public const int Count = 4;
+        public const int Count = 7;
 
         // Indexed by (int)Good. The single source of authored prices.
         public static readonly GoodDef[] Defs =
@@ -51,6 +54,9 @@ namespace DaggerfallWorkshop.Sim
             new GoodDef { Good = Good.Drink,      Name = "drink",      Base = 0.015, WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 300 },
             new GoodDef { Good = Good.Wares,      Name = "wares",      Base = 0.05,  WholesaleMarkup = 2.0, RetailMarkup = 3.0, WorldDemandPerDay = 200 },
             new GoodDef { Good = Good.Ore,        Name = "ore",        Base = 0.04,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 200 },
+            new GoodDef { Good = Good.Wool,       Name = "wool",       Base = 0.02,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 300 },
+            new GoodDef { Good = Good.Cloth,      Name = "cloth",      Base = 0.05,  WholesaleMarkup = 1.6, RetailMarkup = 2.6, WorldDemandPerDay = 200 },
+            new GoodDef { Good = Good.Clothes,    Name = "clothes",    Base = 0.12,  WholesaleMarkup = 1.7, RetailMarkup = 2.8, WorldDemandPerDay = 150 },
         };
 
         public static GoodDef Def(Good good) => Defs[(int)good];
@@ -59,7 +65,16 @@ namespace DaggerfallWorkshop.Sim
         /// whose output scales with the hands working it. Drives the worker-scaling and
         /// wage-share in EconomySystem so a second industry slots in as data.
         public static bool IsPrimaryWorkplace(BuildingKind kind)
-            => kind == BuildingKind.Farm || kind == BuildingKind.Fishery || kind == BuildingKind.Mine;
+            => kind == BuildingKind.Farm || kind == BuildingKind.Fishery || kind == BuildingKind.Mine
+               || kind == BuildingKind.Pasture;
+
+        /// A sim-native workplace staffed by laborers (hands): its output scales with the
+        /// hands working it and its till is shared among them — vs a DF craft shop a lone
+        /// keeper runs at a flat rate. The primary producers plus the synth secondary
+        /// workshops (weaver, …). EconomySystem's hands-count + scaling + wage-share key
+        /// off this. (Industry layers.)
+        public static bool IsStaffedWorkplace(BuildingKind kind)
+            => IsPrimaryWorkplace(kind) || kind == BuildingKind.Weaver;
 
         /// Price of a good at a point in the supply chain.
         public static double PriceOf(Good good, PriceTier tier)
@@ -84,16 +99,21 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.Farm:
                 case BuildingKind.Fishery:
                     return ProvisionsOnly; // the harvest/catch it produces and sells on
+                case BuildingKind.Pasture:
+                    return WoolOnly;       // raw fibre it shears and sells on
+                case BuildingKind.Weaver:
+                    return ClothOnly;      // cloth it weaves from wool
                 case BuildingKind.Mine:
                     return OreOnly;        // the ore it digs and exports
                 case BuildingKind.GeneralStore:
                     return Staples;        // provisions (sourced local) + drink (imported)
                 case BuildingKind.Tavern:
                     return Staples;        // raw provisions + drink, served as meals/ale
+                case BuildingKind.ClothingStore:
+                    return ClothesOnly;    // finished clothing it tailors from cloth
                 case BuildingKind.Alchemist:
                 case BuildingKind.Armorer:
                 case BuildingKind.Bookseller:
-                case BuildingKind.ClothingStore:
                 case BuildingKind.FurnitureStore:
                 case BuildingKind.GemStore:
                 case BuildingKind.PawnShop:
@@ -127,19 +147,39 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.Alchemist:
                 case BuildingKind.Armorer:
                 case BuildingKind.Bookseller:
-                case BuildingKind.ClothingStore:
                 case BuildingKind.FurnitureStore:
                 case BuildingKind.GemStore:
                 case BuildingKind.PawnShop:
                 case BuildingKind.WeaponSmith:
                     return WaresOnly;
+                case BuildingKind.ClothingStore:
+                    return ClothesOnly;      // cloth → clothes (the finished-good stage)
+                case BuildingKind.Weaver:
+                    return ClothOnly;        // wool → cloth (intermediate)
                 case BuildingKind.Farm:
                 case BuildingKind.Fishery:
                     return ProvisionsOnly;   // local food: the primary-sector faucet
+                case BuildingKind.Pasture:
+                    return WoolOnly;         // raw fibre: a primary-sector output
                 case BuildingKind.Mine:
                     return OreOnly;          // raw ore: the mountain-town export faucet
                 default:
                     return System.Array.Empty<Good>();
+            }
+        }
+
+        /// The recipe inputs a building consumes to make its output — the edges of
+        /// the production graph (docs/industry_layers.md). Primary producers
+        /// (farm/fishery/mine/pasture) take none; their output comes from the land. A
+        /// secondary/finished producer eats material: a weaver eats wool, a clothier
+        /// eats cloth. Multi-input allowed (armour = metal + leather, later).
+        public static Good[] Inputs(BuildingKind kind)
+        {
+            switch (kind)
+            {
+                case BuildingKind.Weaver:        return WoolOnly;    // wool → cloth
+                case BuildingKind.ClothingStore: return ClothOnly;   // cloth → clothes
+                default:                         return System.Array.Empty<Good>();
             }
         }
 
@@ -161,13 +201,19 @@ namespace DaggerfallWorkshop.Sim
         /// and drink it neither imports nor makes, so it buys both from stores.
         public static Good[] B2BNeeds(BuildingKind kind)
         {
+            // A building sources (B2B) both the goods it SELLS but doesn't originate
+            // AND the recipe INPUTS it consumes but doesn't originate (a weaver buys
+            // wool; a clothier buys cloth). The sold-set and input-set are disjoint here.
             var sells = Stocks(kind);
+            var inputs = Inputs(kind);
             int n = 0;
             for (int i = 0; i < sells.Length; i++) if (!Originates(kind, sells[i])) n++;
+            for (int i = 0; i < inputs.Length; i++) if (!Originates(kind, inputs[i])) n++;
             if (n == 0) return System.Array.Empty<Good>();
             var need = new Good[n];
             int j = 0;
             for (int i = 0; i < sells.Length; i++) if (!Originates(kind, sells[i])) need[j++] = sells[i];
+            for (int i = 0; i < inputs.Length; i++) if (!Originates(kind, inputs[i])) need[j++] = inputs[i];
             return need;
         }
 
@@ -226,5 +272,8 @@ namespace DaggerfallWorkshop.Sim
         static readonly Good[] ProvisionsOnly = { Good.Provisions };
         static readonly Good[] DrinkOnly = { Good.Drink };
         static readonly Good[] OreOnly = { Good.Ore };
+        static readonly Good[] WoolOnly = { Good.Wool };
+        static readonly Good[] ClothOnly = { Good.Cloth };
+        static readonly Good[] ClothesOnly = { Good.Clothes };
     }
 }

@@ -92,9 +92,12 @@ namespace DaggerfallWorkshop.Sim
         static bool IsCoastalRegion(string regionName)
             => regionName != null && CoastalRegions.Contains(regionName);
 
-        static readonly BuildingKind[] FarmOnly = { BuildingKind.Farm };
-        static readonly BuildingKind[] FarmAndFishery = { BuildingKind.Farm, BuildingKind.Fishery };
-        static readonly BuildingKind[] FarmAndMine = { BuildingKind.Farm, BuildingKind.Mine };
-        static readonly BuildingKind[] FarmFisheryMine = { BuildingKind.Farm, BuildingKind.Fishery, BuildingKind.Mine };
+        // Every settlement gets food (farm) + the wool→cloth chain (pasture + weaver) —
+        // the non-food export faucet (docs/industry_layers.md); terrain adds the coastal
+        // fishery / mountain mine. (Per-settlement specialisation is a later refinement.)
+        static readonly BuildingKind[] FarmOnly = { BuildingKind.Farm, BuildingKind.Pasture, BuildingKind.Weaver };
+        static readonly BuildingKind[] FarmAndFishery = { BuildingKind.Farm, BuildingKind.Fishery, BuildingKind.Pasture, BuildingKind.Weaver };
+        static readonly BuildingKind[] FarmAndMine = { BuildingKind.Farm, BuildingKind.Mine, BuildingKind.Pasture, BuildingKind.Weaver };
+        static readonly BuildingKind[] FarmFisheryMine = { BuildingKind.Farm, BuildingKind.Fishery, BuildingKind.Mine, BuildingKind.Pasture, BuildingKind.Weaver };
     }
 }

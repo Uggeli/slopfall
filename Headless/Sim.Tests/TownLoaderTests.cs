@@ -41,10 +41,11 @@ namespace Sim.Tests
             Assert.Equal(3, town.BlocksHigh);
             Assert.Equal(175, town.Buildings);              // loaded from block data
             Assert.Equal(337, town.Civilians);
-            // Stage 5 synthesizes one Farm workplace per settlement, so the registry
-            // holds one more building than were loaded; no new civilians (the farm
-            // keeper is a promoted resident).
-            Assert.Equal(176, ctx.Buildings.Count);
+            // Industry layers: each settlement synthesizes its workplaces — the no-map
+            // fallback gives this inland-classified town Farm + Pasture + Weaver (the
+            // wool→cloth chain), so the registry holds 3 more buildings than were loaded;
+            // no new civilians (the keepers are promoted residents).
+            Assert.Equal(178, ctx.Buildings.Count);
             Assert.Equal(337, ctx.Residency.Count);
             Assert.Equal(337, ctx.Identity.Count);
         }

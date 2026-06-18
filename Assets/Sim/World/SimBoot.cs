@@ -78,6 +78,7 @@ namespace DaggerfallWorkshop.Sim
             loop.Register(new WeatherDriverSystem()); // headless weather authority
             loop.Register(new HolidaySystem());
             loop.Register(new EconomySystem());     // coin moves before needs derive from it
+            loop.Register(new ItemSystem());        // discrete things: material effects of Doing, beside the economy
             loop.Register(new NeedsSystem());
             loop.Register(new OddSystem());          // decides → writes Intent
             loop.Register(new ExecutionSystem());    // reifies Intent → Behavior (sole writer)

@@ -322,20 +322,22 @@ namespace DaggerfallWorkshop.Sim
         static System.Collections.Generic.List<BuildingRow> PeripheralAnchors(
             SimulationContext ctx, SettlementData s, int count)
         {
-            BuildingRow west = null, east = null, any = null;
+            // The settlement's real buildings (skip walls/None), sorted by X (Z as a
+            // deterministic tiebreak), so the `count` workplaces spread across its width —
+            // fields one side, shore/diggings the other, the workshops between — and sit
+            // away from the centre. Positions are reachable (agents path to them).
+            var reals = new System.Collections.Generic.List<BuildingRow>();
             for (int i = 0; i < s.Buildings.Count; i++)
-            {
-                if (!ctx.Buildings.TryGet(s.Buildings[i], out var b) || b == null) continue;
-                if (any == null) any = b;
-                if (b.Kind == BuildingKind.None) continue;
-                if (west == null || b.X < west.X) west = b;
-                if (east == null || b.X > east.X) east = b;
-            }
+                if (ctx.Buildings.TryGet(s.Buildings[i], out var b) && b != null && b.Kind != BuildingKind.None)
+                    reals.Add(b);
             var list = new System.Collections.Generic.List<BuildingRow>();
-            var first = west ?? any;
-            if (first == null) return list;
-            list.Add(first);
-            if (count >= 2) list.Add(east != null && east != west ? east : first);
+            if (reals.Count == 0) return list;
+            reals.Sort((a, b) => { int c = a.X.CompareTo(b.X); return c != 0 ? c : a.Z.CompareTo(b.Z); });
+            for (int k = 0; k < count; k++)
+            {
+                int idx = count <= 1 ? 0 : (int)((long)k * (reals.Count - 1) / (count - 1));
+                list.Add(reals[idx]);
+            }
             return list;
         }
 

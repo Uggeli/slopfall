@@ -25,6 +25,8 @@ namespace DaggerfallWorkshop.Sim
         Steal,       // take provisions off a shop's shelf without paying (Take verb); crime — charged by conscience
         Flee,        // V2b: run from a perceived threat (the fear response) — breaks the percept, resets fear
         Attack,      // V2b: strike a threat (the Attack verb) — fight half of fight-or-flight; crime if the target is innocent
+        UseItem,     // use a carried item per its affordance (v1: eat a held Edible) — item block
+        StoreItem,   // carry a held item home and stash it (Drop into the home) — item block
     }
 
     public enum ActivityPhase
@@ -44,6 +46,7 @@ namespace DaggerfallWorkshop.Sim
         /// not contracts: OddSystem re-evaluates hourly, resuming seamlessly
         /// when the same activity still wins.
         public double SinceDecisionGameMinutes;
+        public ItemId TargetItem;           // item a Take/Use/Drop block acts on; None otherwise
     }
 
     /// Current activity per civilian — Atoms would call these the minted

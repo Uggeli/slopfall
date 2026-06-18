@@ -23,8 +23,13 @@ namespace Sim.Tests
             var mountain = new SettlementData { Coastal = false, Mountainous = true };
             var fjord = new SettlementData { Coastal = true, Mountainous = true };
 
-            // Farmland everywhere; fishery only at the coast; mine only in the hills.
-            Assert.Equal(new[] { BuildingKind.Farm }, RegionIndustry.Workplaces(inland));
+            // Farmland + the wool→cloth chain (pasture+weaver) everywhere; fishery only
+            // at the coast, mine only in the hills.
+            Assert.Contains(BuildingKind.Farm, RegionIndustry.Workplaces(inland));
+            Assert.Contains(BuildingKind.Pasture, RegionIndustry.Workplaces(inland));
+            Assert.Contains(BuildingKind.Weaver, RegionIndustry.Workplaces(inland));
+            Assert.DoesNotContain(BuildingKind.Fishery, RegionIndustry.Workplaces(inland));
+            Assert.DoesNotContain(BuildingKind.Mine, RegionIndustry.Workplaces(inland));
             Assert.Contains(BuildingKind.Fishery, RegionIndustry.Workplaces(coast));
             Assert.DoesNotContain(BuildingKind.Mine, RegionIndustry.Workplaces(coast));
             Assert.Contains(BuildingKind.Mine, RegionIndustry.Workplaces(mountain));

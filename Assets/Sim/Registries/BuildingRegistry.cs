@@ -45,6 +45,8 @@ namespace DaggerfallWorkshop.Sim
         Farm = 0x100,       // primary food production (a settlement's farmland/hinterland)
         Fishery = 0x101,    // primary food production at the coast (island/coastal regions)
         Mine = 0x102,       // primary ore production in the hills (mountain-climate regions); ore is exported
+        Pasture = 0x103,    // primary fibre production (wool) — feeds the weaver (industry layers)
+        Weaver = 0x104,     // secondary workshop: wool → cloth (industry layers)
     }
 
     public sealed class BuildingRow

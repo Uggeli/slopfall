@@ -88,6 +88,29 @@ namespace DaggerfallWorkshop.Sim
                 });
             }
 
+            // Inventory blocks: what the agent can DO with what it carries — eat the
+            // loaf it took, or carry it home and stash it. The later links of the
+            // emergent chain; offered only while held, scored like any ad. Nothing
+            // about the take→{eat | store} sequence is authored here.
+            var carried = new List<ItemId>();
+            ctx.Items.CarriedBy(agent, carried);
+            if (carried.Count > 0)
+            {
+                int homeB = ctx.Residency.TryGet(agent, out var hres) ? hres.BuildingIndex : -1;
+                float hx = px, hz = pz;
+                if (homeB >= 0 && ctx.Buildings.TryGet(homeB, out var hb) && hb != null) { hx = hb.X; hz = hb.Z; }
+                for (int i = 0; i < carried.Count; i++)
+                {
+                    if (!ctx.Items.TryGet(carried[i], out var item) || item == null) continue;
+                    if (item.Edible > 0)
+                        ads.Add(new Ad { Verb = ActivityKind.UseItem, Building = -1, X = px, Z = pz,
+                                         Spec = ActivityCatalog.SpecFor(ActivityKind.UseItem), Item = carried[i] });
+                    if (homeB >= 0)
+                        ads.Add(new Ad { Verb = ActivityKind.StoreItem, Building = homeB, X = hx, Z = hz,
+                                         Spec = ActivityCatalog.SpecFor(ActivityKind.StoreItem), Item = carried[i] });
+                }
+            }
+
             // Collect = structural affordances filtered by hard preconditions
             // (does the world permit this now: hours / keeper / holiday / stock).
             int hour = ctx.WorldClock.Current.Hour;

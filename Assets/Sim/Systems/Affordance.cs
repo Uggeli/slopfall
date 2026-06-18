@@ -11,6 +11,7 @@ namespace DaggerfallWorkshop.Sim
         public int Building;        // BuildingRegistry key, -1 = at-self / on the street
         public float X, Z;
         public ActivityCatalog.Spec Spec;   // duration + served-Δ + base utility
+        public ItemId Item;         // the item a Take/Use/Drop block acts on; None for place/activity ads
     }
 
     /// What advertises what. The table that dissolves the special cases: a

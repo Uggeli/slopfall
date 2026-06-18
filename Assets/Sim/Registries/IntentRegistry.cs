@@ -15,6 +15,7 @@ namespace DaggerfallWorkshop.Sim
         public float X, Z;          // target spot
         public bool Resume;         // continue the current activity (keep its remaining time)
         public double Duration;     // game-minutes for a fresh activity
+        public ItemId Item;         // the item a Take/Use/Drop block acts on; None otherwise
     }
 
     /// Per-agent pending intent. Sole writer: OddSystem. Sole consumer:

@@ -70,10 +70,10 @@ namespace Sim.Tests
             Assert.True(h.Ctx.Larder.Get(home) > 0, "a working farm hand brought home no provisions");
         }
 
-        // --- S2: theft takes provisions, free, to the larder ---
+        // --- S2: theft individuates a discrete carried loaf (no larder teleport) ---
 
         [Fact]
-        public void Steal_TakesProvisions_ToLarder_WithoutPaying()
+        public void Steal_IndividuatesACarriedLoaf_OwnedByKeeper_NotToLarder()
         {
             var h = new SimHarness(tickIntervalSeconds: 1.0);
             int home = h.Ctx.Buildings.Add(new BuildingRow { Kind = BuildingKind.House1 });
@@ -101,8 +101,12 @@ namespace Sim.Tests
             double keeper0 = h.Ctx.Coin.Get(keeper);
             h.Step(8);
 
+            // Off the shelf, free — but the loot does NOT teleport into a larder. It
+            // individuates into a discrete carried loaf owned by the keeper; that minting
+            // is pinned clock-free in ItemTests (the harness clock is currently too slow
+            // to accrue a whole loaf in a few ticks — pending the time-model rewrite).
             Assert.True(h.Ctx.Stock.Get(store, Good.Provisions) < stock0, "stolen goods didn't leave the shelf");
-            Assert.True(h.Ctx.Larder.Get(home) > 0, "stolen provisions didn't reach the thief's larder");
+            Assert.Equal(0, h.Ctx.Larder.Get(home), 9);                           // no larder teleport
             Assert.Equal(0.0, h.Ctx.Coin.Get(thief), 9);                          // paid nothing
             Assert.Equal(keeper0, h.Ctx.Coin.Get(keeper), 9);                     // keeper got no coin
             Assert.Equal(0, h.Ctx.Ledger.Current.SalesRevenue, 9);               // not a sale

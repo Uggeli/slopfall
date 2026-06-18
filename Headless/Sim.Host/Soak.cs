@@ -1,24 +1,26 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DaggerfallWorkshop.Utility;
 
 namespace DaggerfallWorkshop.Sim.Host
 {
-    /// Multi-day stability soak. Loads a real town and fast-forwards a whole
-    /// week (or N days) at 1 game-minute per tick, capturing a snapshot of the
-    /// sim's aggregate state at every midnight-to-dawn boundary. Prints a
+    /// Multi-day stability soak. Loads a real town and fast-forwards N game-days,
+    /// capturing a snapshot of the sim's aggregate state each day. Prints a
     /// day-by-day table and a verdict against the questions behavior.md raised:
     /// does coin concentrate, do friendships saturate, does the social fabric
     /// reach equilibrium or keep climbing (the no-decay signature), does the
     /// economy stay solvent, do the civilians keep deciding?
     ///
-    /// Everything in the sim is game-time driven (needs drift and decisions are
-    /// gated on game-minutes, not ticks), so one day is exactly 1440 ticks at
-    /// timescale 600 and the sample phase is identical every day.
+    /// Everything is game-time driven (needs drift + decisions gate on game-minutes),
+    /// and a tick advances a FIXED game-step (SimulationTime.TickIntervalSeconds) — so
+    /// a game-day is SecondsPerDay / step ticks, DERIVED from the step, never a
+    /// hardcoded count (speed comes from tick RATE, not a bigger step). At the live
+    /// 0.1s step that's 864k ticks/day, so multi-day runs are tick-heavy — prefer few
+    /// days for iteration.
     public static class Soak
     {
-        const int TicksPerDay = 1440;          // 1 game-min/tick × 24 × 60
-        const float SoakTimeScale = 600f;      // 0.1s tick × 600 = 60 game-s = 1 game-min/tick
+        const float SoakTimeScale = 600f;      // headless fires in a tight loop; this only needs to be > 0 (unpaused)
 
         public static int Run(string regionName, string locationName, int days)
         {
@@ -71,8 +73,14 @@ namespace DaggerfallWorkshop.Sim.Host
             events.Subscribe<MetSimEvent>(e => mets++);
             events.Subscribe<DeathSimEvent>(e => deaths++);
 
-            Console.WriteLine(title + ", soaking "
-                + days + " game-days (" + (days * TicksPerDay) + " ticks @ 1 game-min/tick)");
+            // Ticks per game-day = SecondsPerDay / the fixed game-step. Derived, not
+            // assumed — the step is invariant, so this self-corrects to whatever the
+            // step is (864k/day at the live 0.1s step).
+            long ticksPerDay = (long)Math.Round(DaggerfallDateTime.SecondsPerDay / ctx.Time.TickIntervalSeconds);
+            long sampleEvery = (long)Math.Round(30.0 * 60.0 / ctx.Time.TickIntervalSeconds);   // hist sample: every 30 game-min
+            Console.WriteLine(title + ", soaking " + days + " game-days ("
+                + ((long)days * ticksPerDay) + " ticks @ " + ctx.Time.TickIntervalSeconds
+                + "s fixed step → " + ticksPerDay + " ticks/day)");
             Console.WriteLine();
 
             var series = new List<Snapshot>();
@@ -90,10 +98,10 @@ namespace DaggerfallWorkshop.Sim.Host
             for (int d = 1; d <= days; d++)
             {
                 bool lastDay = d == days;
-                for (int t = 0; t < TicksPerDay; t++)
+                for (long t = 0; t < ticksPerDay; t++)
                 {
                     loop.Step();
-                    if (lastDay && t % 30 == 0)
+                    if (lastDay && t % sampleEvery == 0)
                     {
                         foreach (var kv in ctx.Needs.All)   // civilians only (have a Needs row)
                         {
@@ -110,6 +118,7 @@ namespace DaggerfallWorkshop.Sim.Host
             PrintTable(series);
             PrintDayMix(dayHist, histSamples, series[series.Count - 1].Population, movingBucket, idleNoneBucket);
             Console.WriteLine();
+            PrintEconomyDetail(ctx, series);
             if (perSettlement) PrintSettlements(ctx);
             bool ok = Verdict(series);
             Console.WriteLine();
@@ -186,6 +195,58 @@ namespace DaggerfallWorkshop.Sim.Host
 
         static string Trunc(string s, int n) => string.IsNullOrEmpty(s) ? "" : (s.Length <= n ? s : s.Substring(0, n));
 
+        static double[] CloneOrEmpty(double[] a)
+            => a == null ? new double[GoodsCatalog.Count] : (double[])a.Clone();
+
+        /// What the economy physically MOVED over the run (goods produced / imported /
+        /// exported / consumed, in units), the town's off-map wealth balance, and the
+        /// profession roster — so "does this town make its food or import it?" is
+        /// answerable at a glance.
+        static void PrintEconomyDetail(SimulationContext ctx, List<Snapshot> series)
+        {
+            var last = series[series.Count - 1];
+
+            Console.WriteLine("goods over the run (cumulative units):");
+            Console.WriteLine("  good         produced  imported  exported  consumed");
+            for (int g = 0; g < GoodsCatalog.Count; g++)
+                Console.WriteLine("  " + ((Good)g).ToString().PadRight(11)
+                    + Cell(last.Produced, g) + Cell(last.Imported, g)
+                    + Cell(last.Exported, g) + Cell(last.Consumed, g));
+            Console.WriteLine("  wealth: exports " + last.Exports.ToString("F2") + " coin in / imports "
+                + last.Imports.ToString("F2") + " out / crown " + last.CrownSubsidy.ToString("F2")
+                + " → net off-map " + (last.Exports + last.CrownSubsidy - last.Imports).ToString("F2") + " coin");
+            Console.WriteLine();
+
+            var prof = new Dictionary<string, int>();
+            foreach (var kv in ctx.Residency.All)
+            {
+                string p = ProfessionOf(ctx, kv.Key, kv.Value);
+                prof.TryGetValue(p, out var n); prof[p] = n + 1;
+            }
+            Console.WriteLine("professions (" + ctx.Residency.Count + " residents):");
+            foreach (var e in prof.OrderByDescending(e => e.Value))
+                Console.WriteLine("  " + e.Value.ToString().PadLeft(4) + "  " + e.Key);
+            Console.WriteLine();
+        }
+
+        static string Cell(double[] a, int g)
+            => (a != null && g < a.Length ? a[g] : 0).ToString("F1").PadLeft(10);
+
+        static string ProfessionOf(SimulationContext ctx, EntityId id, ResidencyData res)
+        {
+            if (res.Role == ResidentRole.Keeper) return KindOf(ctx, res.BuildingIndex) + " keeper";
+            if (ctx.Employment.TryGet(id, out var emp) && emp != null)
+            {
+                if (!emp.PublicOwner.IsNone) return "guard";
+                if (!emp.Employer.IsNone && ctx.Residency.TryGet(emp.Employer, out var er))
+                    return KindOf(ctx, er.BuildingIndex) + " hand";
+            }
+            return "idle resident";
+        }
+
+        static string KindOf(SimulationContext ctx, int building)
+            => ctx.Buildings.TryGet(building, out var b) && b != null ? b.Kind.ToString() : "?";
+
         struct Snapshot
         {
             public int Day;
@@ -218,6 +279,8 @@ namespace DaggerfallWorkshop.Sim.Host
             public double MeanMemory; public int MemoryFull;     // at MaxEntries
             // cumulative activity counters (diffed for per-day rates)
             public long Decisions, AlmsGranted, AlmsRefused, Friendships, Mets;
+            // cumulative goods-flow audit (units, per Good) — what the economy moved
+            public double[] Produced, Imported, Exported, Consumed;
         }
 
         static Snapshot Capture(SimulationContext ctx, int day,
@@ -226,6 +289,7 @@ namespace DaggerfallWorkshop.Sim.Host
             // Same measurement layer the behavioral tests assert against — so a
             // soak line and a test expectation mean exactly the same thing.
             var c = TownCensus.Capture(ctx);
+            var led = ctx.Ledger.Current;
             return new Snapshot
             {
                 Day = day, Deaths = deaths,
@@ -246,6 +310,8 @@ namespace DaggerfallWorkshop.Sim.Host
                 MeanRegard = c.MeanRegard, MeanFamiliarity = c.MeanFamiliarity,
                 PosRegard = c.PosRegard, NegRegard = c.NegRegard, SaturatedRegard = c.SaturatedRegard,
                 MeanMemory = c.MeanMemory, MemoryFull = c.MemoryFull,
+                Produced = CloneOrEmpty(led.Produced), Imported = CloneOrEmpty(led.Imported),
+                Exported = CloneOrEmpty(led.Exported), Consumed = CloneOrEmpty(led.Consumed),
             };
         }
 

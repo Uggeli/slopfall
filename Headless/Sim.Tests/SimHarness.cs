@@ -34,6 +34,7 @@ namespace Sim.Tests
             // No WeatherDriverSystem here: tests own the weather they set.
             Loop.Register(new HolidaySystem());
             Loop.Register(new EconomySystem());
+            Loop.Register(new ItemSystem());
             Loop.Register(new NeedsSystem());
             Loop.Register(new OddSystem());
             Loop.Register(new ExecutionSystem());

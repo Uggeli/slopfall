@@ -358,6 +358,29 @@ namespace DaggerfallWorkshop.Sim
 
         public const double VMax = 1.5;
 
+        /// Use a carried item per its affordance — v1: eat a carried Edible. The
+        /// relief is this spec's hunger Δ (NeedsSystem, like a meal); the carried
+        /// Edible is the precondition (ActionDiscovery offers it only when you hold
+        /// food) and ItemSystem consumes the loaf. Eaten where you stand (no target).
+        public static readonly Spec UseItem = new Spec
+        {
+            Kind = ActivityKind.UseItem,
+            DurationMinutes = 10,
+            Delta = Deltas(hunger: -0.5),
+        };
+
+        /// Stash a carried item in your home (carry-home → Drop). A low, steady pull
+        /// (keep what you hold) — it loses to eating when hunger bites and beats
+        /// idling otherwise, so the take→{eat | store} fork emerges with nothing
+        /// authored. ItemSystem drops the item into the home on arrival. FROZEN base.
+        public static readonly Spec StoreItem = new Spec
+        {
+            Kind = ActivityKind.StoreItem,
+            DurationMinutes = 5,
+            BaseUtility = 0.08,
+            DistanceScale = 150,
+        };
+
         /// Resolve a verb to its authored spec. The ad-gatherer uses this to
         /// turn an advertised ActivityKind into its duration + served-Δ.
         public static Spec SpecFor(ActivityKind kind)
@@ -383,6 +406,8 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Chat:      return Chat;
                 case ActivityKind.SeekHelp:  return SeekHelp;
                 case ActivityKind.Beg:       return Beg;
+                case ActivityKind.UseItem:   return UseItem;
+                case ActivityKind.StoreItem: return StoreItem;
                 default:                     return null;
             }
         }

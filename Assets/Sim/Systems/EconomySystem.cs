@@ -84,6 +84,11 @@ namespace DaggerfallWorkshop.Sim
         // computed by conservation residual (Σ-before + minted − Σ-after) so the
         // tally stays exact whatever the cause of a sink.
         double _minted, _sunk, _exports, _crownSubsidy, _salesRevenue, _serviceRevenue, _alms, _imports, _wholesale, _taxes, _guardPay;
+        // Goods-flow audit (units, per Good) — what the economy physically moved.
+        readonly double[] _producedUnits = new double[GoodsCatalog.Count];
+        readonly double[] _importedUnits = new double[GoodsCatalog.Count];
+        readonly double[] _exportedUnits = new double[GoodsCatalog.Count];
+        readonly double[] _consumedUnits = new double[GoodsCatalog.Count];
 
         public void Init(SimulationContext ctx)
         {
@@ -174,8 +179,9 @@ namespace DaggerfallWorkshop.Sim
             {
                 var bh = kvb.Value;
                 if (bh.Phase != ActivityPhase.Doing || bh.TargetBuilding < 0) continue;
-                if (bh.Activity != ActivityKind.Farm && bh.Activity != ActivityKind.Fish && bh.Activity != ActivityKind.Mine) continue;
-                if (!_ctx.Buildings.TryGet(bh.TargetBuilding, out var wb) || wb == null || !GoodsCatalog.IsPrimaryWorkplace(wb.Kind)) continue;
+                if (bh.Activity != ActivityKind.Farm && bh.Activity != ActivityKind.Fish
+                    && bh.Activity != ActivityKind.Mine && bh.Activity != ActivityKind.Labor) continue;
+                if (!_ctx.Buildings.TryGet(bh.TargetBuilding, out var wb) || wb == null || !GoodsCatalog.IsStaffedWorkplace(wb.Kind)) continue;
                 _farmWorkers.TryGetValue(bh.TargetBuilding, out var c);
                 _farmWorkers[bh.TargetBuilding] = c + 1;
             }
@@ -257,7 +263,9 @@ namespace DaggerfallWorkshop.Sim
                             if (behavior.Activity == ActivityKind.Farm || behavior.Activity == ActivityKind.Fish)
                             {
                                 int fh = HomeOf(id);
-                                _ctx.Larder.Add(fh, InKindProvisionsPerMinute * gameMinutes);
+                                double inKind = InKindProvisionsPerMinute * gameMinutes;
+                                _ctx.Larder.Add(fh, inKind);
+                                _producedUnits[(int)Good.Provisions] += inKind;     // food the land produced, carried home
                                 _ctx.PlaceMemory.Note(id, fh, PlaceFact.ProvisionsHere, 1, _tick);   // carried the harvest home → remembers it's stocked
                             }
                             break;
@@ -290,8 +298,10 @@ namespace DaggerfallWorkshop.Sim
                             // on the same larder having food — so an empty larder yields
                             // no meal, mirroring the shop-stock sale gate. Coin untouched.
                             int eatHome = HomeOf(id);
+                            double larderBefore = _ctx.Larder.Get(eatHome);
                             double afterMeal = _ctx.Larder.Add(eatHome,
                                 -ActivityCatalog.EatHome.LarderUnitsPerMinute * gameMinutes);
+                            _consumedUnits[(int)Good.Provisions] += larderBefore - afterMeal;   // provisions actually eaten (clamped at empty)
                             // Eating IS contact with the pantry — the agent remembers
                             // its state (a PLACES memory write): an empty result is the
                             // surprise that stops it coming back (ActionDiscovery recalls
@@ -336,6 +346,8 @@ namespace DaggerfallWorkshop.Sim
                 SalesRevenue = _salesRevenue, ServiceRevenue = _serviceRevenue,
                 Alms = _alms, Imports = _imports, Wholesale = _wholesale,
                 Taxes = _taxes, GuardPay = _guardPay,
+                Produced = _producedUnits, Imported = _importedUnits,
+                Exported = _exportedUnits, Consumed = _consumedUnits,
             });
         }
 
@@ -492,6 +504,7 @@ namespace DaggerfallWorkshop.Sim
             if (!_ctx.Buildings.TryGet(building, out var b) || b == null) return 0;
 
             var produced = GoodsCatalog.Produces(b.Kind);
+            var recipeInputs = GoodsCatalog.Inputs(b.Kind);
             for (int i = 0; i < produced.Length; i++)
             {
                 var good = produced[i];
@@ -502,13 +515,28 @@ namespace DaggerfallWorkshop.Sim
                 if (_ctx.Stock.Get(building, good) < WarehouseCap)
                 {
                     double output = ProducePerMinute * gameMinutes;
-                    if (GoodsCatalog.IsPrimaryWorkplace(b.Kind))
+                    if (GoodsCatalog.IsStaffedWorkplace(b.Kind))
                     {
                         int hands = _farmWorkers.TryGetValue(building, out var w) ? w : 0;
                         if (hands > FarmCapacity) hands = FarmCapacity;
                         output = hands * FarmProducePerWorkerMinute * gameMinutes;
                     }
-                    _ctx.Stock.Add(building, good, output);                        // produced free (value from land/craft)
+                    // A recipe is GATED on its inputs (docs/industry_layers.md): a weaver
+                    // makes cloth only from the wool it holds (sourced B2B), 1 input per
+                    // unit out. No inputs in stock → no output — the dependency that
+                    // drives inter-industry (and, region-wide, inter-town) trade.
+                    for (int k = 0; k < recipeInputs.Length; k++)
+                    {
+                        double have = _ctx.Stock.Get(building, recipeInputs[k]);
+                        if (have < output) output = have;
+                    }
+                    if (output > 0)
+                    {
+                        for (int k = 0; k < recipeInputs.Length; k++)
+                            _ctx.Stock.Add(building, recipeInputs[k], -output);    // consume the recipe inputs
+                        _ctx.Stock.Add(building, good, output);                    // produced from land/craft (now gated by inputs)
+                        _producedUnits[(int)good] += output;
+                    }
                 }
 
                 // Export the surplus above local-sale stock — but only if the world
@@ -526,6 +554,7 @@ namespace DaggerfallWorkshop.Sim
                         _ctx.Stock.Add(building, good, -surplus);                  // surplus leaves town
                         _ctx.WorldMarket.Sell(good, surplus);                      // glut the market → lower price for the next seller
                         exports += surplus * price;
+                        _exportedUnits[(int)good] += surplus;
                     }
                     // else: hold the surplus (warehoused) and wait for demand to recover.
                 }
@@ -588,6 +617,7 @@ namespace DaggerfallWorkshop.Sim
             if (units <= 0) return 0;
 
             _ctx.Stock.Add(dst, good, units);
+            if (sourceBuilding < 0 && price > 0) _importedUnits[(int)good] += units;   // bought off-map
             if (sourceBuilding >= 0)
             {
                 _ctx.Stock.Add(sourceBuilding, good, -units);
@@ -655,7 +685,11 @@ namespace DaggerfallWorkshop.Sim
             if (units <= 0) return 0;
 
             double bill = units * price;
-            if (goods) _ctx.Stock.Add(building, good, -units);                   // off the shelf (services have none)
+            if (goods)
+            {
+                _ctx.Stock.Add(building, good, -units);                          // off the shelf (services have none)
+                if (spec.Kind != ActivityKind.Buy) _consumedUnits[(int)good] += units;   // eaten on the spot (Buy → larder, counted at EatHome)
+            }
 
             // Shopping for the larder: provisions bought (Buy) go home to the
             // household's food store (the larder), to be eaten later via EatHome.
@@ -698,9 +732,14 @@ namespace DaggerfallWorkshop.Sim
             if (units > available) units = available;
             if (units <= 0) return;
             _ctx.Stock.Add(building, Good.Provisions, -units);
-            int th = HomeOf(thief);
-            _ctx.Larder.Add(th, units);
-            _ctx.PlaceMemory.Note(thief, th, PlaceFact.ProvisionsHere, 1, _tick);   // carried the loot home → remembers it's stocked
+            // The loot does NOT vanish into a fungible larder: it becomes discrete
+            // CARRIED loaves the thief holds (ItemSystem mints them; the keeper stays
+            // the owner — held ≠ owned is the theft). The GoodsDef relief is still the
+            // spec's Δ via NeedsSystem; only where the goods physically go has changed.
+            _ctx.Events.Emit(new ProvisionsTakenEvent
+            {
+                Taker = thief, Owner = KeeperOf(building), Building = building, Units = units,
+            });
         }
 
         EntityId KeeperOf(int building)
