@@ -58,7 +58,7 @@ namespace Sim.AssetExport
 
             var seen = new HashSet<uint>();
             var b = new Bounds();
-            AddLocation(blocks, loc, 0f, 0f, data, seen, b);
+            AddLocation(blocks, loc, 0f, 0f, 0f, data, seen, b);
             b.WriteInto(data);
             return data;
         }
@@ -71,7 +71,7 @@ namespace Sim.AssetExport
         /// regions (e.g. Betony) are exact; mixed-climate regions mis-texture until
         /// placements carry per-settlement climate (a follow-up).
         public static TownData ResolveRegion(string arena2, string region,
-            IReadOnlyList<(string name, float ox, float oz)> settlements)
+            IReadOnlyList<(string name, float ox, float oy, float oz)> settlements)
         {
             var maps = new MapsFile(Path.Combine(arena2, "MAPS.BSA"), FileUsage.UseMemory, true);
             var blocks = new BlocksFile(Path.Combine(arena2, "BLOCKS.BSA"), FileUsage.UseMemory, true);
@@ -87,20 +87,21 @@ namespace Sim.AssetExport
             var seen = new HashSet<uint>();
             var b = new Bounds();
             bool climateSet = false;
-            foreach (var (name, ox, oz) in settlements)
+            foreach (var (name, ox, oy, oz) in settlements)
             {
                 DFLocation loc = maps.GetLocation(region, name);
                 if (!loc.Loaded) continue;
                 if (!climateSet) { data.ClimateBase = ClimateSwap.ClimateBasesOf(maps, loc); climateSet = true; }
-                AddLocation(blocks, loc, ox, oz, data, seen, b);
+                AddLocation(blocks, loc, ox, oy, oz, data, seen, b);
             }
             b.WriteInto(data);
             return data;
         }
 
-        /// Appends one location's model placements, each translated by (offX, offZ) so a
-        /// settlement lands at its combined-grid origin. Mirrors RMBLayout.AddModels.
-        static void AddLocation(BlocksFile blocks, DFLocation loc, float offX, float offZ,
+        /// Appends one location's model placements, each translated by (offX, offY, offZ)
+        /// so a settlement lands at its combined-grid origin and its terrain pad height.
+        /// Mirrors RMBLayout.AddModels.
+        static void AddLocation(BlocksFile blocks, DFLocation loc, float offX, float offY, float offZ,
             TownData data, HashSet<uint> seen, Bounds b)
         {
             float blockSide = BlocksFile.RMBDimension * GlobalScale;
@@ -117,7 +118,7 @@ namespace Sim.AssetExport
                     if (block.Type != DFBlock.BlockTypes.Rmb || block.RmbBlock.SubRecords == null)
                         continue;
 
-                    float[] blockM = Mat.Translate(offX + bx * blockSide, 0f, offZ + by * blockSide);
+                    float[] blockM = Mat.Translate(offX + bx * blockSide, offY, offZ + by * blockSide);
 
                     foreach (var sub in block.RmbBlock.SubRecords)
                     {

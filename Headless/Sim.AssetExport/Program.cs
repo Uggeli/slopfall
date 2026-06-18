@@ -37,6 +37,15 @@ namespace Sim.AssetExport
                 ?? DefaultArena2;
             string outDir = OptValue(args, "--out") ?? "asset-export";
 
+            // Diagnostic: render a terrain tile's painted tilemap top-down to inspect
+            // autotiling orientation in isolation. Doesn't need ARCH3D.
+            if (args[0] == "tilemap")
+            {
+                string region = args.Length > 1 ? args[1] : "Daggerfall";
+                string location = args.Length > 2 ? args[2] : "Gothway Garden";
+                return TilemapDiag.Run(arena2, region, location, outDir);
+            }
+
             string arch3dPath = Path.Combine(arena2, Arch3dFile.Filename);
             if (!File.Exists(arch3dPath))
             {

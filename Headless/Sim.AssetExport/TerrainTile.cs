@@ -108,6 +108,10 @@ namespace Sim.AssetExport
                 }
             }
 
+            // NOTE: norm is kept in DFU's native frame (second axis y runs north-up,
+            // matching DefaultTerrainSampler). No reflection here — the world places
+            // tiles with +Z = north so tile-internal y and placement agree, and the
+            // marching-squares autotiling (rotations only) stays correct.
             bool hasLoc = locWidth > 0 && locHeight > 0;
             float floor = (float)(sum / norm.Length);   // mean height = the flattened city floor
 

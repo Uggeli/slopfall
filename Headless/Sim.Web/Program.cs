@@ -37,8 +37,11 @@ location ??= "Gothway Garden";
 SimBootResult boot;
 string worldRegionName, worldName;
 int worldBlocksWide, worldBlocksHigh, worldCivilians;
-List<(string name, float ox, float oz)> settlements = null;
-List<(float minX, float minZ, float maxX, float maxZ, float dx, float dz)> remap = null;
+List<(string name, float ox, float oy, float oz)> settlements = null;
+List<(float minX, float minZ, float maxX, float maxZ, float dx, float dy, float dz)> remap = null;
+// Asset service: shared by the region boot (for per-town pad heights) and the
+// endpoints. Created here so the boot block below can query tile floors.
+var assets = new AssetService(SimBoot.DefaultArena2Path);
 // Region-terrain streaming state: pixel bbox, tile size, shared datum, town pixels.
 int rMx0 = 0, rMy0 = 0, rMx1 = 0, rMy1 = 0;
 float rTileSize = 0f, rDatum = 0f;
@@ -61,6 +64,16 @@ if (wholeRegion)
     // the buildings get the geographic origin, the agents get (geo - packed).
     const float TileSize = 32768f * TownLayout.GlobalScale;  // 819.2 m, one map pixel
     const float BlockSide = 4096f * TownLayout.GlobalScale;  // 102.4 m (RMBDimension)
+    // Each town's terrain tile flattens a footprint CENTRED in its 819.2 m pixel
+    // (TerrainTile.Generate), and that tile streams grid-aligned so it meets its
+    // wilderness neighbours seamlessly. So the buildings (and their agents) must be
+    // centred in the pixel too — same offset Generate uses: (128 - w*16)/2 tiles,
+    // 16 tiles per block. This lands every town on its own flattened ground.
+    static (float x, float z) TownCentre(int blocksWide, int blocksHigh)
+    {
+        int tilePosX = (128 - blocksWide * 16) / 2, tilePosY = (128 - blocksHigh * 16) / 2;
+        return (tilePosX / 16f * BlockSide, tilePosY / 16f * BlockSide);
+    }
     var sAll = boot.Ctx.Settlements.All;
     const int TerrainPad = 3;   // pixels of wilderness/sea to keep around the towns
     int mx0 = int.MaxValue, my0 = int.MaxValue, mx1 = int.MinValue, my1 = int.MinValue;
@@ -73,22 +86,9 @@ if (wholeRegion)
     }
     mx0 = Math.Max(0, mx0 - TerrainPad); my0 = Math.Max(0, my0 - TerrainPad);
     mx1 = Math.Min(999, mx1 + TerrainPad); my1 = Math.Min(499, my1 + TerrainPad);
-    settlements = new List<(string, float, float)>();
-    remap = new List<(float, float, float, float, float, float)>();
-    foreach (var s in sAll)
-    {
-        float geoX = (s.MapPixelX - mx0) * TileSize;
-        float geoZ = (s.MapPixelY - my0) * TileSize;
-        settlements.Add((s.Name, geoX, geoZ));
-        remap.Add((s.OriginX, s.OriginZ,
-                   s.OriginX + s.BlocksWide * BlockSide,
-                   s.OriginZ + s.BlocksHigh * BlockSide,
-                   geoX - s.OriginX, geoZ - s.OriginZ));
-    }
 
     // Terrain-streaming metadata: pixel bbox + the town pixels (so the tile endpoint
-    // knows which pixels flatten a location). The shared datum is set once the asset
-    // service exists, below.
+    // knows which pixels flatten a location).
     rTileSize = TileSize;
     rMx0 = mx0; rMy0 = my0; rMx1 = mx1; rMy1 = my1;
     rTowns = sAll.Select(s => (s.MapPixelX, s.MapPixelY, s.Name, s.BlocksWide, s.BlocksHigh)).ToList();
@@ -100,6 +100,32 @@ if (wholeRegion)
     {
         int d = (t.mx - cmx) * (t.mx - cmx) + (t.my - cmy) * (t.my - cmy);
         if (d < bestD) { bestD = d; rCentre = t; }
+    }
+    // Shared region datum: the centre settlement's flattened floor. Every streamed
+    // tile levels to this value so neighbours meet at a continuous seam.
+    rDatum = assets.RegionTileFloor(region, rCentre.name, rCentre.w, rCentre.h);
+
+    // Now place each settlement. A town's terrain pad sits at the world height
+    // (townFloor - datum) * MaxHeight — its own elevation, not y=0 — so the
+    // buildings and agents must be lifted to that pad, or they float / bury. We
+    // query each town's own tile floor and turn the elevation gap into a Y offset.
+    settlements = new List<(string, float, float, float)>();
+    remap = new List<(float, float, float, float, float, float, float)>();
+    foreach (var s in sAll)
+    {
+        var (cx, cz) = TownCentre(s.BlocksWide, s.BlocksHigh);
+        // +X = east (MapPixelX grows east), +Z = north (MapPixelY grows south, so Z
+        // counts down from the bbox's south edge my1). This matches DFU's native
+        // terrain frame, so heights + autotiling render with no reflection.
+        float geoX = (s.MapPixelX - mx0) * TileSize + cx;
+        float geoZ = (my1 - s.MapPixelY) * TileSize + cz;
+        float floor = assets.RegionTileFloor(region, s.Name, s.BlocksWide, s.BlocksHigh);
+        float padY = (floor - rDatum) * TerrainTile.MaxTerrainHeight;
+        settlements.Add((s.Name, geoX, padY, geoZ));
+        remap.Add((s.OriginX, s.OriginZ,
+                   s.OriginX + s.BlocksWide * BlockSide,
+                   s.OriginZ + s.BlocksHigh * BlockSide,
+                   geoX - s.OriginX, padY, geoZ - s.OriginZ));
     }
 }
 else
@@ -187,15 +213,8 @@ var worldJson = JsonSerializer.SerializeToUtf8Bytes(new
         }),
 }, jsonOptions);
 
-// Asset service (render-client plane 1): decodes ARENA2 geometry/textures to
-// glTF + PNG on demand. Geometry embeds in each model's glTF; textures are
-// shared URLs so the browser caches each one town-wide.
-var assets = new AssetService(SimBoot.DefaultArena2Path);
-
-// Shared region datum: the centre settlement's flattened floor. Every streamed tile
-// levels to this one value, so neighbouring tiles meet at a continuous seam.
-if (wholeRegion && rTowns is { Count: > 0 })
-    rDatum = assets.RegionTileFloor(region, rCentre.name, rCentre.w, rCentre.h);
+// Asset service (render-client plane 1) decodes ARENA2 geometry/textures to glTF +
+// PNG on demand; created above so the region boot could query tile floors.
 
 var builder = WebApplication.CreateBuilder();
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
@@ -223,9 +242,8 @@ app.MapGet("/asset/town", (HttpContext ctx) =>
 });
 
 // Terrain heightfield + tilemap (render plane 2). Town mode: the location's pixel +
-// 3x3 neighbours. Region mode: deferred — a full 819 m tile per packed settlement
-// would overlap its neighbours at mismatched flatten-heights, so settlements render
-// on no ground until slice 2 fits right-sized pads.
+// 3x3 neighbours, shipped up front. Region mode: empty here — the client streams the
+// region per pixel via /asset/regionmeta + /asset/terraintile instead.
 app.MapGet("/asset/terrain", (HttpContext ctx) =>
 {
     object terrain = wholeRegion
@@ -251,7 +269,9 @@ app.MapGet("/asset/terraintile/{mx:int}/{my:int}", (HttpContext ctx, int mx, int
         return Results.NotFound();
     string locName = null; int lw = 0, lh = 0;
     foreach (var t in rTowns) if (t.mx == mx && t.my == my) { locName = t.name; lw = t.w; lh = t.h; break; }
-    float addX = (mx - rMx0) * rTileSize, addZ = (my - rMy0) * rTileSize;
+    // +Z = north: count Z down from the bbox south edge (rMy1), matching the
+    // settlement/agent placement and DFU's north-up terrain frame.
+    float addX = (mx - rMx0) * rTileSize, addZ = (rMy1 - my) * rTileSize;
     var tile = assets.GetRegionTile(region, mx, my, rDatum, addX, addZ, locName, lw, lh);
     ctx.Response.Headers.CacheControl = "public, max-age=3600";
     return Results.Json(tile, jsonOptions);
@@ -295,14 +315,15 @@ app.MapGet("/asset/texture/{archive:int}/{record:int}", (HttpContext ctx, int ar
 });
 
 // Project a packed agent position into geographic world space (region mode): find
-// the settlement whose packed rectangle holds it, shift by that settlement's delta.
-(float x, float z) GeoRemap(float x, float z)
+// the settlement whose packed rectangle holds it, shift by that settlement's delta
+// and lift it to that town's terrain pad height (dy) so agents stand on the ground.
+(float x, float y, float z) GeoRemap(float x, float z)
 {
     if (remap != null)
         foreach (var r in remap)
             if (x >= r.minX && x < r.maxX && z >= r.minZ && z < r.maxZ)
-                return (x + r.dx, z + r.dz);
-    return (x, z);
+                return (x + r.dx, r.dy, z + r.dz);
+    return (x, 0f, z);
 }
 
 app.Map("/ws", async context =>
@@ -345,15 +366,16 @@ app.Map("/ws", async context =>
                     sun = snap.SunIntensity,
                     weather = snap.Weather.ToString(),
                     speed = boot.Ctx.WorldClock.Current.TimeScale,
-                    // Compact rows: [id, x, z, activity, phase, yaw, kind]
-                    // (2D spectator reads [0..4]; 3D viewer also uses yaw+kind.)
-                    // Region mode projects packed coords to the geographic world.
+                    // Compact rows: [id, x, z, activity, phase, yaw, kind, groundY]
+                    // (2D spectator reads [0..4]; 3D viewer also uses yaw+kind+groundY.)
+                    // Region mode projects packed coords to the geographic world and
+                    // carries the town's pad height so agents stand on the terrain.
                     entities = snap.Entities.Select(e =>
                     {
-                        var (ex, ez) = wholeRegion ? GeoRemap(e.X, e.Z) : (e.X, e.Z);
+                        var (ex, ey, ez) = wholeRegion ? GeoRemap(e.X, e.Z) : (e.X, 0f, e.Z);
                         return new object[]
                             { e.Id, MathF.Round(ex, 1), MathF.Round(ez, 1), (int)e.Activity, (int)e.Phase,
-                              MathF.Round(e.Yaw, 3), (int)e.Kind };
+                              MathF.Round(e.Yaw, 3), (int)e.Kind, MathF.Round(ey, 1) };
                     }),
                 }, jsonOptions);
                 await Send(payload);

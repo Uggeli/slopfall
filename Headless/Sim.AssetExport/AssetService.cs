@@ -99,7 +99,7 @@ namespace Sim.AssetExport
         /// <summary>Resolved layout for a whole region: every settlement's exterior,
         /// each offset to its packed combined-grid origin (matching the sim).</summary>
         public TownLayout.TownData GetRegion(string region,
-            IReadOnlyList<(string name, float ox, float oz)> settlements)
+            IReadOnlyList<(string name, float ox, float oy, float oz)> settlements)
         {
             lock (_gate)
                 return TownLayout.ResolveRegion(_arena2, region, settlements);
@@ -136,8 +136,9 @@ namespace Sim.AssetExport
                         if (dx == 0 && dy == 0) continue;
                         var nb = TerrainTile.Generate(_woods, pix.X + dx, pix.Y + dy, groundArchive,
                             0, 0, null, null, center.Floor);
+                        // +Z = north: the south neighbour (dy=+1) sits at lower Z.
                         nb.OriginX = center.OriginX + dx * TerrainTile.TileWorldSize;
-                        nb.OriginZ = center.OriginZ + dy * TerrainTile.TileWorldSize;
+                        nb.OriginZ = center.OriginZ - dy * TerrainTile.TileWorldSize;
                         tiles.Add(nb);
                     }
                 }
@@ -186,10 +187,14 @@ namespace Sim.AssetExport
                         _blocks, _maps.GetLocation(region, locName).Exterior.ExteriorData.BlockNames, datum)
                     : TerrainTile.Generate(_woods, mx, my, groundArchive, 0, 0, null, null, datum);
 
-                // Generate keeps a town centred in its tile (negative origin); add the
-                // geographic offset so the tile lands at the settlement's true position.
-                tile.OriginX += addX;
-                tile.OriginZ += addZ;
+                // Grid-align the tile to its map pixel so it meets its wilderness
+                // neighbours seamlessly. Generate centres a town's flattened footprint
+                // WITHIN the tile (and bakes a negative origin to drop that on the
+                // sim's town origin) — but region tiles tile by pixel, so we discard
+                // that shift and keep the flatten centred in-tile. The web host centres
+                // each town's buildings to match (see TownCentre in Program.cs).
+                tile.OriginX = addX;
+                tile.OriginZ = addZ;
                 _regionTileCache[key] = tile;
                 return tile;
             }
@@ -203,12 +208,19 @@ namespace Sim.AssetExport
         }
 
         public const int GroundTileSize = 64;   // ground tile records are 64x64
-        public const int GroundAtlasCols = 8;    // 56 tiles -> 8 x 7
+        public const int GroundAtlasRecCols = 8; // 56 records -> 8 x 7 per orientation
+        public const int GroundAtlasRecRows = 7;
+        public const int GroundAtlasOrients = 4; // 0/90/180/270 baked side by side
+        public const int GroundAtlasCols = GroundAtlasRecCols * GroundAtlasOrients; // 32
 
         /// <summary>
-        /// Ground-tile atlas PNG for a climate ground archive: records 0..55 laid out
-        /// in an 8x7 grid (top-left origin, row-major). The terrain mesh indexes tiles
-        /// by record; rotation/flip are applied client-side via UVs.
+        /// Ground-tile atlas PNG for a climate ground archive. Each of records 0..55 is
+        /// baked in its FOUR orientations (0/90/180/270 deg) so the client samples a
+        /// pre-oriented tile with identity UVs — no rotation/flip on the client. Layout:
+        /// 32 x 7 grid of 64px tiles; orientation o occupies column band [o*8, o*8+8),
+        /// record at (col = rec%8 + o*8, row = rec/8). The tilemap byte's rot bit (90 deg,
+        /// =RotateColors) and flip bit (180 deg, =FlipColors) combine to o = rot + 2*flip,
+        /// i.e. RotateColors applied o times — baked here with DFU's exact pixel op.
         /// </summary>
         public byte[] GetGroundAtlas(int archive)
         {
@@ -216,9 +228,8 @@ namespace Sim.AssetExport
             {
                 var tex = Tex(archive);
                 int count = Math.Min(56, tex.RecordCount);
-                int cols = GroundAtlasCols, rows = (56 + cols - 1) / cols;
                 int ts = GroundTileSize;
-                int aw = cols * ts, ah = rows * ts;
+                int aw = GroundAtlasCols * ts, ah = GroundAtlasRecRows * ts;
                 var atlas = new byte[aw * ah * 4];   // transparent by default
 
                 for (int rec = 0; rec < count; rec++)
@@ -227,22 +238,63 @@ namespace Sim.AssetExport
                     try { bmp = tex.GetDFBitmap(rec, 0); } catch { continue; }
                     if (bmp?.Data == null || bmp.Width == 0) continue;
                     var rgba = TextureDecode.Rgba(bmp, tex, out int w, out int h);
-                    int ox = (rec % cols) * ts, oy = (rec / cols) * ts;
+
+                    // Base 64x64 tile (nearest-resample the record to tile size).
+                    // V-FLIP while resampling (sy counts from the bottom): DFU's
+                    // ImageProcessing/GetColor32 flips ground textures to bottom-up before
+                    // baking the rotation variants, and the marching-squares lookup's
+                    // rotate/flip values are authored against that orientation. Our
+                    // TextureDecode keeps the bitmap top-down, so without this flip every
+                    // transition tile's feathered edge is mirrored — interior tiles look
+                    // fine, but dirt/grass/coast borders come out jagged/inverted.
+                    var tile = new byte[ts * ts * 4];
                     for (int y = 0; y < ts; y++)
                     {
-                        int sy = h == ts ? y : y * h / ts;
+                        int fy = ts - 1 - y;
+                        int sy = h == ts ? fy : fy * h / ts;
                         for (int x = 0; x < ts; x++)
                         {
                             int sx = w == ts ? x : x * w / ts;
-                            int s = (sy * w + sx) * 4;
-                            int d = ((oy + y) * aw + (ox + x)) * 4;
-                            atlas[d] = rgba[s]; atlas[d + 1] = rgba[s + 1];
-                            atlas[d + 2] = rgba[s + 2]; atlas[d + 3] = rgba[s + 3];
+                            int s = (sy * w + sx) * 4, d = (y * ts + x) * 4;
+                            tile[d] = rgba[s]; tile[d + 1] = rgba[s + 1];
+                            tile[d + 2] = rgba[s + 2]; tile[d + 3] = rgba[s + 3];
                         }
+                    }
+
+                    // Bake the 4 orientations (rotate 90 deg o times) into the atlas.
+                    var cur = tile;
+                    for (int o = 0; o < GroundAtlasOrients; o++)
+                    {
+                        int ox = ((rec % GroundAtlasRecCols) + o * GroundAtlasRecCols) * ts;
+                        int oy = (rec / GroundAtlasRecCols) * ts;
+                        for (int y = 0; y < ts; y++)
+                            for (int x = 0; x < ts; x++)
+                            {
+                                int s = (y * ts + x) * 4, d = ((oy + y) * aw + (ox + x)) * 4;
+                                atlas[d] = cur[s]; atlas[d + 1] = cur[s + 1];
+                                atlas[d + 2] = cur[s + 2]; atlas[d + 3] = cur[s + 3];
+                            }
+                        cur = Rotate90(cur, ts);   // next orientation
                     }
                 }
                 return Png.Encode(aw, ah, atlas);
             }
+        }
+
+        /// <summary>Rotate an NxN RGBA tile 90 deg, matching DFU's ImageProcessing
+        /// RotateColors: dst(x,y) = src(y, N-1-x).</summary>
+        private static byte[] Rotate90(byte[] src, int n)
+        {
+            var dst = new byte[src.Length];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    int sx = y, sy = n - 1 - x;
+                    int s = (sy * n + sx) * 4, d = (y * n + x) * 4;
+                    dst[d] = src[s]; dst[d + 1] = src[s + 1];
+                    dst[d + 2] = src[s + 2]; dst[d + 3] = src[s + 3];
+                }
+            return dst;
         }
 
         /// <summary>PNG bytes for a texture record, or null if it can't be read.</summary>
