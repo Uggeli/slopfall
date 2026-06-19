@@ -207,7 +207,7 @@ namespace DaggerfallWorkshop.Sim
             // Add (not Set) so it accumulates when settlements share the global purse
             // (Stage 2); single-town starts from an empty treasury, so it's the same.
             ctx.Treasury.Add(s.Treasury,
-                guards * EconomySystem.GuardWagePerMinute * 1440.0);
+                guards * EconomySystem.GuardDailyWage);
         }
 
         /// How many town guards a settlement of this kind keeps — cities are policed,
@@ -448,14 +448,16 @@ namespace DaggerfallWorkshop.Sim
             needs.V[NeedAxis.SocialDef] = 0.3 + ctx.Random.NextDouble() * 0.4;
             needs.V[NeedAxis.GoodsDef] = 0.2 + ctx.Random.NextDouble() * 0.3;
 
-            // Real money: keepers start comfortable, residents start poor —
-            // poverty is structural until they find income, which is exactly
-            // the problem source the request system feeds on. CoinDef derives.
+            // Real money, recapitalised (money arc): everyone starts with a buffer (~20),
+            // keepers a bit more for working capital to stock + pay wages before sales
+            // come in. Coin is INSTRUMENTAL now (CoinDef retired) — this is liquidity,
+            // not a poverty anchor; dynamic local prices decide whether 20 is rich or
+            // poor (a busy city is dearer than a hamlet).
             double coin = role == ResidentRole.Keeper
-                ? 0.5 + ctx.Random.NextDouble() * 0.3
-                : 0.15 + ctx.Random.NextDouble() * 0.25;
+                ? 25.0 + ctx.Random.NextDouble() * 10.0
+                : 18.0 + ctx.Random.NextDouble() * 4.0;
             ctx.Coin.Set(id, coin);
-            needs.V[NeedAxis.CoinDef] = 1.0 - coin;
+            needs.V[NeedAxis.CoinDef] = 0.0;              // retired axis; coin ≥ 1 ⇒ not "poor" (NeedsSystem re-derives, clamped)
             ctx.Needs.Set(id, needs);
 
             // Personality: sum of two draws biases toward the middle, so

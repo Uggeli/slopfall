@@ -89,7 +89,8 @@ namespace DaggerfallWorkshop.Sim
             {
                 case ActivityKind.Work:
                 case ActivityKind.Labor:
-                    return PaidConsumption;   // earning → the paid meal (EatTavern) or the groceries (Buy) it funds
+                case ActivityKind.Beg:
+                    return PaidConsumption;   // earning — wages OR alms — → the paid meal (EatTavern) or groceries (Buy) it funds. Begging is instrumental too now that CoinDef is retired (no standalone coin-want drives it).
                 case ActivityKind.Buy:
                     return HomeMeal;          // groceries → the home meal: the HUNGER payoff that motivates the work→buy→eat chain
                 // NOT Steal: theft is a desperate REACTION (it relieves GoodsDef when the

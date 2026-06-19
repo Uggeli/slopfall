@@ -22,7 +22,12 @@ namespace DaggerfallWorkshop.Sim
     /// keeps working unchanged on top of real money.
     public sealed class EconomySystem : ISystem
     {
-        public const double LaborWagePerMinute = 0.15 / 1440.0;     // a farmhand's subsistence day-wage (~0.15/day), tuned so a farm's bounded income spreads across its hands rather than maxing out a few
+        // Wages are a concrete DAILY payday (PayDay, on NewDaySimEvent), not an abstract
+        // per-minute trickle: a hand accrues LaborDailyWage pro-rated by the fraction of a
+        // WorkdayMinutes day it actually worked, settled in ONE transfer from its
+        // employer's till. No per-tick wage rates, no cost-of-living bleed.
+        public const double LaborDailyWage = 3.0;                   // a hand's full-day wage (~3 days' food at the money-arc scale)
+        public const double WorkdayMinutes = 600.0;                 // a standard 10-hour day — the denominator for pro-rating a partial day
         // Supply (G2): a working keeper restocks toward StockTarget — craft is
         // free, imports cost the import price off-map. Rates/targets are
         // PLACEHOLDERS, tuned once the loop (G3 sales, G4 B2B) draws stock down.
@@ -32,12 +37,8 @@ namespace DaggerfallWorkshop.Sim
         // by the land it has — the production throttle that bounds the export faucet
         // without touching craft shops (a lone keeper is no runaway). PLACEHOLDERS
         // tuned against the soak (food self-sufficient, stable money, low poverty).
-        public const double FarmProducePerWorkerMinute = 0.010;     // food per active farmhand (units/game-min) — sized so a staffed farm's MARKET surplus (now keeper-independent) feeds the non-farm population, not just exports
+        public const double FarmProducePerWorkerMinute = 0.010;     // food per active farmhand (units/game-min) — keeper-independent (harvest pass); the tripling probe showed supply isn't the bottleneck, so back to a sane level
         public const int FarmCapacity = 50;                         // hands a settlement's farmland supports
-        // A farm pays its hands out of what it earns (sales + exports), shared evenly
-        // among those working it — so income reaches the workforce instead of piling up
-        // in one "keeper" purse. A fraction of the till per tick (it refills from sales).
-        public const double FarmWagePayoutFraction = 0.3;
         // In-kind subsistence (Subsistence slice): a farm/fishery hand takes home a
         // share of the harvest — provisions → their household larder — on top of the
         // small cash wage. Modelled as free extra yield (NOT drawn off the farm's
@@ -53,17 +54,15 @@ namespace DaggerfallWorkshop.Sim
         // producer idles rather than piling up forever. PLACEHOLDERS, tuned vs the soak.
         public const double ExportFloorFraction = 0.5;             // reservation: hold below 0.5× wholesale
         public const double WarehouseCap = StockTarget * 3.0;       // stop producing once this full of unsold stock
-        // Necessity drain (placeholder). Real balance comes from the full
-        // circular flow — employer-paid wages (E1) + rent (E2) + tax (E3) — and
-        // gets tuned once all mechanisms are in, not before.
-        public const double CostOfLivingPerHour = 0.001;
+        // No cost-of-living: money leaves a purse only by buying something or paying
+        // someone (concrete transactions), never an abstract per-tick bleed.
         // Public sector (E3): a monthly progressive wealth tax drains purses above
         // an exemption into the treasury, which pays guards a steady salary. Tax is
         // the recirculation that counters concentration; guard pay puts it back into
         // circulation as spending. PLACEHOLDERS — tuned once G6's export edge lands.
-        public const double TaxExemption = 0.5;                     // wealth below this is untaxed (protects the poor)
+        public const double TaxExemption = 10.0;                    // wealth below this is untaxed (protects the poor) — ×20 money-arc scale
         public const double TaxRatePerMonth = 0.3;                  // share of wealth above the exemption, per month
-        public const double GuardWagePerMinute = 0.3 / 1440.0;      // guard salary ≈ 0.3 coin/day, from the treasury
+        public const double GuardDailyWage = 6.0;                   // guard's flat daily salary, paid from the treasury on payday (crown mints any shortfall)
         // The treasury's spend path: a flat civic dividend (poor relief) back to a
         // settlement's residents, so the progressive tax actually RECIRCULATES against
         // concentration instead of hoarding. A transfer (treasury → residents).
@@ -74,7 +73,9 @@ namespace DaggerfallWorkshop.Sim
         readonly List<EscheatEvent> _escheats = new List<EscheatEvent>();
         readonly List<EntityId> _order = new List<EntityId>();      // reused per-tick deterministic walk order (F3)
         readonly Dictionary<int, int> _farmWorkers = new Dictionary<int, int>();             // hands working each farm this tick (scales its harvest)
-        readonly Dictionary<int, double> _farmWageShare = new Dictionary<int, double>();     // a farm's per-worker wage this tick (its till shared out)
+        readonly Dictionary<EntityId, double> _earnedToday = new Dictionary<EntityId, double>();   // wage a hand has accrued by working today; settled on payday
+        readonly List<EntityId> _payOrder = new List<EntityId>();   // reused deterministic payday order
+        bool _payday;                                               // armed by NewDaySimEvent; settled next Update
         readonly Dictionary<int, EntityId> _keeperOf = new Dictionary<int, EntityId>();
         readonly Dictionary<Good, List<int>> _sourcesByGood = new Dictionary<Good, List<int>>();   // wholesale sources (G4)
         bool _taxDue;                                              // armed by NewMonthSimEvent; collected next Update
@@ -96,7 +97,7 @@ namespace DaggerfallWorkshop.Sim
             ctx.Events.Subscribe<CoinTransferEvent>(e => _pending.Add(e));
             ctx.Events.Subscribe<EscheatEvent>(e => _escheats.Add(e));
             ctx.Events.Subscribe<NewMonthSimEvent>(e => _taxDue = true);   // tax man arrives (E3)
-            ctx.Events.Subscribe<NewDaySimEvent>(e => ctx.WorldMarket.ResetDay());   // external demand replenishes daily
+            ctx.Events.Subscribe<NewDaySimEvent>(e => { ctx.WorldMarket.ResetDay(); _payday = true; });   // external demand replenishes daily; wages settle on payday
         }
 
         public void ProcessEvents()
@@ -164,13 +165,17 @@ namespace DaggerfallWorkshop.Sim
             double before = SumCoin();
             double salesRev = 0, serviceRev = 0, importsPaid = 0, wholesalePaid = 0, guardPaid = 0;
             double exportsEarned = 0, crownMinted = 0, crownShortfall = 0;
-            double living = CostOfLivingPerHour * gameMinutes / 60.0;
 
             // Tax man (E3): on a month rollover (NewMonthSimEvent), drain wealth
             // above the exemption from every purse → treasury (a conserved transfer;
             // the recirculation that counters keeper-ward concentration). The crown's
             // remittance is handled continuously below, not here.
             if (_taxDue) { CollectMonthlyTax(); _taxDue = false; }
+
+            // Payday (NewDaySimEvent): wages move ONCE a day, in concrete transfers — each
+            // hand paid what it earned working today (from its employer's till), guards a
+            // flat salary from the treasury. Settled before the day's trade.
+            if (_payday) { PayDay(ref guardPaid, ref crownShortfall); _payday = false; }
 
             // Count the hands working each farm this tick — its harvest scales with
             // them (capped by land), so a town's whole workforce makes a sane amount.
@@ -184,18 +189,6 @@ namespace DaggerfallWorkshop.Sim
                 if (!_ctx.Buildings.TryGet(bh.TargetBuilding, out var wb) || wb == null || !GoodsCatalog.IsStaffedWorkplace(wb.Kind)) continue;
                 _farmWorkers.TryGetValue(bh.TargetBuilding, out var c);
                 _farmWorkers[bh.TargetBuilding] = c + 1;
-            }
-
-            // Each farm's wage share this tick: a fraction of its keeper's (the farm
-            // till's) coin, split evenly among the hands working it — so the harvest's
-            // proceeds reach the workforce rather than pooling in one purse.
-            _farmWageShare.Clear();
-            foreach (var kv in _farmWorkers)
-            {
-                if (kv.Value <= 0) continue;
-                var keeper = KeeperOf(kv.Key);
-                if (keeper.IsNone) continue;
-                _farmWageShare[kv.Key] = _ctx.Coin.Get(keeper) * FarmWagePayoutFraction / kv.Value;
             }
 
             // Harvest pass: a staffed site's output is produced off the HANDS working
@@ -219,18 +212,7 @@ namespace DaggerfallWorkshop.Sim
                 var id = _order[oi];
                 if (!_ctx.Behavior.TryGet(id, out var behavior)) continue;
                 double coin = _ctx.Coin.Get(id);
-                double next = coin - living;
-
-                // Guards are on the public payroll: a steady salary out of the
-                // treasury (no keeper), recirculating tax back into spending.
-                if (_ctx.Employment.TryGet(id, out var emp) && !emp.PublicOwner.IsNone)
-                {
-                    double owed = GuardWagePerMinute * gameMinutes;
-                    double drawn = PayGuard(emp.PublicOwner, owed);   // from the local treasury (tax-funded)
-                    next += owed;                                     // the guard is paid in full
-                    guardPaid += drawn;                              // treasury → guard (a transfer)
-                    crownShortfall += owed - drawn;                  // crown mints only the gap (F1)
-                }
+                double next = coin;   // no cost-of-living drain; wages arrive on payday, not per tick
 
                 if (behavior.Phase == ActivityPhase.Doing)
                 {
@@ -257,15 +239,12 @@ namespace DaggerfallWorkshop.Sim
                         case ActivityKind.Fish:
                         case ActivityKind.Mine:
                         case ActivityKind.Labor:
-                            // Working the employer's premises out at its place — the farm
-                            // fields, the shore, or the diggings. Those hands scale the workplace's harvest
-                            // (counted above); they're paid an even share of its till (its
-                            // sale + export income) rather than a flat wage, so the proceeds
-                            // reach the whole workforce. A transfer from the employer's
-                            // purse, not minted.
-                            double wage = LaborWagePerMinute * gameMinutes;
-                            if (_farmWageShare.TryGetValue(behavior.TargetBuilding, out var share)) wage = share;
-                            next += PayWage(id, wage);
+                            // Working the employer's premises (fields, shore, diggings, loom):
+                            // wages aren't paid by the tick — the hand ACCRUES what it earns
+                            // (LaborDailyWage pro-rated by the workday) and is paid in one
+                            // transfer on payday, capped then by the employer's till.
+                            _earnedToday.TryGetValue(id, out var acc);
+                            _earnedToday[id] = acc + LaborDailyWage * gameMinutes / WorkdayMinutes;
                             // In-kind subsistence: a food-producer (farm/fishery) hand
                             // also takes home provisions for the household larder. A
                             // miner produces ore (not edible) → cash wage only.
@@ -493,6 +472,42 @@ namespace DaggerfallWorkshop.Sim
             return wage;
         }
 
+        /// Payday (NewDaySimEvent): the only time wages move. Each hand is paid what it
+        /// ACCRUED by working today (LaborDailyWage pro-rated by the workday), drawn from
+        /// its employer's till — capped, so a business with no revenue can't make full
+        /// payroll (it underpays: the honest signal the trade isn't paying). Guards draw a
+        /// flat daily salary from the treasury, the crown minting only the shortfall.
+        /// Keepers take no wage — they live on their sales. Deterministic order (shared tills).
+        void PayDay(ref double guardPaid, ref double crownShortfall)
+        {
+            // Hands: settle accrued wages from employers' tills.
+            _payOrder.Clear();
+            foreach (var kv in _earnedToday) if (kv.Value > 0) _payOrder.Add(kv.Key);
+            _payOrder.Sort((a, b) => a.Value.CompareTo(b.Value));
+            for (int i = 0; i < _payOrder.Count; i++)
+            {
+                var w = _payOrder[i];
+                double paid = PayWage(w, _earnedToday[w]);             // employer → worker, capped at the till
+                if (paid > 0) _ctx.Coin.Set(w, _ctx.Coin.Get(w) + paid);
+            }
+            _earnedToday.Clear();
+
+            // Guards: flat daily salary from the local treasury; crown mints the gap.
+            _payOrder.Clear();
+            foreach (var kv in _ctx.Employment.All)
+                if (kv.Value != null && !kv.Value.PublicOwner.IsNone) _payOrder.Add(kv.Key);
+            _payOrder.Sort((a, b) => a.Value.CompareTo(b.Value));
+            for (int i = 0; i < _payOrder.Count; i++)
+            {
+                var g = _payOrder[i];
+                if (!_ctx.Employment.TryGet(g, out var emp) || emp.PublicOwner.IsNone) continue;
+                double drawn = PayGuard(emp.PublicOwner, GuardDailyWage);   // treasury → guard, capped
+                _ctx.Coin.Set(g, _ctx.Coin.Get(g) + GuardDailyWage);       // paid in full
+                guardPaid += drawn;
+                crownShortfall += GuardDailyWage - drawn;                  // crown mints only the gap (F1)
+            }
+        }
+
         /// Produce a staffed workplace's output from the HANDS working it this tick
         /// (farm/fishery food, pasture wool, weaver cloth) — keeper-INDEPENDENT, so a
         /// site with laborers supplies the market even when its keeper idles (the fix
@@ -603,8 +618,10 @@ namespace DaggerfallWorkshop.Sim
             {
                 int source = NearestSource(needs[i], building, b.X, b.Z);
                 if (source < 0) continue;
+                double wholesalePrice = GoodsCatalog.PriceOf(needs[i], PriceTier.Wholesale)
+                                      * GoodsCatalog.Scarcity(_ctx.Stock.Get(source, needs[i]));   // a glutted source sells cheap, a scarce one dear
                 wholesale += Acquire(building, needs[i], ImportPerMinute * gameMinutes,
-                    GoodsCatalog.PriceOf(needs[i], PriceTier.Wholesale), source, available - imports - wholesale);
+                    wholesalePrice, source, available - imports - wholesale);
             }
             return imports;
         }
@@ -706,12 +723,13 @@ namespace DaggerfallWorkshop.Sim
             if (!goods && !service) return 0;                                    // nothing for sale here
 
             double units = spec.SaleUnits / spec.DurationMinutes * gameMinutes;  // this tick's share
+            double price = spec.SalePrice;
             if (goods)
             {
                 double available = _ctx.Stock.Get(building, good);
+                price *= GoodsCatalog.Scarcity(available);                       // local price floats with the shelf: scarce → dear, glutted → cheap (the contextual signal)
                 if (units > available) units = available;                        // no stock → no sale
             }
-            double price = spec.SalePrice;
             double affordable = price > 0 ? patronCoin / price : units;
             if (units > affordable) units = affordable;                          // can't buy what you can't pay for
             if (units <= 0) return 0;

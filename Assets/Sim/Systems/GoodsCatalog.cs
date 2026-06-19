@@ -50,13 +50,18 @@ namespace DaggerfallWorkshop.Sim
         // Indexed by (int)Good. The single source of authored prices.
         public static readonly GoodDef[] Defs =
         {
-            new GoodDef { Good = Good.Provisions, Name = "provisions", Base = 0.02,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 500 },
-            new GoodDef { Good = Good.Drink,      Name = "drink",      Base = 0.015, WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 300 },
-            new GoodDef { Good = Good.Wares,      Name = "wares",      Base = 0.05,  WholesaleMarkup = 2.0, RetailMarkup = 3.0, WorldDemandPerDay = 200 },
-            new GoodDef { Good = Good.Ore,        Name = "ore",        Base = 0.04,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 200 },
-            new GoodDef { Good = Good.Wool,       Name = "wool",       Base = 0.02,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 300 },
-            new GoodDef { Good = Good.Cloth,      Name = "cloth",      Base = 0.05,  WholesaleMarkup = 1.6, RetailMarkup = 2.6, WorldDemandPerDay = 200 },
-            new GoodDef { Good = Good.Clothes,    Name = "clothes",    Base = 0.12,  WholesaleMarkup = 1.7, RetailMarkup = 2.8, WorldDemandPerDay = 150 },
+            // Rescaled ×20 to the integer-ish "gold" scale (money arc): a provision now
+            // retails ≈ 1 coin (Base 0.4 × 2.5), so seed-20 ≈ ~20 days of food. Ratios
+            // (the chain ladder wool<cloth<clothes) preserved; dynamic Scarcity floats
+            // each around its base. The old "1.0 = comfortable" anchor is gone (coin is
+            // instrumental now), so these are real unit prices, not fractions of comfort.
+            new GoodDef { Good = Good.Provisions, Name = "provisions", Base = 0.4,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 500 },
+            new GoodDef { Good = Good.Drink,      Name = "drink",      Base = 0.3,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 300 },
+            new GoodDef { Good = Good.Wares,      Name = "wares",      Base = 1.0,  WholesaleMarkup = 2.0, RetailMarkup = 3.0, WorldDemandPerDay = 200 },
+            new GoodDef { Good = Good.Ore,        Name = "ore",        Base = 0.8,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 200 },
+            new GoodDef { Good = Good.Wool,       Name = "wool",       Base = 0.4,  WholesaleMarkup = 1.5, RetailMarkup = 2.5, WorldDemandPerDay = 300 },
+            new GoodDef { Good = Good.Cloth,      Name = "cloth",      Base = 1.0,  WholesaleMarkup = 1.6, RetailMarkup = 2.6, WorldDemandPerDay = 200 },
+            new GoodDef { Good = Good.Clothes,    Name = "clothes",    Base = 2.4,  WholesaleMarkup = 1.7, RetailMarkup = 2.8, WorldDemandPerDay = 150 },
         };
 
         public static GoodDef Def(Good good) => Defs[(int)good];
@@ -86,6 +91,22 @@ namespace DaggerfallWorkshop.Sim
                 case PriceTier.Retail:    return d.Base * d.RetailMarkup;
                 default:                  return d.Base;   // Import
             }
+        }
+
+        /// Local supply/demand price multiplier: a good's price at a building floats
+        /// with that building's on-hand stock vs the stocking reference — a scarce shelf
+        /// sells dear, a glutted one cheap. Clamped so price can't run away or collapse.
+        /// This is what makes the poverty line CONTEXTUAL (a busy, often-bare city shop
+        /// prices high; a well-stocked rural one low) with no per-place numbers — the
+        /// local twin of the export-saturation edge. Pure for testing.
+        public const double PriceRefStock = 40.0;       // matches EconomySystem.StockTarget: the shelf where price = base
+        public const double PriceScarcityFloor = 0.6;   // a glut bottoms out here
+        public const double PriceScarcityCeil = 2.5;    // scarcity tops out here
+        public static double Scarcity(double stock)
+        {
+            if (stock <= 0) return PriceScarcityCeil;            // bare shelf → dearest (sales gate on stock > 0 anyway)
+            double f = PriceRefStock / stock;
+            return f < PriceScarcityFloor ? PriceScarcityFloor : (f > PriceScarcityCeil ? PriceScarcityCeil : f);
         }
 
         /// Mint a fresh DISCRETE item of a good — its atom bundle: the affordance(s) the

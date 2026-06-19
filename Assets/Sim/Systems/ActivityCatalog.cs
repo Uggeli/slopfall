@@ -193,7 +193,7 @@ namespace DaggerfallWorkshop.Sim
             // having provisions. SaleUnits×SalePrice (1×0.08) matches the coinDef
             // promise; the price tops raw-provisions retail (0.05) — the transform's
             // value-add.
-            SaleUnits = 1, SalePrice = 0.08, SaleReliefAxis = NeedAxis.Hunger,
+            SaleUnits = 1, SalePrice = 1.6, SaleReliefAxis = NeedAxis.Hunger,   // ×20 (money-arc scale)
         };
 
         public static readonly Spec Socialize = new Spec
@@ -208,7 +208,7 @@ namespace DaggerfallWorkshop.Sim
             // A round of drink — bought if the tavern has any (revenue), but the
             // gathering (and its social relief) isn't gated on it: a dry tavern is
             // still a social hall. So SaleReliefAxis stays −1 (ungated).
-            SaleUnits = 1, SalePrice = 0.04,
+            SaleUnits = 1, SalePrice = 0.8,   // ×20 (money-arc scale)
         };
 
         /// Growth drive (Atoms B-need): no setpoint, engaging is the reward, so
@@ -227,7 +227,7 @@ namespace DaggerfallWorkshop.Sim
             // or call even with an empty purse (the poor visit free, and receive),
             // so this funds the institution without barring anyone. Free at a
             // library/palace (GoodsCatalog.IsPaidService says where it costs).
-            SaleUnits = 1, SalePrice = 0.05,
+            SaleUnits = 1, SalePrice = 1.0,   // ×20 (money-arc scale)
         };
 
         /// Shopping: refill household provisions at a store, paying the keeper.
@@ -243,7 +243,7 @@ namespace DaggerfallWorkshop.Sim
             // Buying the shop's wares at retail; gated on the shelf. The good is
             // whatever this shop sells (provisions at a general store, wares at a
             // craftsman) — GoodsCatalog.SaleGoodFor. 2×0.05 matches coinDef +0.1.
-            SaleUnits = 2, SalePrice = 0.05, SaleReliefAxis = NeedAxis.GoodsDef,
+            SaleUnits = 2, SalePrice = 1.0, SaleReliefAxis = NeedAxis.GoodsDef,   // ×20 (money-arc scale)
         };
 
         /// Stealing (Subsistence slice): take provisions off a shop's shelf without

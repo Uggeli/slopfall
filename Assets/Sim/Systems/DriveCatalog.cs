@@ -116,7 +116,7 @@ namespace DaggerfallWorkshop.Sim
             // leftover pull for drink/wares. FROZEN (tuned with the famine, not here).
             Defs[NeedAxis.CoinDef] = new DriveDef
             {
-                Name = "coin", ScoreField = 0.1, DriftPerHour = 0.0,
+                Name = "coin", ScoreField = 0.0, DriftPerHour = 0.0,   // RETIRED: coin is purely instrumental now — valued only by the ODD chain (work→buy→need), never as a standalone "poverty" want. Poverty is contextual (what you can't buy locally at local prices), not a hardcoded 1−coin.
                 Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.Deplete,
                 Level = LevelSource.DerivedCoin, Gates = System.Array.Empty<GateEdge>(),
             };

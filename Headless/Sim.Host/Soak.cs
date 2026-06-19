@@ -219,6 +219,27 @@ namespace DaggerfallWorkshop.Sim.Host
                 + " → net off-map " + (last.Exports + last.CrownSubsidy - last.Imports).ToString("F2") + " coin");
             Console.WriteLine();
 
+            // Dynamic local prices: retail base × mean scarcity across shops holding it —
+            // the contextual price signal (a scarce good prices up, a glutted one down).
+            Console.WriteLine("local retail prices (base × mean scarcity across stocking shops):");
+            for (int g = 0; g < GoodsCatalog.Count; g++)
+            {
+                var good = (Good)g;
+                double sumScar = 0; int n = 0;
+                foreach (var kv in ctx.Buildings.All)
+                {
+                    double st = ctx.Stock.Get(kv.Key, good);
+                    if (st > 0) { sumScar += GoodsCatalog.Scarcity(st); n++; }
+                }
+                if (n == 0) continue;
+                double meanScar = sumScar / n;
+                double baseRetail = GoodsCatalog.PriceOf(good, PriceTier.Retail);
+                Console.WriteLine("  " + good.ToString().PadRight(11)
+                    + "base " + baseRetail.ToString("F3") + " × " + meanScar.ToString("F2")
+                    + " = " + (baseRetail * meanScar).ToString("F3") + "   (" + n + " shops)");
+            }
+            Console.WriteLine();
+
             var prof = new Dictionary<string, int>();
             foreach (var kv in ctx.Residency.All)
             {
