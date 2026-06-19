@@ -1,7 +1,7 @@
 # Dynamic Object Zero + guards-as-gatekeepers — recorded design (future pass)
 
 **Date:** 2026-06-19
-**Status:** Recorded for a future session — **NOT** being built now. Captured so the guards pass starts from a written plan.
+**Status:** Active — this is the milestone now being built. §6 open questions are resolved (see §6, rewritten as decisions). Walls render and gate cells are recoverable at runtime, so the dependency is satisfied.
 **Depends on:** walls being rendered (`2026-06-19-town-walls-render-design.md`) — done first so there is a visible wall + gate to defend.
 
 This is the next milestone after walls. It has two halves that only become meaningful together: monsters that respect walls and hunt through gates, and guards that emergently hold those gates. Both are built on a general ODD extension (**Dynamic Object Zero**), of which guards and hunting monsters are the *first consumers* — the mechanism is meant to serve the whole sim, not just guards.
@@ -54,6 +54,10 @@ New activities (`BehaviorRegistry` `ActivityKind` + `ActivityCatalog` specs):
 
 Dynamic Object Zero injects, for an on-duty guard: a `Patrol` ad (day) or `StandWatch` ad (night) **located at an assigned gate cell**; and, when a creature is sensed (via `SubjectiveViewRegistry` threat entries), a **boosted `Attack` ad** targeting `NearestCreature`.
 
+**Shift model (resolved):** each town's guards split deterministically by guard index — **even index = day watch, odd = night watch** — gated by a day/night flag read from the existing game clock. No per-guard schedule state; CQRS-clean. A guard that is *off* its watch has no `Patrol`/`StandWatch` ad injected, so it falls back to normal civilian behaviour (rest/eat/social) — off-duty guards do **not** respond to breaches this pass (lean group scope).
+
+**Attack-ad score (resolved):** proximity-derived, not a fixed constant. The injected `Attack` ad's score increases as the sensed creature nears the guard, and is **floored above the Patrol/StandWatch duty pull** so any real breach always out-scores standing watch. The guard's own Fear/personality still grades it through the existing `DesperationGraded` Hunger↣Fear prepotency — a terrified or starving guard can still break.
+
 **All three behaviours the user asked for emerge — no state machine:**
 - **Post:** with no needs/threats, `StandWatch` (baseUtility + duty gate) beats `Idle` → guard stands at the gate.
 - **Patrol:** `Patrol` ad routes the guard between gate cells.
@@ -61,6 +65,12 @@ Dynamic Object Zero injects, for an on-duty guard: a `Patrol` ad (day) or `Stand
 - **Abandon post (emergent "humanity"):** when Hunger's gap exceeds the duty `baseGate`, `EatHome` wins → guard leaves to eat. **Free** from existing prepotency; nothing to build.
 
 **Gate cells (`GateMap`):** computed once at load from the runtime `TownGridData` (`Cost` grid + per-block `BlockGates` flags) — walkable openings in the otherwise-solid wall ring. No BSA re-parse needed (confirmed feasible in recon). Immutable after load (CQRS-clean). Guards are distributed across their town's gates deterministically (round-robin by guard index) at seed time.
+
+**Curfew — functional gate open/closed (resolved):** authentic to Daggerfall (town gates shut at night). Modelled as a single clock-derived `GatesClosed` flag, **not** a mutation of the immutable cost grid. Pathfinding queries effective passability = static `Cost` grid **AND** a dynamic gate-closed overlay (gate cells become impassable while closed) — a read-only per-tick derivation, CQRS-clean.
+- **Day:** gates open. Monster pathfinding funnels through the gap → guards on the day watch intercept at the gate.
+- **Night:** gates closed. The gate cells block in the overlay, so a hungry monster's path to its prey **stalls at the wall** — it cannot enter. The night `StandWatch` guard attacks any monster that reaches the wall near its post. Walls genuinely protect the town after dark; the watch finishes what comes knocking. No gate HP / siege mechanic (monsters do not batter the gate this pass).
+
+**Curfew visual (in, but cuttable):** town3d swaps the gate model **446 (open) ↔ 447 (closed)** by sim time of day. Both models already export. This is its own viewer task; if it fights the instanced renderer it may be dropped without blocking the gameplay (the sim-side curfew stands alone).
 
 ---
 
@@ -71,8 +81,9 @@ Today `CreatureSystem` (`Assets/Sim/Engine/Units/CreatureSystem.cs`) moves creat
 Changes (this is the bridge until monsters-are-full-agents, the far-future milestone):
 - Add a **hunger** drive to `CreatureData` (level + drift).
 - **Spawn outside the wall** — at a walkable cell beyond the perimeter ring, not just centroid + 40 m.
-- **When hungry:** pick the **nearest civilian in the nearest settlement**, then **pathfind** via the existing `TownPathfinder` (respecting cost 0). Because the gate is the only opening in the ring, the monster is *forced* to funnel through it — straight into any posted/patrolling guard. Eat on arrival (existing attack/damage path).
+- **When hungry:** pick the **nearest civilian in the nearest settlement**, then **pathfind** via the existing `TownPathfinder` (respecting cost 0 **and the gate-closed overlay**). By day the gate is the only opening in the ring, so the monster is *forced* to funnel through it — straight into any posted/patrolling guard. By night the closed gate removes that opening, so the path stalls at the wall and the monster cannot reach its prey. Eat on arrival (existing attack/damage path).
 - **When not hungry:** keep cheap straight-line wandering, but **collide** with blocked cells (no more phasing).
+- **Scope (resolved):** one monster hunts at a time — **no packs, no coordinated hunts** this pass. Pathfinding does nudge creatures toward becoming agents; that is the intended bridge to the far-future monsters-as-full-agents milestone, accepted knowingly.
 
 This is what makes "guards keep monsters out" actually emerge: the chokepoint is real because the predator must use the gate.
 
@@ -88,15 +99,24 @@ These are general sim features (hobbies, jobs, ambitions), not guard-specific.
 
 ---
 
-## 6. Open questions for the guards pass (the "ton of stuff to discuss")
+## 6. Resolved decisions (was: open questions — the "ton of stuff to discuss")
 
-- Shift model: how are day/night watches assigned across a town's guards? Deterministic per settlement + index?
-- `Attack`-ad score: fixed high constant vs. derived from threat proximity/severity? How does it interact with a guard's own Fear/personality?
-- Gate assignment when gates ≠ guard count (more gates than guards, or vice-versa).
-- Should gates have functional open/closed state (night curfew?), or stay always-open visually with guards as the only filter?
-- Multiple creatures / pack behaviour; reinforcement (do off-duty guards respond?).
-- Tuning + honesty metrics (per the "score what everyone DOES" principle): monsters reaching prey via gate vs. blocked at wall; guard intercepts at gate; civilian deaths inside-walls vs. at-gate; post-abandonment events.
-- Does giving creatures pathfinding pull them toward becoming agents sooner than planned?
+Decided 2026-06-19 with the user; these define the scope of this pass.
+
+| Question | Decision |
+| --- | --- |
+| Shift model | Split by guard index: **even = day watch, odd = night watch**, gated by a clock day/night flag. No per-guard schedule state. (§3) |
+| `Attack`-ad score | **Proximity-derived, floored above the Patrol/StandWatch duty pull** so a breach always wins. Fear/personality still grades it via existing prepotency. (§3) |
+| Gate assignment vs guard count | Deterministic **round-robin by guard index** across the town's gate cells at seed time, regardless of gate≠guard count. (§3) |
+| Functional gate open/closed | **Yes — night curfew.** Clock-derived `GatesClosed` flag + read-only pathfinding overlay (no cost-grid mutation). Day open, night closed. (§3) |
+| Night behaviour of a hungry monster | **Blocked at the wall; the night watch attacks it there.** No gate HP / siege / battering. (§3, §4) |
+| Group scope | **Lean — solo monster, nearest on-duty guard reacts.** No packs, no reinforcement; off-duty guards do not respond. (§3, §4) |
+| Curfew visual (446↔447 swap) | **In, but cuttable** — its own town3d task; droppable if it fights the instanced renderer. Sim-side curfew stands alone. (§3) |
+| Creatures → agents | Pathfinding nudges them that way; **accepted** as the intended bridge to the far-future agents milestone. (§4) |
+
+**Honesty metrics (build with the pass, per "score what everyone DOES," [[scoring-honesty-not-numbers]]):** over a simulated day on a small walled town, histogram — monsters reaching prey via gate vs. blocked at wall; guard intercepts at gate; civilian deaths inside-walls vs. at-gate; guard post-abandonment events (Hunger beat duty). These are the signal that the chokepoint actually emerged, not the raw counts.
+
+**Verification:** `Sim.Tests` is unbuildable/stale ([[test-suite-stale-being-rewritten]]) — do **not** gate on it. Verify via live `Sim.Web` endpoints and the metrics histogram, on a light walled town (**Gallotale**, 5×6 / 401 placements — [[town-walls-and-walled-towns]]), not Daggerfall city (laggy).
 
 ---
 
