@@ -18,14 +18,4 @@ namespace DaggerfallWorkshop.Sim
         /// step size from real cadence (fine steps + faster ticks when sped up).
         public double DeltaGameSeconds;
     }
-
-    /// Single-global world time. No per-entity storage. Phase 1: mirrored from
-    /// DaggerfallUnity.Instance.WorldTime each frame by WorldClockMirror.
-    public sealed class WorldClockRegistry
-    {
-        WorldClockData _data = new WorldClockData();
-
-        public WorldClockData Current => Volatile.Read(ref _data);
-        public void Set(WorldClockData data) => Interlocked.Exchange(ref _data, data);
-    }
 }

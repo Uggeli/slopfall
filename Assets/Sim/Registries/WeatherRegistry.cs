@@ -23,13 +23,4 @@ namespace DaggerfallWorkshop.Sim
         public bool IsSnowing;
         public bool IsOvercast;
     }
-
-    /// Single-global current weather. Same atomic-swap pattern as WorldClockRegistry.
-    public sealed class WeatherRegistry
-    {
-        WeatherData _data = new WeatherData();
-
-        public WeatherData Current => Volatile.Read(ref _data);
-        public void Set(WeatherData data) => Interlocked.Exchange(ref _data, data);
-    }
 }

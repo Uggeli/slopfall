@@ -28,20 +28,4 @@ namespace DaggerfallWorkshop.Sim
         /// raw episode store.
         public List<MemoryEntry> Entries = new List<MemoryEntry>();
     }
-
-    /// Per-entity episodic memory. Sole writer: SocialSystem (whole-row
-    /// replacement, bounded at MaxEntries).
-    public sealed class MemoryRegistry
-    {
-        public const int MaxEntries = 32;
-
-        readonly ConcurrentDictionary<EntityId, MemoryData> _d = new ConcurrentDictionary<EntityId, MemoryData>();
-
-        public void Set(EntityId id, MemoryData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out MemoryData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, MemoryData>> All => _d;
-    }
 }

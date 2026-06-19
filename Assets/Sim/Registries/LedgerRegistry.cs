@@ -38,14 +38,4 @@ namespace DaggerfallWorkshop.Sim
         public double[] Exported;    // surplus shipped off-map (coin enters town)
         public double[] Consumed;    // eaten / used up (left the world for good)
     }
-
-    /// Single-global ledger. Sole writer: EconomySystem (whole-row swap each
-    /// tick, same atomic pattern as WorldClockRegistry).
-    public sealed class LedgerRegistry
-    {
-        LedgerData _d = new LedgerData();
-
-        public LedgerData Current => Volatile.Read(ref _d);
-        public void Set(LedgerData data) => Interlocked.Exchange(ref _d, data);
-    }
 }

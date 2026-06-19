@@ -21,19 +21,4 @@ namespace DaggerfallWorkshop.Sim
     {
         public Dictionary<EntityId, RelationData> Of = new Dictionary<EntityId, RelationData>();
     }
-
-    /// Per-entity directed opinions about other entities. Sole writer:
-    /// SocialSystem (whole-row replacement). This is the substrate NPC
-    /// opinions, gossip, and emergent quest seeds grow from.
-    public sealed class RelationsRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, RelationsData> _d = new ConcurrentDictionary<EntityId, RelationsData>();
-
-        public void Set(EntityId id, RelationsData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out RelationsData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, RelationsData>> All => _d;
-    }
 }

@@ -49,19 +49,4 @@ namespace DaggerfallWorkshop.Sim
         public double SinceDecisionGameMinutes;
         public ItemId TargetItem;           // item a Take/Use/Drop block acts on; None otherwise
     }
-
-    /// Current activity per civilian — Atoms would call these the minted
-    /// drive-instances, as opposed to the persistent poles in NeedsRegistry.
-    /// Sole writer: OddSystem (MovementSystem reports arrival via event).
-    public sealed class BehaviorRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, BehaviorData> _d = new ConcurrentDictionary<EntityId, BehaviorData>();
-
-        public void Set(EntityId id, BehaviorData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out BehaviorData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, BehaviorData>> All => _d;
-    }
 }

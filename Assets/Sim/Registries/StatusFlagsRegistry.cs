@@ -22,17 +22,4 @@ namespace DaggerfallWorkshop.Sim
         FreeAction  = 1 << 7,
         OpenLock    = 1 << 8,
     }
-
-    public sealed class StatusFlagsRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, StatusFlags> _d = new ConcurrentDictionary<EntityId, StatusFlags>();
-
-        public void Set(EntityId id, StatusFlags flags) => _d[id] = flags;
-        public StatusFlags Get(EntityId id) => _d.TryGetValue(id, out var f) ? f : StatusFlags.None;
-        public bool TryGet(EntityId id, out StatusFlags flags) => _d.TryGetValue(id, out flags);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, StatusFlags>> All => _d;
-    }
 }

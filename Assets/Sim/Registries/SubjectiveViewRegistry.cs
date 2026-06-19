@@ -24,20 +24,4 @@ namespace DaggerfallWorkshop.Sim
         /// Attention-ordered, capacity-limited reads of who I currently perceive.
         public List<EntityRead> Entities = new List<EntityRead>();
     }
-
-    /// Per-agent subjective view — the membrane's output and the single
-    /// interpretation surface the decider and the interrupt layer both read.
-    /// Sole writer: SubjectiveSystem (rebuilt each sense-tick). The decider also
-    /// calls SubjectiveSystem.Interpret directly for entities it isn't currently
-    /// sensing (a place's remembered occupants).
-    public sealed class SubjectiveViewRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, SubjectiveViewData> _d = new ConcurrentDictionary<EntityId, SubjectiveViewData>();
-
-        public void Set(EntityId id, SubjectiveViewData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out SubjectiveViewData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, SubjectiveViewData>> All => _d;
-    }
 }

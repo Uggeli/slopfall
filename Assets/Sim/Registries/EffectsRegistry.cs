@@ -22,17 +22,4 @@ namespace DaggerfallWorkshop.Sim
         /// a new EffectsData and assign via EffectsRegistry.Set.
         public List<EffectInstance> Active = new List<EffectInstance>();
     }
-
-    /// Per-entity active effects. EffectLifecycleSystem is the sole writer.
-    public sealed class EffectsRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, EffectsData> _d = new ConcurrentDictionary<EntityId, EffectsData>();
-
-        public void Set(EntityId id, EffectsData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out EffectsData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, EffectsData>> All => _d;
-    }
 }

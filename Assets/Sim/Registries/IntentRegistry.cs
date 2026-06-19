@@ -17,17 +17,4 @@ namespace DaggerfallWorkshop.Sim
         public double Duration;     // game-minutes for a fresh activity
         public ItemId Item;         // the item a Take/Use/Drop block acts on; None otherwise
     }
-
-    /// Per-agent pending intent. Sole writer: OddSystem. Sole consumer:
-    /// ExecutionSystem (reads then removes).
-    public sealed class IntentRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, IntentData> _d = new ConcurrentDictionary<EntityId, IntentData>();
-
-        public void Set(EntityId id, IntentData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out IntentData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, IntentData>> All => _d;
-    }
 }

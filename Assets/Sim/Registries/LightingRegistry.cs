@@ -16,14 +16,4 @@ namespace DaggerfallWorkshop.Sim
         /// 0..1, fraction of daytime elapsed. Negative outside [dawn, dusk].
         public float DayTime01;
     }
-
-    /// Derived lighting state — written by SunlightSystem, read by rendering
-    /// bridges (later). Single-global atomic-swap registry.
-    public sealed class LightingRegistry
-    {
-        LightingData _data = new LightingData();
-
-        public LightingData Current => Volatile.Read(ref _data);
-        public void Set(LightingData data) => Interlocked.Exchange(ref _data, data);
-    }
 }

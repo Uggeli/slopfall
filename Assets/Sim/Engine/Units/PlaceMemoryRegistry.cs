@@ -32,8 +32,8 @@ namespace DaggerfallWorkshop.Sim.Engine
         sealed class Mind
         {
             public readonly HashSet<int> Known = new HashSet<int>();
-            public readonly Dictionary<long, DaggerfallWorkshop.Sim.PlaceMemoryRegistry.Fact> Facts
-                = new Dictionary<long, DaggerfallWorkshop.Sim.PlaceMemoryRegistry.Fact>(); // key = (building, factType)
+            public readonly Dictionary<long, PlaceFactValue> Facts
+                = new Dictionary<long, PlaceFactValue>(); // key = (building, factType)
         }
 
         readonly Dictionary<EntityId, Mind> _d = new Dictionary<EntityId, Mind>();
@@ -77,7 +77,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             var m = GetOrAdd(id);
             m.Known.Add(building);   // knowing a fact about a place implies knowing it
             m.Facts[Key(building, fact)] =
-                new DaggerfallWorkshop.Sim.PlaceMemoryRegistry.Fact { Value = value, AsOfTick = tick };
+                new PlaceFactValue { Value = value, AsOfTick = tick };
         }
 
         Mind GetOrAdd(EntityId id)
@@ -98,7 +98,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         /// Recall a remembered fact. False if the agent has no memory of it
         /// ("never seen" is not "saw nothing").
         public bool Recall(EntityId id, int building, PlaceFact fact,
-                           out DaggerfallWorkshop.Sim.PlaceMemoryRegistry.Fact f)
+                           out PlaceFactValue f)
         {
             f = default;
             return building >= 0 && _d.TryGetValue(id, out var m) && m.Facts.TryGetValue(Key(building, fact), out f);

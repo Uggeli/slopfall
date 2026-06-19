@@ -11,16 +11,4 @@ namespace DaggerfallWorkshop.Sim
     {
         public Dictionary<string, int> Modifiers = new Dictionary<string, int>();
     }
-
-    public sealed class EffectAggregateRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, EffectAggregateData> _d = new ConcurrentDictionary<EntityId, EffectAggregateData>();
-
-        public void Set(EntityId id, EffectAggregateData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out EffectAggregateData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, EffectAggregateData>> All => _d;
-    }
 }

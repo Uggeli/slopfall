@@ -73,17 +73,4 @@ namespace DaggerfallWorkshop.Sim
             else if (Traits[trait] > 0.75) parts.Add(high);
         }
     }
-
-    /// Per-entity personality. Written once by TownLoader at spawn.
-    public sealed class PersonalityRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, PersonalityData> _d = new ConcurrentDictionary<EntityId, PersonalityData>();
-
-        public void Set(EntityId id, PersonalityData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out PersonalityData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, PersonalityData>> All => _d;
-    }
 }

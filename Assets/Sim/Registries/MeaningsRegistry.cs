@@ -21,18 +21,4 @@ namespace DaggerfallWorkshop.Sim
     {
         public Dictionary<int, CategoryNode> Nodes = new Dictionary<int, CategoryNode>();
     }
-
-    /// Per-agent semantic store. Sole writer: MeaningsSystem (folds interactions
-    /// into categories, decays them). Read by SubjectiveSystem.Interpret to judge
-    /// a STRANGER by their kind when no individual dossier read exists.
-    public sealed class MeaningsRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, MeaningsData> _d = new ConcurrentDictionary<EntityId, MeaningsData>();
-
-        public void Set(EntityId id, MeaningsData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out MeaningsData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, MeaningsData>> All => _d;
-    }
 }

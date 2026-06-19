@@ -16,17 +16,4 @@ namespace DaggerfallWorkshop.Sim
         public EntityId LastAttacker;    // who last struck it — retaliation target (V2b combat)
         public long LastStruckTick;      // when, so the grudge lapses
     }
-
-    public sealed class CreatureRegistry
-    {
-        readonly Dictionary<EntityId, CreatureData> _d = new Dictionary<EntityId, CreatureData>();
-
-        public void Set(EntityId id, CreatureData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out CreatureData data) => _d.TryGetValue(id, out data);
-        public bool Contains(EntityId id) => _d.ContainsKey(id);
-        public void Remove(EntityId id) => _d.Remove(id);
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, CreatureData>> All => _d;
-    }
 }

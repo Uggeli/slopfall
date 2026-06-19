@@ -66,13 +66,4 @@ namespace DaggerfallWorkshop.Sim
             return true;
         }
     }
-
-    /// Single-global town walkability. Written once by TownLoader at load.
-    public sealed class TownGridRegistry
-    {
-        TownGridData _data;
-
-        public TownGridData Current => Volatile.Read(ref _data);
-        public void Set(TownGridData data) => Interlocked.Exchange(ref _data, data);
-    }
 }

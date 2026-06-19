@@ -49,35 +49,4 @@ namespace DaggerfallWorkshop.Sim
         public readonly List<int> Buildings = new List<int>();
         public readonly List<EntityId> Residents = new List<EntityId>();
     }
-
-    /// All settlements in the loaded region, keyed by settlement id. Single-writer
-    /// (region loader at load); enumeration is over a stable id-ordered list so any
-    /// per-settlement pass is deterministic (same discipline as the economy walk).
-    public sealed class SettlementRegistry
-    {
-        readonly List<SettlementData> _all = new List<SettlementData>();
-
-        /// Allocate the next settlement, giving it an id and its own treasury OwnerId.
-        /// OwnerId.Town (1) stays the sentinel; settlement purses start at 100 so each
-        /// settlement is an isolated public-finance unit (taxes its own residents, pays
-        /// its own guards). Single-town becomes OwnerId(100) — the same single pool with
-        /// a different id, so amounts are unchanged.
-        public SettlementData Add(string name, string regionName, SettlementKind kind)
-        {
-            var s = new SettlementData
-            {
-                Id = _all.Count,
-                Name = name,
-                RegionName = regionName,
-                Kind = kind,
-                Treasury = new OwnerId(100 + _all.Count),
-            };
-            _all.Add(s);
-            return s;
-        }
-
-        public SettlementData Get(int id) => _all[id];
-        public int Count => _all.Count;
-        public IReadOnlyList<SettlementData> All => _all;
-    }
 }

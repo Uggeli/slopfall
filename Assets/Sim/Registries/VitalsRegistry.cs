@@ -11,17 +11,4 @@ namespace DaggerfallWorkshop.Sim
         public int CurrentBreath, MaxBreath;
         public bool IsDead;
     }
-
-    /// HP / Magicka / Fatigue / Breath per entity. Phase 1: mirrored from DaggerfallEntity each frame.
-    public sealed class VitalsRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, VitalsData> _d = new ConcurrentDictionary<EntityId, VitalsData>();
-
-        public void Set(EntityId id, VitalsData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out VitalsData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, VitalsData>> All => _d;
-    }
 }

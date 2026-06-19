@@ -29,19 +29,4 @@ namespace DaggerfallWorkshop.Sim
         /// promotes to the next skill point when this reaches the threshold.
         public Dictionary<string, int> SkillExp = new Dictionary<string, int>();
     }
-
-    /// Per-entity stats + skills. Written initially by SimMirror (Phase 1 seed)
-    /// and thereafter by sim systems (SkillAdvancementSystem etc.). Same
-    /// whole-row-replacement discipline as the other entity registries.
-    public sealed class StatsRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, StatsData> _d = new ConcurrentDictionary<EntityId, StatsData>();
-
-        public void Set(EntityId id, StatsData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out StatsData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, StatsData>> All => _d;
-    }
 }

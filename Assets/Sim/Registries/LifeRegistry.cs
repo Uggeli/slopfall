@@ -11,17 +11,4 @@ namespace DaggerfallWorkshop.Sim
         public double AgeYears;
         public double LifespanYears;
     }
-
-    /// Per-entity life state. Writers: the loaders (seed at spawn) + AgingSystem
-    /// (age ticks). Removed by LifecycleSystem on despawn.
-    public sealed class LifeRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, LifeData> _d = new ConcurrentDictionary<EntityId, LifeData>();
-
-        public void Set(EntityId id, LifeData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out LifeData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, LifeData>> All => _d;
-    }
 }

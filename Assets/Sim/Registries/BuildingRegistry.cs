@@ -60,31 +60,4 @@ namespace DaggerfallWorkshop.Sim
         public int BlockX, BlockY; // town grid cell
         public int RecordIndex;    // subrecord index within the block
     }
-
-    /// All structures of the currently loaded location, keyed by a stable
-    /// per-load index. Written once by TownLoader at load; read-only after.
-    /// Single-town for now — multi-town residency arrives with LOD work.
-    public sealed class BuildingRegistry
-    {
-        readonly ConcurrentDictionary<int, BuildingRow> _d = new ConcurrentDictionary<int, BuildingRow>();
-        int _nextIndex = -1;
-
-        public int Add(BuildingRow row)
-        {
-            int index = Interlocked.Increment(ref _nextIndex);
-            _d[index] = row;
-            return index;
-        }
-
-        public bool TryGet(int index, out BuildingRow row) => _d.TryGetValue(index, out row);
-
-        public void Clear()
-        {
-            _d.Clear();
-            Interlocked.Exchange(ref _nextIndex, -1);
-        }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<int, BuildingRow>> All => _d;
-    }
 }

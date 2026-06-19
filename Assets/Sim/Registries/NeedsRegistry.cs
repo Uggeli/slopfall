@@ -27,18 +27,4 @@ namespace DaggerfallWorkshop.Sim
         /// 1.5 so an extreme value can still express urgency in scoring.
         public double[] V = new double[NeedAxis.Count];
     }
-
-    /// Per-entity need/emotion state. Seeded by TownLoader; sole writer
-    /// thereafter is NeedsSystem (drift + activity effects).
-    public sealed class NeedsRegistry
-    {
-        readonly ConcurrentDictionary<EntityId, NeedsData> _d = new ConcurrentDictionary<EntityId, NeedsData>();
-
-        public void Set(EntityId id, NeedsData data) => _d[id] = data;
-        public bool TryGet(EntityId id, out NeedsData data) => _d.TryGetValue(id, out data);
-        public void Remove(EntityId id) { _d.TryRemove(id, out var _); }
-
-        public int Count => _d.Count;
-        public IEnumerable<KeyValuePair<EntityId, NeedsData>> All => _d;
-    }
 }
