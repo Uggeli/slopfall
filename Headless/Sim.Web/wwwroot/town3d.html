@@ -80,6 +80,8 @@ scene.background = new THREE.Color(0x9fc0e8);
 scene.fog = new THREE.Fog(0x9fc0e8, 400, 1600);   // hides the 3x3 terrain edge too
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
+controls.minDistance = 5;                    // don't let dolly collapse the pivot to ~0 (frozen zoom)
+controls.maxPolarAngle = Math.PI * 0.495;    // keep the camera above the ground plane
 
 const ambient = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambient);
@@ -272,6 +274,10 @@ const _fwd = new THREE.Vector3(), _right = new THREE.Vector3(),
       _up = new THREE.Vector3(0, 1, 0), _move = new THREE.Vector3();
 function moveCamera(dt) {
   if (!keys.size) return;
+  const fast = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const speed = Math.max(40, camera.position.distanceTo(controls.target)) * dt * (fast ? 3 : 1);
+
+  // Horizontal WASD: pan camera + pivot together across the ground.
   _move.set(0, 0, 0);
   camera.getWorldDirection(_fwd); _fwd.y = 0;
   if (_fwd.lengthSq() < 1e-6) _fwd.set(0, 0, -1);   // looking straight down
@@ -281,13 +287,50 @@ function moveCamera(dt) {
   if (keys.has('KeyS')) _move.sub(_fwd);
   if (keys.has('KeyD')) _move.add(_right);
   if (keys.has('KeyA')) _move.sub(_right);
-  if (keys.has('KeyE') || keys.has('Space')) _move.y += 1;
-  if (keys.has('KeyQ')) _move.y -= 1;
-  if (_move.lengthSq() === 0) return;
-  let speed = Math.max(40, camera.position.distanceTo(controls.target)) * dt;
-  if (keys.has('ShiftLeft') || keys.has('ShiftRight')) speed *= 3;
-  _move.normalize().multiplyScalar(speed);
-  camera.position.add(_move); controls.target.add(_move);
+  if (_move.lengthSq() > 0) {
+    _move.normalize().multiplyScalar(speed);
+    camera.position.add(_move); controls.target.add(_move);
+  }
+
+  // Vertical E/Q: raise/lower the CAMERA only — the pivot stays on the ground.
+  // (Moving the pivot up would fight followGround, which re-grounds it each frame.)
+  let vy = 0;
+  if (keys.has('KeyE') || keys.has('Space')) vy += 1;
+  if (keys.has('KeyQ')) vy -= 1;
+  if (vy) camera.position.y += vy * speed;
+}
+
+// Keep the orbit pivot ON the ground. The terrain has real elevation (region mode
+// especially), but controls.target sat at y=0 — so panning/zooming toward raised
+// ground drove the pivot underground and the controls felt dead (the same fixed-
+// height bug as the billboards). Sample the terrain under the target and ease the
+// pivot AND camera to it together, so the offset is preserved and OrbitControls
+// stays consistent while zoom/pan act relative to the surface.
+const _hcaster = new THREE.Raycaster();
+const _hfrom = new THREE.Vector3(), _hdir = new THREE.Vector3(0, -1, 0);
+let groundAccum = 0, groundY = 0;
+function terrainTargetMeshes() {
+  if (!regionMeta) return terrainGroup.children;   // town: just the 3x3 tiles
+  const ts = regionMeta.tileSize, t = controls.target;
+  const mx = regionMeta.mx0 + Math.round(t.x / ts);
+  const my = regionMeta.my1 - Math.round(t.z / ts);
+  const m = regionTiles.get(mx + ',' + my);
+  return (m && m !== 'loading') ? [m] : null;       // null → tile not streamed yet
+}
+function followGround(dt) {
+  groundAccum += dt;
+  if (groundAccum >= 0.1) {                          // ~10 Hz sampling is plenty for panning
+    groundAccum = 0;
+    const meshes = terrainTargetMeshes();
+    if (meshes && meshes.length) {
+      _hfrom.set(controls.target.x, 1e5, controls.target.z);
+      _hcaster.set(_hfrom, _hdir);
+      const hit = _hcaster.intersectObjects(meshes, false)[0];
+      if (hit) groundY = hit.point.y;
+    }
+  }
+  const dy = (groundY - controls.target.y) * Math.min(1, dt * 6);
+  if (Math.abs(dy) > 1e-4) { controls.target.y += dy; camera.position.y += dy; }
 }
 
 const manager = new THREE.LoadingManager();
@@ -362,6 +405,7 @@ function animate() {
   const now = performance.now() / 1000;
   const dt = Math.min(0.1, now - lastFrame); lastFrame = now;
   moveCamera(dt);
+  followGround(dt);
   controls.update();
   updateAtmosphere(dt);
   streamRegionTerrain(dt);
