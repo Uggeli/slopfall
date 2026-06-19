@@ -11,6 +11,7 @@ namespace DaggerfallWorkshop.Sim.Host
     ///   --engineworld region location [ticks]   load a town, run it, verify parallel==serial
     ///   --soak region location [days]           run a town on the parallel engine, report
     ///   --soakregion region [days]              run a whole region on the parallel engine
+    ///   --regionview region [port]              live HTTP/browser viewer of a whole region
     public static class Program
     {
         public static int Main(string[] args)
@@ -45,6 +46,16 @@ namespace DaggerfallWorkshop.Sim.Host
                     return EngineSoak.Run(w, args.Length > 2 ? int.Parse(args[2]) : 1);
                 }
 
+                case "--regionview":
+                {
+                    if (args.Length < 2) { Console.WriteLine("usage: --regionview region [port]"); return 1; }
+                    int port = args.Length > 2 ? int.Parse(args[2]) : 8080;
+                    Console.WriteLine($"loading region {args[1]}…");
+                    var w = SimBoot.CreateRegion(SimBoot.DefaultArena2Path, args[1], 600f, 12345);
+                    new Render.RegionViewServer(w, port).Run(port);
+                    return 0;
+                }
+
                 default:
                     Usage();
                     return 1;
@@ -68,6 +79,6 @@ namespace DaggerfallWorkshop.Sim.Host
         }
 
         static void Usage() => Console.WriteLine(
-            "usage: --probe | --enginedemo | --enginesmoke [ticks] | --engineworld R L [ticks] | --soak R L [days] | --soakregion R [days]");
+            "usage: --probe | --enginedemo | --enginesmoke [ticks] | --engineworld R L [ticks] | --soak R L [days] | --soakregion R [days] | --regionview R [port]");
     }
 }
