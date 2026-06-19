@@ -22,6 +22,9 @@ namespace DaggerfallWorkshop.Sim.Host
                 case "--probe":
                     return DataProbe.Run(args.Length > 1 ? args[1] : null, args.Length > 2 ? args[2] : null);
 
+                case "--gatecheck":
+                    return GateDiag.Run(args.Length > 1 ? args[1] : null, args.Length > 2 ? args[2] : null);
+
                 case "--enginedemo":
                     return DaggerfallWorkshop.Sim.Engine.Demo.EngineDemo.Run();
 
@@ -68,6 +71,6 @@ namespace DaggerfallWorkshop.Sim.Host
         }
 
         static void Usage() => Console.WriteLine(
-            "usage: --probe | --enginedemo | --enginesmoke [ticks] | --engineworld R L [ticks] | --soak R L [days] | --soakregion R [days]");
+            "usage: --probe | --enginedemo | --enginesmoke [ticks] | --engineworld R L [ticks] | --soak R L [days] | --soakregion R [days] | --gatecheck region location");
     }
 }

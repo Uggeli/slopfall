@@ -101,6 +101,7 @@ namespace DaggerfallWorkshop.Sim
                 RegionIndex = regionIndex,
                 Cost = new byte[blocksWide * cells * blocksHigh * cells],
                 Gates = new BlockGates[blocksWide * blocksHigh],
+                GateBlock = new bool[blocksWide * blocksHigh],
             };
         }
 
@@ -157,6 +158,12 @@ namespace DaggerfallWorkshop.Sim
                     for (int row = 0; row < cells; row++)
                         Array.Copy(walk.Cost, row * cells,
                             grid.Cost, (gy * cells + row) * grid.Width + gx * cells, cells);
+
+                    // Perimeter wall blocks (model 444/445 walls + 446/447 gates):
+                    // their only walkable cells are the gate openings. Flag the block
+                    // so the curfew overlay can seal it and gate posts can be derived.
+                    if (blockName.StartsWith("WALL"))
+                        grid.GateBlock[gy * grid.BlocksWide + gx] = true;
 
                     var buildingDataList = block.RmbBlock.FldHeader.BuildingDataList;
                     for (int i = 0; i < block.RmbBlock.SubRecords.Length; i++)

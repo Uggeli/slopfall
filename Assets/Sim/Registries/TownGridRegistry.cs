@@ -33,11 +33,18 @@ namespace DaggerfallWorkshop.Sim
         public int RegionIndex;             // classic region of the loaded town (holidays)
         public byte[] Cost;                 // Width * Height
         public BlockGates[] Gates;          // BlocksWide * BlocksHigh
+        public bool[] GateBlock;     // BlocksWide * BlocksHigh; true = a WALL* block (perimeter, gate openings live here)
         public BlockConnectivity Connectivity;   // baked component reachability graph (lazy; built on first pathfind)
 
         public bool InBounds(int x, int y) => x >= 0 && x < Width && y >= 0 && y < Height;
         public byte CostAt(int x, int y) => Cost[y * Width + x];
         public bool Walkable(int x, int y) => InBounds(x, y) && Cost[y * Width + x] > 0;
+
+        /// True if cell (x,y) lies in a WALL* (perimeter) block — the cells that
+        /// seal at night under curfew. False when GateBlock isn't baked (no walls).
+        public bool IsGateCell(int x, int y)
+            => GateBlock != null && InBounds(x, y)
+               && GateBlock[(y / CellsPerBlock) * BlocksWide + (x / CellsPerBlock)];
 
         public int CellX(float worldX) => (int)(worldX / CellSize);
         public int CellY(float worldZ) => (int)(worldZ / CellSize);
