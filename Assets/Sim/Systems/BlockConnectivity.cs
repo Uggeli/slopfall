@@ -31,16 +31,23 @@ namespace DaggerfallWorkshop.Sim
         readonly List<Link>[] _links;   // [global component] → outgoing links
         public int Count { get; }
 
-        // Reusable macro-BFS buffers (single-threaded for now; ThreadStatic when
-        // MovementSystem parallelizes). Generation-stamped so reset is O(1).
-        int[] _stamp; int _gen; int[] _prevComp; Link[] _prevLink;
-        readonly Queue<int> _queue = new Queue<int>();
-        readonly List<Link> _route = new List<Link>();
+        // Reusable macro-BFS buffers — one set per thread so MovementSystem and
+        // CreatureSystem can both pathfind from the parallel engine phase without
+        // racing on the same BFS state. Generation-stamped so reset is O(1).
+        sealed class MacroBfs
+        {
+            public int[] Stamp;
+            public int Gen;
+            public int[] PrevComp;
+            public Link[] PrevLink;
+            public readonly Queue<int> Queue = new Queue<int>();
+            public readonly List<Link> Route = new List<Link>();
+        }
+        [System.ThreadStatic] static MacroBfs _bfs;
 
         BlockConnectivity(byte[][] blockComp, int[] baseArr, List<Link>[] links, int count)
         {
             _blockComp = blockComp; _base = baseArr; _links = links; Count = count;
-            _stamp = new int[count]; _prevComp = new int[count]; _prevLink = new Link[count];
         }
 
         /// Global component a cell belongs to, or −1 if blocked / no block.
@@ -60,39 +67,50 @@ namespace DaggerfallWorkshop.Sim
         /// Shortest component route (min block-crossings) from `from` to `to`, as the
         /// ordered links to traverse — or null if unreachable (NO full-grid fallback).
         /// BFS, bounded to the start's settlement (buffers disconnect the rest).
+        /// Uses [ThreadStatic] BFS state so MovementSystem and CreatureSystem can
+        /// both call this concurrently from the parallel engine phase.
         public List<Link> MacroRoute(int from, int to)
         {
-            _route.Clear();
-            if (from == to) return _route;
+            var s = _bfs ?? (_bfs = new MacroBfs());
+            // Lazily size the per-thread arrays to this connectivity graph's count.
+            if (s.Stamp == null || s.Stamp.Length < Count)
+            {
+                s.Stamp    = new int[Count];
+                s.PrevComp = new int[Count];
+                s.PrevLink = new Link[Count];
+            }
 
-            int gen = ++_gen;
-            _queue.Clear();
-            _stamp[from] = gen; _queue.Enqueue(from);
+            s.Route.Clear();
+            if (from == to) return s.Route;
+
+            int gen = ++s.Gen;
+            s.Queue.Clear();
+            s.Stamp[from] = gen; s.Queue.Enqueue(from);
 
             bool found = false;
-            while (_queue.Count > 0)
+            while (s.Queue.Count > 0)
             {
-                int comp = _queue.Dequeue();
+                int comp = s.Queue.Dequeue();
                 if (comp == to) { found = true; break; }
                 var links = _links[comp];
                 if (links == null) continue;
                 for (int i = 0; i < links.Count; i++)
                 {
                     int nxt = links[i].To;
-                    if (_stamp[nxt] == gen) continue;
-                    _stamp[nxt] = gen;
-                    _prevComp[nxt] = comp;
-                    _prevLink[nxt] = links[i];
-                    _queue.Enqueue(nxt);
+                    if (s.Stamp[nxt] == gen) continue;
+                    s.Stamp[nxt] = gen;
+                    s.PrevComp[nxt] = comp;
+                    s.PrevLink[nxt] = links[i];
+                    s.Queue.Enqueue(nxt);
                 }
             }
             if (!found) return null;
 
             // Walk parents back, collecting the links, then reverse into forward order.
             int cur = to;
-            while (cur != from) { _route.Add(_prevLink[cur]); cur = _prevComp[cur]; }
-            _route.Reverse();
-            return _route;
+            while (cur != from) { s.Route.Add(s.PrevLink[cur]); cur = s.PrevComp[cur]; }
+            s.Route.Reverse();
+            return s.Route;
         }
 
         /// Flood every block into components and stitch the cross-block graph. Derives

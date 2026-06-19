@@ -225,7 +225,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             });
             Events.Publish(new PositionSetIntent { Id = id, X = px, Y = 0f, Z = pz, Yaw = 0f });
             Events.Publish(new VitalsSetIntent { Id = id, Data = new VitalsData { CurrentHealth = 20, MaxHealth = 20 } });
-            Events.Publish(new CreatureSetIntent { Id = id, Data = new CreatureData { TargetX = px, TargetZ = pz, NextAttackTick = 0, HungerLevel = 0 } });
+            Events.Publish(new CreatureSetIntent { Id = id, Data = new CreatureData { TargetX = px, TargetZ = pz, NextAttackTick = 0, HungerLevel = 0.6f } });
             return true;
         }
 
