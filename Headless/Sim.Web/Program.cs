@@ -2,10 +2,13 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using DaggerfallWorkshop.Sim;
+using DaggerfallWorkshop.Sim.Engine;
+using DaggerfallWorkshop.Sim.Web;
 using Sim.AssetExport;
 
-// Web spectator: pan over the living town in a browser, click a dude, see who
-// he is. Usage: dotnet run <region> <location> [--port 8080] [--timescale 600]
+// Web spectator: pan over the living town/region in a browser (town3d.html) on the
+// parallel CQRS engine. Usage: dotnet run <region> <location> [--port 8080]
+//   [--timescale 600] [--region] [--starthour H]
 
 string region = null, location = null;
 int port = 8080;
@@ -30,11 +33,10 @@ for (int i = 0; i < args.Length; i++)
 region ??= "Daggerfall";
 location ??= "Gothway Garden";
 
-// One boot, two scopes. Region mode loads every settlement into the combined grid
-// (the same context the throughput bench runs); town mode loads one location. The
-// static map payload, the asset endpoints, and the agent stream all read whichever
-// scope booted — the client is identical either way.
-SimBootResult boot;
+// One boot, two scopes. Region mode loads every settlement into the combined grid;
+// town mode loads one location. The static map payload, the asset endpoints, and the
+// agent stream all read whichever scope booted — the client is identical either way.
+SimWorld world;
 string worldRegionName, worldName;
 int worldBlocksWide, worldBlocksHigh, worldCivilians;
 List<(string name, float ox, float oy, float oz)> settlements = null;
@@ -49,12 +51,13 @@ List<(int mx, int my, string name, int w, int h)> rTowns = null;
 (int mx, int my, string name, int w, int h) rCentre = default;
 if (wholeRegion)
 {
-    boot = SimBoot.CreateRegion(SimBoot.DefaultArena2Path, region, timeScale);
-    worldRegionName = boot.Region.RegionName;
-    worldName = boot.Region.Settlements + " settlements";
-    worldBlocksWide = boot.Region.BlocksWide;
-    worldBlocksHigh = boot.Region.BlocksHigh;
-    worldCivilians = boot.Region.Civilians;
+    world = SimBoot.CreateRegion(SimBoot.DefaultArena2Path, region, timeScale);
+    var grid0 = world.TownGrid.Current;
+    worldRegionName = region;
+    worldName = world.Settlements.All.Count + " settlements";
+    worldBlocksWide = grid0.BlocksWide;
+    worldBlocksHigh = grid0.BlocksHigh;
+    worldCivilians = CountCivilians(world);
 
     // Place settlements at their TRUE overworld positions, not the sim's packed
     // grid. The sim packs them into a dense walkability grid for pathfinding; since
@@ -74,7 +77,7 @@ if (wholeRegion)
         int tilePosX = (128 - blocksWide * 16) / 2, tilePosY = (128 - blocksHigh * 16) / 2;
         return (tilePosX / 16f * BlockSide, tilePosY / 16f * BlockSide);
     }
-    var sAll = boot.Ctx.Settlements.All;
+    var sAll = world.Settlements.All;
     const int TerrainPad = 3;   // pixels of wilderness/sea to keep around the towns
     int mx0 = int.MaxValue, my0 = int.MaxValue, mx1 = int.MinValue, my1 = int.MinValue;
     foreach (var s in sAll)
@@ -130,28 +133,32 @@ if (wholeRegion)
 }
 else
 {
-    boot = SimBoot.CreateTown(SimBoot.DefaultArena2Path, region, location, timeScale);
-    worldRegionName = boot.Town.RegionName;
-    worldName = boot.Town.Name;
-    worldBlocksWide = boot.Town.BlocksWide;
-    worldBlocksHigh = boot.Town.BlocksHigh;
-    worldCivilians = boot.Town.Civilians;
+    world = SimBoot.CreateTown(SimBoot.DefaultArena2Path, region, location, timeScale);
+    worldRegionName = region;
+    worldName = location;
+    var grid0 = world.TownGrid.Current;
+    worldBlocksWide = grid0.BlocksWide;
+    worldBlocksHigh = grid0.BlocksHigh;
+    worldCivilians = CountCivilians(world);
 }
 
 // Optional: jump the clock to a given hour (e.g. midday) so the scene is lit
-// regardless of the spectator's speed control.
+// regardless of the spectator's speed control. Seeded as a registry intent +
+// fold (ApplySeed runs registries only), the same way SimBoot seeds the clock.
 if (startHour >= 0)
-    boot.Ctx.Inputs.Enqueue(new SeedClockInput
+{
+    world.Events.Publish(new WorldClockSetIntent
     {
-        Year = 405, Month = 0, Day = 3, Hour = startHour, Minute = 0, Second = 0f, TimeScale = timeScale,
+        Year = 405, Month = 0, Day = 3, Hour = startHour, Minute = 0, Second = 0f,
+        TimeScale = timeScale, DeltaGameSeconds = 0.1,
     });
+    world.ApplySeed();
+}
 
-var publisher = new SnapshotPublisher();
-var simThread = new SimThread(boot.Loop, boot.Ctx, publisher);
-simThread.Start();
+var runner = new WorldRunner(world, timeScale);
+runner.Start();
 
-// IncludeFields: the sim's DTOs (EntityDetail etc.) use public fields, which
-// System.Text.Json ignores by default.
+// IncludeFields: the DTOs use public fields, which System.Text.Json ignores by default.
 var jsonOptions = new JsonSerializerOptions
 {
     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -163,7 +170,7 @@ var jsonOptions = new JsonSerializerOptions
 // [x, y, length, ...] so houses render with real walls and perimeter.
 var roadCells = new List<int>();
 var solidRuns = new List<int>();
-var townGrid = boot.Ctx.TownGrid.Current;
+var townGrid = world.TownGrid.Current;
 if (townGrid != null)
 {
     for (int y = 0; y < townGrid.Height; y++)
@@ -201,7 +208,7 @@ var worldJson = JsonSerializer.SerializeToUtf8Bytes(new
     cellSize = TownGridData.CellSize,
     roads = roadCells,
     solids = solidRuns,
-    buildings = boot.Ctx.Buildings.All
+    buildings = world.Buildings.All
         .OrderBy(kv => kv.Key)
         .Select(kv => new
         {
@@ -213,10 +220,12 @@ var worldJson = JsonSerializer.SerializeToUtf8Bytes(new
         }),
 }, jsonOptions);
 
-// Asset service (render-client plane 1) decodes ARENA2 geometry/textures to glTF +
-// PNG on demand; created above so the region boot could query tile floors.
-
-var builder = WebApplication.CreateBuilder();
+// Pin WebRoot to the wwwroot copied beside the assembly, so the viewer's static
+// files resolve no matter what directory the host is launched from.
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    WebRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot"),
+});
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 var app = builder.Build();
@@ -352,7 +361,7 @@ app.Map("/ws", async context =>
         long lastTick = -1;
         while (ws.State == WebSocketState.Open)
         {
-            var snap = publisher.Latest;
+            var snap = runner.Latest;
             if (snap != null && snap.Tick != lastTick)
             {
                 lastTick = snap.Tick;
@@ -362,20 +371,20 @@ app.Map("/ws", async context =>
                     tick = snap.Tick,
                     hour = snap.Hour,
                     minute = snap.Minute,
-                    night = snap.IsNight,
-                    sun = snap.SunIntensity,
+                    night = snap.Night,
+                    sun = snap.Sun,
                     weather = snap.Weather.ToString(),
-                    speed = boot.Ctx.WorldClock.Current.TimeScale,
+                    speed = runner.TimeScale,
                     // Compact rows: [id, x, z, activity, phase, yaw, kind, groundY]
                     // (2D spectator reads [0..4]; 3D viewer also uses yaw+kind+groundY.)
                     // Region mode projects packed coords to the geographic world and
                     // carries the town's pad height so agents stand on the terrain.
-                    entities = snap.Entities.Select(e =>
+                    entities = snap.Agents.Select(e =>
                     {
                         var (ex, ey, ez) = wholeRegion ? GeoRemap(e.X, e.Z) : (e.X, 0f, e.Z);
                         return new object[]
-                            { e.Id, MathF.Round(ex, 1), MathF.Round(ez, 1), (int)e.Activity, (int)e.Phase,
-                              MathF.Round(e.Yaw, 3), (int)e.Kind, MathF.Round(ey, 1) };
+                            { e.Id, MathF.Round(ex, 1), MathF.Round(ez, 1), e.Activity, e.Phase,
+                              MathF.Round(e.Yaw, 3), e.Kind, MathF.Round(ey, 1) };
                     }),
                 }, jsonOptions);
                 await Send(payload);
@@ -384,7 +393,8 @@ app.Map("/ws", async context =>
         }
     });
 
-    // Receive loop: inspect requests — the first client→server channel.
+    // Receive loop: spectator controls. Inspect reads the live registries directly
+    // (rare, on click) — wrapped, since the sim thread may be mid-write.
     var buffer = new byte[4096];
     try
     {
@@ -399,26 +409,18 @@ app.Map("/ws", async context =>
             switch (t.GetString())
             {
                 case "inspect" when doc.RootElement.TryGetProperty("id", out var idProp):
-                {
-                    var detail = Inspector.Inspect(boot.Ctx, new EntityId(idProp.GetInt32()));
                     await Send(JsonSerializer.SerializeToUtf8Bytes(
-                        new { type = "detail", detail }, jsonOptions));
+                        new { type = "detail", detail = InspectEntity(new EntityId(idProp.GetInt32())) }, jsonOptions));
                     break;
-                }
+
                 case "inspectBuilding" when doc.RootElement.TryGetProperty("i", out var bProp):
-                {
-                    var building = Inspector.InspectBuilding(boot.Ctx, bProp.GetInt32());
                     await Send(JsonSerializer.SerializeToUtf8Bytes(
-                        new { type = "building", building }, jsonOptions));
+                        new { type = "building", building = InspectBuilding(bProp.GetInt32()) }, jsonOptions));
                     break;
-                }
+
                 case "speed" when doc.RootElement.TryGetProperty("scale", out var sProp):
-                {
-                    // First control message a client sends: through the same
-                    // InputBus player verbs will use.
-                    boot.Ctx.Inputs.Enqueue(new SetTimeScaleInput { TimeScale = (float)sProp.GetDouble() });
+                    runner.SetTimeScale((float)sProp.GetDouble());
                     break;
-                }
             }
         }
     }
@@ -430,3 +432,71 @@ app.Map("/ws", async context =>
 Console.WriteLine($"spectating {worldRegionName} / {worldName} "
     + $"({worldCivilians} civilians) at http://localhost:{port}");
 app.Run();
+
+// --- local helpers (read the new registries) ---
+
+int CountCivilians(SimWorld w)
+{
+    int n = 0;
+    foreach (var kv in w.Identity.All) if (kv.Value.Kind == EntityKind.CivilianNPC) n++;
+    return n;
+}
+
+// Click-to-inspect, rebuilt on the new registries (replaces the deleted Inspector).
+// The sim thread may be writing concurrently; retry a couple times on a transient
+// collection-modified race, then give up gracefully.
+object InspectEntity(EntityId id)
+{
+    for (int attempt = 0; attempt < 3; attempt++)
+    {
+        try
+        {
+            if (!world.Identity.TryGet(id, out var ident)) return new { id = id.Value, missing = true };
+            world.Behavior.TryGet(id, out var beh);
+            world.Needs.TryGet(id, out var needs);
+            world.Coin.TryGet(id, out var coin);
+            world.Position.TryGet(id, out var pos);
+            return new
+            {
+                id = id.Value,
+                name = ident.Name,
+                kind = ident.Kind.ToString(),
+                race = ident.Race,
+                level = ident.Level,
+                career = ident.CareerIndex,
+                faction = ident.FactionId,
+                coin = coin,
+                activity = beh != null ? beh.Activity.ToString() : "—",
+                phase = beh != null ? beh.Phase.ToString() : "—",
+                targetBuilding = beh != null ? beh.TargetBuilding : -1,
+                needs = needs != null ? needs.V : null,
+                x = pos != null ? pos.X : 0f,
+                z = pos != null ? pos.Z : 0f,
+            };
+        }
+        catch (InvalidOperationException) { Thread.Sleep(2); }
+    }
+    return new { id = id.Value, busy = true };
+}
+
+object InspectBuilding(int i)
+{
+    for (int attempt = 0; attempt < 3; attempt++)
+    {
+        try
+        {
+            if (!world.Buildings.TryGet(i, out var b)) return new { i, missing = true };
+            return new
+            {
+                i,
+                kind = b.Kind.ToString(),
+                quality = b.Quality,
+                faction = b.FactionId,
+                x = b.X,
+                z = b.Z,
+            };
+        }
+        catch (InvalidOperationException) { Thread.Sleep(2); }
+    }
+    return new { i, busy = true };
+}
