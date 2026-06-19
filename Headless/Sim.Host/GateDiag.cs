@@ -54,6 +54,16 @@ namespace DaggerfallWorkshop.Sim.Host
                     Console.WriteLine($"  path to gate 0: day found={dayOk} len={dayLen}; curfew found={nightOk} len={nightLen}");
                 }
             }
+            int guards = 0;
+            foreach (var kv in w.Employment.All)
+            {
+                var e = kv.Value;
+                if (e == null || e.PublicOwner.IsNone) continue;
+                guards++;
+                Console.WriteLine($"  guard {kv.Key.Value}: gate={e.GateIndex} shift={(e.NightShift ? "night" : "day")} at ({e.GateX:F1},{e.GateZ:F1})");
+            }
+            Console.WriteLine($"total guards={guards}");
+
             return 0;
         }
     }

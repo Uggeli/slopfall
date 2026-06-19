@@ -12,5 +12,8 @@ namespace DaggerfallWorkshop.Sim
     {
         public EntityId Employer;       // the keeper/business that pays this agent (None if public-employed)
         public OwnerId PublicOwner;     // set → on the public payroll (a guard): salaried from this treasury (E3)
+        public int GateIndex = -1;      // assigned gate post in the settlement (−1 = no gates / civilian fallback)
+        public bool NightShift;         // true = night watch, false = day watch (assigned by guard index)
+        public float GateX, GateZ;      // world position of the assigned gate post
     }
 }

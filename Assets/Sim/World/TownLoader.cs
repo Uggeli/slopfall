@@ -235,7 +235,15 @@ namespace DaggerfallWorkshop.Sim
             for (int i = 0; i < guards; i++)
             {
                 var id = residents[i];
-                world.Employment.Seed(id, new EmploymentData { Employer = EntityId.None, PublicOwner = s.Treasury });
+                var emp = new EmploymentData { Employer = EntityId.None, PublicOwner = s.Treasury };
+                emp.NightShift = (i % 2) == 1;          // even index = day watch, odd = night watch
+                if (s.GatePosts.Count > 0)
+                {
+                    emp.GateIndex = i % s.GatePosts.Count;   // round-robin across posts
+                    emp.GateX = s.GatePosts[emp.GateIndex].X;
+                    emp.GateZ = s.GatePosts[emp.GateIndex].Z;
+                }
+                world.Employment.Seed(id, emp);
                 // Keep the generated name, tag the public role: "Tindyl Sorensen (Guard)".
                 if (world.Identity.TryGet(id, out var ident) && ident != null && ident.Name != null
                     && !ident.Name.Contains("(Guard)"))
