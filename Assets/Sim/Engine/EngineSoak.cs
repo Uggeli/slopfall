@@ -48,6 +48,22 @@ namespace DaggerfallWorkshop.Sim.Engine
             foreach (var k in keys) sb.Append(' ').Append(k).Append('=').Append(counts[k]);
 
             Console.WriteLine($"  t={tick,8} {c.Hour:00}:{c.Minute:00} pop={agents} meanHunger={(n > 0 ? hunger / n : 0):F2} coin={coin:F0} |{sb}");
+
+            int posting = 0, attacking = 0, hungry = 0;
+            foreach (var kv in w.Behavior.All)
+            {
+                if (kv.Value == null) continue;
+                var a = kv.Value.Activity;
+                if (a == ActivityKind.Patrol || a == ActivityKind.StandWatch) posting++;
+                else if (a == ActivityKind.Attack) attacking++;
+            }
+            foreach (var kv in w.Creatures.All)
+                if (kv.Value.HungerLevel >= 0.5f) hungry++;
+
+            var m = w.Metrics;
+            string kills = m == null ? "" :
+                $" kills[gate={m.KillsAtGate} inside={m.KillsInside} day={m.KillsByDay} night={m.KillsByNight}]";
+            Console.WriteLine($"           guards[posting={posting} attacking={attacking}] hungryMonsters={hungry}{kills}");
         }
     }
 }

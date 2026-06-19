@@ -58,6 +58,9 @@ namespace DaggerfallWorkshop.Sim.Engine
         public readonly RequestCooldownRegistry RequestCooldown;
         public readonly EarningsRegistry Earnings;
 
+        // --- diagnostic systems (read-only; exposed for soak reporting) ---
+        public MetricsSystem Metrics;
+
         public SimWorld(int seed, double tickIntervalSeconds = 0.1)
         {
             var e = Events;
@@ -101,6 +104,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 new SunlightSystem(e, WorldClock, Weather),
                 new HolidaySystem(e, Holiday, TownGrid),
                 new HealthSystem(e, Vitals),
+                Metrics = new MetricsSystem(e, WorldClock, Creatures, Position, TownGrid),
                 new AgingSystem(e, Life, Vitals, seed),
                 new EffectsSystem(e, Effects),
                 new EffectAggregateSystem(e, Effects),
