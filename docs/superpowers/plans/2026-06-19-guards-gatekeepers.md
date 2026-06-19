@@ -181,19 +181,21 @@ Derive concrete gate post positions (world X,Z) from the gate-opening blocks and
 
 **Files:**
 - Modify: `Assets/Sim/Registries/SettlementRegistry.cs` (the `SettlementData` class, ~lines 25-56)
-- Modify: `Assets/Sim/World/TownLoader.cs` (add a `ComputeGatePosts` helper; call it after a location's blocks are stitched)
+- Modify: `Assets/Sim/World/TownLoader.cs` (`LoadLocationInto` — inside the existing subrecord loop, ~line 162)
 - Modify: `Headless/Sim.Host/GateDiag.cs`
 
+**Derivation (recon-confirmed, supersedes a centroid approach):** a `WALL*` block is mostly open ground with a thin wall ring — its walkable-cell centroid is NOT the gate. The real gates are the gate **3D models** (446 = open, 447 = closed) carried as subrecord objects in `WALL*` blocks. Gallotale has exactly 4 (model 446) at the N/E/W/S walls. So one gate post per 446/447 model instance, at the model's world position. The gate models live where `LoadLocationInto` already walks subrecords (`sub`, `gx`, `gy`, `blockSide`, `blockName` all in scope), so compute posts there — the grid alone can't see them.
+
 **Interfaces:**
-- Consumes: `TownGridData.GateBlock`, `TownGridData.WorldX/WorldZ` (cell→world helpers, `TownGridData.cs`).
-- Produces: `SettlementRegistry.GatePost` struct `{ float X, Z; }`; `SettlementData.GatePosts` (`List<GatePost>`); `TownLoader.ComputeGatePosts(TownGridData grid, SettlementData s)`.
+- Consumes: `block.RmbBlock.SubRecords[i].Exterior.Block3dObjectRecords[j]` → `.ModelIdNum` (`uint`), `.XPos`/`.ZPos` (`int`); `sub.XPos`/`sub.ZPos`; `gx`/`gy`/`blockSide`/`GlobalScale`/`BlocksFile.RMBDimension` (all already in `LoadLocationInto`).
+- Produces: `SettlementRegistry.GatePost` struct `{ float X, Z; }`; `SettlementData.GatePosts` (`List<GatePost>`), populated during load.
 
 - [ ] **Step 1: Add `GatePost` + `GatePosts` to settlement data**
 
 In `Assets/Sim/Registries/SettlementRegistry.cs`, add the struct (top of the namespace, near `SettlementData`):
 
 ```csharp
-    /// A walkable opening in the town wall — a post a guard can hold / patrol to.
+    /// A town-wall gate opening (gate model 446/447) — a post a guard holds / patrols to.
     public struct GatePost { public float X, Z; }
 ```
 
@@ -203,45 +205,34 @@ And inside `public sealed class SettlementData`, alongside `Residents` (line ~55
         public readonly List<GatePost> GatePosts = new List<GatePost>();
 ```
 
-- [ ] **Step 2: Compute gate posts from gate-opening blocks**
+- [ ] **Step 2: Record gate-model positions inside the subrecord loop**
 
-In `Assets/Sim/World/TownLoader.cs`, add this helper (static, near `SeedGuards`):
+In `Assets/Sim/World/TownLoader.cs`, inside `LoadLocationInto`'s existing `for (int i = 0; i < block.RmbBlock.SubRecords.Length; i++)` loop (after `var sub = block.RmbBlock.SubRecords[i];`, ~line 164), add a scan for gate models. The world transform mirrors the `BuildingRow.X/Z` math already in this loop (subrecord origin) plus the gate object's intra-subrecord offset — this exact additive form was verified by recon to place Gallotale's 4 gates correctly:
 
 ```csharp
-        /// One gate post per WALL block that has walkable cells (its opening),
-        /// placed at the centroid of that block's walkable cells, in world meters.
-        /// Solid wall blocks (no walkable cells) contribute no post.
-        public static void ComputeGatePosts(TownGridData grid, SettlementData s)
-        {
-            if (grid?.GateBlock == null) return;
-            const int cells = TownGridData.CellsPerBlock;
-            for (int by = 0; by < grid.BlocksHigh; by++)
-                for (int bx = 0; bx < grid.BlocksWide; bx++)
-                {
-                    if (!grid.GateBlock[by * grid.BlocksWide + bx]) continue;
-                    double sx = 0, sz = 0; int n = 0;
-                    for (int row = 0; row < cells; row++)
-                        for (int col = 0; col < cells; col++)
+                    // Gate posts: a guard-holdable opening is a gate 3D model
+                    // (446 open / 447 closed) carried by a WALL* block's subrecord.
+                    // World pos = subrecord origin (same math as BuildingRow.X/Z below)
+                    // + the gate object's offset within the subrecord.
+                    if (blockName.StartsWith("WALL") && sub.Exterior.Block3dObjectRecords != null)
+                    {
+                        foreach (var obj in sub.Exterior.Block3dObjectRecords)
                         {
-                            int cx = bx * cells + col, cy = by * cells + row;
-                            if (grid.Cost[cy * grid.Width + cx] == 0) continue;
-                            sx += grid.WorldX(cx); sz += grid.WorldZ(cy); n++;
+                            if (obj.ModelIdNum != 446 && obj.ModelIdNum != 447) continue;
+                            float gateX = gx * blockSide + (sub.XPos + obj.XPos) * GlobalScale;
+                            float gateZ = gy * blockSide
+                                          + (BlocksFile.RMBDimension - sub.ZPos) * GlobalScale
+                                          + obj.ZPos * GlobalScale;
+                            settlement.GatePosts.Add(new GatePost { X = gateX, Z = gateZ });
                         }
-                    if (n == 0) continue;   // solid wall, no opening
-                    s.GatePosts.Add(new GatePost { X = (float)(sx / n), Z = (float)(sz / n) });
-                }
-        }
+                    }
 ```
 
-- [ ] **Step 3: Call it where a location finishes loading**
+(If `sub.Exterior.Block3dObjectRecords` or `obj.ModelIdNum`/`XPos`/`ZPos` don't resolve, confirm the exact field path with `grep -rn "Block3dObjectRecords\|ModelIdNum" Headless/Sim.AssetExport/TownLayout.cs` — that file reads the same records. Do NOT dedup near-coincident gates; a double-wide gate yielding two adjacent posts is fine.)
 
-Find where `TownLoader.Load` (single-town) and the region loader finish building a settlement's grid + residents and call `SeedGuards`. Immediately BEFORE `SeedGuards(world, settlement)` (so posts exist when guards are seeded — Task 4 depends on this ordering), add:
+- [ ] **Step 3: (no separate call needed)**
 
-```csharp
-            ComputeGatePosts(world.TownGrid.Current, settlement);
-```
-
-(If `SeedGuards` is called in more than one place — single-town and region — add the `ComputeGatePosts` call before each. Use `grep -n "SeedGuards(" Assets/Sim/World/*.cs` to find them all.)
+`GatePosts` is populated during `LoadLocationInto`, which already runs before `SeedGuards` for each settlement — so posts exist when guards are seeded (Task 4). No extra wiring. Confirm the ordering with `grep -n "LoadLocationInto\|SeedGuards" Assets/Sim/World/*.cs` (SeedGuards must run after the location's blocks are loaded; if any path violates this, note it but do not reorder without flagging).
 
 - [ ] **Step 4: Print gate posts in `--gatecheck`**
 
@@ -264,13 +255,13 @@ Expected: build succeeds.
 - [ ] **Step 6: Run `--gatecheck` and confirm posts**
 
 Run: `DAGGERFALL_ARENA2=/home/uggeli/df-data/arena2 dotnet run --project Headless/Sim.Host -- --gatecheck Daggerfall Gallotale`
-Expected: `settlement 'Gallotale' gate posts=N` with N ≥ 1, and the post count equals the `with gate openings=` count from Task 1.
+Expected: `settlement 'Gallotale' gate posts=4` — the four model-446 gates at roughly `(345.6, 88.0)`, `(422.4, 369.6)`, `(89.6, 446.4)`, `(140.8, 523.2)` (one per N/E/W/S wall). If you get ~18 posts you are still centroid-ing WALL blocks (wrong); if you get 0, the gate-model field path is wrong — investigate before committing.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add Assets/Sim/Registries/SettlementRegistry.cs Assets/Sim/World/TownLoader.cs Headless/Sim.Host/GateDiag.cs
-git commit -m "Sim/: derive per-settlement gate posts from wall-block openings"
+git commit -m "Sim/: derive per-settlement gate posts from gate models (446/447) in wall blocks"
 ```
 
 ---
