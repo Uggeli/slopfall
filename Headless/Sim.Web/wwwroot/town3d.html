@@ -407,6 +407,7 @@ function animate() {
   moveCamera(dt);
   followGround(dt);
   controls.update();
+  if (gatePairs) for (const g of gatePairs) { g.open.visible = !world.night; g.closed.visible = world.night; }
   updateAtmosphere(dt);
   streamRegionTerrain(dt);
   if (civilianArchives && curSnap.size) updateAgents(now);
@@ -415,6 +416,7 @@ function animate() {
 
 // ---- M5a: day/night sky, sun arc, weather tint, fog ----
 const world = { hour: 12, minute: 0, night: false, sun: 1, weather: 'Sunny' };
+let gatePairs = null;   // populated by init(); toggled each frame in animate()
 let fogFar = 1600;   // town scale; region mode widens this so several tiles show
 
 // ---- Graphics sliders: fog distance/toggle, brightness, FOV, render scale ----
@@ -736,7 +738,11 @@ async function init() {
     stat(`loading models ${++loaded}/${data.modelIds.length}…`);
   }));
 
+  if (protos.has(446) && !protos.has(447))
+    protos.set(447, await loadModel(447, climate, season));
+
   let placed = 0;
+  const gates = [];
   for (const p of data.placements) {
     const proto = protos.get(p.modelId);
     if (!proto) continue;
@@ -744,7 +750,16 @@ async function init() {
     inst.applyMatrix4(new THREE.Matrix4().fromArray(p.matrix));
     town.add(inst);
     placed++;
+    if (p.modelId === 446 || p.modelId === 447) {
+      const closed = protos.get(447).clone();
+      closed.applyMatrix4(new THREE.Matrix4().fromArray(p.matrix));
+      closed.visible = false;
+      town.add(closed);
+      inst.userData.isGateOpen = true;
+      gates.push({ open: inst, closed });
+    }
   }
+  gatePairs = gates;
   applyToggles();
   if (regionMeta) frameRegion(); else frame(data.min, data.max);
 
