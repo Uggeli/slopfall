@@ -7,7 +7,9 @@
 // Transform chain mirrors RMBLayout.AddModels:
 //   world = blockOffset(bx,by) * subRecordTRS(XPos,4096-ZPos, -YRot) * objectTRS(XPos,-YPos,ZPos, -YRot, scale)
 // All rotations here are about Y (the dominant case); rare per-object X/Z tilts are
-// not yet applied. Block-level misc objects (walls etc.) are a follow-up.
+// not yet applied. Block-level misc objects (walls, gates, props) are emitted
+// after the subrecord models, using the AddProps transform (no subrecord
+// wrapper; ZPos + RMBDimension; -4 props Y offset).
 
 using System;
 using System.Collections.Generic;
@@ -138,6 +140,30 @@ namespace Sim.AssetExport
                             float[] objM = Mat.Mul(Mat.Mul(Mat.Translate(ox, oy, oz), Mat.RotateY(oAng)), ScaleOf(obj));
 
                             float[] m = Mat.Mul(Mat.Mul(blockM, subM), objM);
+                            data.Placements.Add(new Placement { ModelId = obj.ModelIdNum, Matrix = m });
+                            if (seen.Add(obj.ModelIdNum))
+                                data.ModelIds.Add(obj.ModelIdNum);
+
+                            b.Add(m[12], m[13], m[14]);
+                        }
+                    }
+
+                    // Block-level misc 3D objects: wall segments, city gates,
+                    // fountains, props. No subrecord wrapper — positioned
+                    // directly in block space per RMBLayout.AddProps (note the
+                    // ZPos + RMBDimension convention and the -4 props Y offset).
+                    if (block.RmbBlock.Misc3dObjectRecords != null)
+                    {
+                        const float propsOffsetY = -4f;
+                        foreach (var obj in block.RmbBlock.Misc3dObjectRecords)
+                        {
+                            float mx = obj.XPos * GlobalScale;
+                            float my = (-obj.YPos + propsOffsetY) * GlobalScale;
+                            float mz = (obj.ZPos + BlocksFile.RMBDimension) * GlobalScale;
+                            float mAng = Deg2Rad(-obj.YRotation / rd);
+                            float[] objM = Mat.Mul(Mat.Mul(Mat.Translate(mx, my, mz), Mat.RotateY(mAng)), ScaleOf(obj));
+
+                            float[] m = Mat.Mul(blockM, objM);
                             data.Placements.Add(new Placement { ModelId = obj.ModelIdNum, Matrix = m });
                             if (seen.Add(obj.ModelIdNum))
                                 data.ModelIds.Add(obj.ModelIdNum);
