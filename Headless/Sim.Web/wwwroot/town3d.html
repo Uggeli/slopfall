@@ -26,6 +26,7 @@
   #detail .nb > span:first-child { width: 64px; }
   #detail .nbar { flex: 1; height: 8px; background: #20262f; border-radius: 3px; overflow: hidden; }
   #detail .nbar > i { display: block; height: 100%; }
+  #detail .dlink { color: #9fd0ff; cursor: pointer; text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -540,7 +541,8 @@ function renderDetail(d) {
   let h = `<div class="dh"><span class="dx">×</span>#${d.id} ${d.name ?? ''}</div>`
     + `<div class="dim">${d.kind} · ${d.race} · lvl ${d.level}</div>`
     + `<div class="dim">activity: ${d.activity} (${d.phase})</div>`
-    + `<div class="dim">coin: ${(d.coin ?? 0).toFixed(2)}</div>`;
+    + `<div class="dim">coin: ${(d.coin ?? 0).toFixed(2)}</div>`
+    + (d.spouse >= 0 ? `<div class="dim">spouse: <span class="dlink" data-id="${d.spouse}">#${d.spouse}</span></div>` : '');
   if (Array.isArray(d.needs)) {
     h += `<div class="ndh">needs</div>`;
     for (let i = 0; i < NEED_LABELS.length; i++) h += needBar(NEED_LABELS[i], d.needs[i]);
@@ -551,6 +553,8 @@ function renderDetail(d) {
 function wireClose() {
   const x = ui('detail').querySelector('.dx');
   if (x) x.onclick = deselect;
+  const sp = ui('detail').querySelector('.dlink');   // jump to the spouse
+  if (sp) sp.onclick = () => selectAgent(Number(sp.dataset.id));
 }
 function needBar(label, v) {
   v = Math.max(0, Math.min(1, v || 0));   // deficit 0..1 (drift can exceed 1; clamp the bar)

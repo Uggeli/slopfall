@@ -34,6 +34,11 @@ for (int i = 0; i < args.Length; i++)
 region ??= "Daggerfall";
 location ??= "Gothway Garden";
 
+// Daggerfall NPC names: parse the name banks once and hand the generator to the
+// loader before any world boots. Best-effort — if the file is missing, NPCs keep
+// their descriptive placeholder names instead of crashing the host.
+TownLoader.Names = LoadNameGen(Path.Combine(AppContext.BaseDirectory, "NameGen.txt"));
+
 // One boot, two scopes. Region mode loads every settlement into the combined grid;
 // town mode loads one location. The static map payload, the asset endpoints, and the
 // agent stream all read whichever scope booted — the client is identical either way.
@@ -443,6 +448,74 @@ int CountCivilians(SimWorld w)
     return n;
 }
 
+// Parse Assets/Resources/NameGen.txt (FullSerializer JSON: race → setCount + sets[],
+// each set a setIndex + parts[]) into the bank shape DfNameGen wants. Sets are placed
+// by their setIndex so we don't depend on array order.
+static DfNameGen LoadNameGen(string path)
+{
+    try
+    {
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"NameGen.txt not found at {path} — NPCs keep placeholder names");
+            return null;
+        }
+        // NameGen.txt is FullSerializer output, which Unity reads but isn't strict JSON:
+        // it has a missing comma between two set objects ("}" "{") and trailing commas.
+        // Insert the missing separators and allow trailing commas so System.Text.Json
+        // accepts it. (Name fragments are short alpha tokens — no braces to false-match.)
+        string text = System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(path), @"}\s*{", "},{");
+        using var doc = JsonDocument.Parse(text, new JsonDocumentOptions { AllowTrailingCommas = true });
+        var banks = new Dictionary<int, string[][]>();
+        foreach (var race in doc.RootElement.EnumerateObject())
+        {
+            int bank = DfNameGen.BankIndexFromName(race.Name);
+            if (bank < 0) continue;   // Monster* banks — no playable name
+            if (!race.Value.TryGetProperty("sets", out var setsEl)) continue;
+
+            var byIndex = new Dictionary<int, string[]>();
+            int maxIdx = -1;
+            foreach (var setEl in setsEl.EnumerateArray())
+            {
+                int si = setEl.TryGetProperty("setIndex", out var siEl) ? siEl.GetInt32() : byIndex.Count;
+                var parts = new List<string>();
+                if (setEl.TryGetProperty("parts", out var partsEl))
+                    foreach (var p in partsEl.EnumerateArray()) parts.Add(p.GetString());
+                byIndex[si] = parts.ToArray();
+                if (si > maxIdx) maxIdx = si;
+            }
+            var sets = new string[maxIdx + 1][];
+            for (int i = 0; i <= maxIdx; i++)
+                sets[i] = byIndex.TryGetValue(i, out var arr) ? arr : Array.Empty<string>();
+            banks[bank] = sets;
+        }
+        Console.WriteLine($"NameGen: loaded {banks.Count} name banks");
+        return new DfNameGen(banks);
+    }
+    catch (Exception e)
+    {
+        Console.WriteLine("NameGen.txt parse failed: " + e.Message);
+        return null;
+    }
+}
+
+// EntityEnums.Races value → display name (1=Breton … 8=Argonian); "—" if unset.
+static string RaceName(int race)
+{
+    switch (race)
+    {
+        case 1: return "Breton";
+        case 2: return "Redguard";
+        case 3: return "Nord";
+        case 4: return "Dark Elf";
+        case 5: return "High Elf";
+        case 6: return "Wood Elf";
+        case 7: return "Khajiit";
+        case 8: return "Argonian";
+        default: return "—";
+    }
+}
+
 // Click-to-inspect, rebuilt on the new registries (replaces the deleted Inspector).
 // The sim thread may be writing concurrently; retry a couple times on a transient
 // collection-modified race, then give up gracefully.
@@ -457,12 +530,13 @@ object InspectEntity(EntityId id)
             world.Needs.TryGet(id, out var needs);
             world.Coin.TryGet(id, out var coin);
             world.Position.TryGet(id, out var pos);
+            world.Lineage.TryGet(id, out var lin);
             return new
             {
                 id = id.Value,
                 name = ident.Name,
                 kind = ident.Kind.ToString(),
-                race = ident.Race,
+                race = RaceName(ident.Race),
                 level = ident.Level,
                 career = ident.CareerIndex,
                 faction = ident.FactionId,
@@ -471,6 +545,10 @@ object InspectEntity(EntityId id)
                 phase = beh != null ? beh.Phase.ToString() : "—",
                 targetBuilding = beh != null ? beh.TargetBuilding : -1,
                 needs = needs != null ? needs.V : null,
+                // Family-tree hook surfaced for the viewer: surname, household id, spouse.
+                family = lin != null ? lin.FamilyId : -1,
+                surname = lin != null ? lin.Surname : null,
+                spouse = lin != null && lin.Spouse != EntityId.None ? lin.Spouse.Value : -1,
                 x = pos != null ? pos.X : 0f,
                 z = pos != null ? pos.Z : 0f,
             };

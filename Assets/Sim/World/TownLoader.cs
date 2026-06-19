@@ -33,6 +33,11 @@ namespace DaggerfallWorkshop.Sim
         public const float GlobalScale = 0.025f;    // matches MeshReader.GlobalScale
         const double InitialStock = 20.0;            // units a shop/tavern holds at load; G2 replenishes
 
+        /// Daggerfall name generator, injected once at bring-up (the host parses
+        /// NameGen.txt). Null leaves NPCs with the descriptive placeholder names —
+        /// e.g. Unity, or a headless run that didn't wire it up.
+        public static DfNameGen Names;
+
         public static TownLoadResult Load(SimWorld world, SimRandom rng, in DFLocation location, BlocksFile blocksFile, MapsFile maps = null, WoodsFile woods = null)
         {
             int width = location.Exterior.ExteriorData.Width;
@@ -128,6 +133,11 @@ namespace DaggerfallWorkshop.Sim
             int height = location.Exterior.ExteriorData.Height;
             int cells = TownGridData.CellsPerBlock;
 
+            // Dominant race of this place (climate People) — drives every resident's
+            // name bank + IdentityData.Race. Carried on the settlement so immigrants
+            // and guards spawned later read the same culture.
+            settlement.Race = (int)location.Climate.People;
+
             for (int y = 0; y < height; y++)
             {
                 for (int x = 0; x < width; x++)
@@ -202,7 +212,10 @@ namespace DaggerfallWorkshop.Sim
             {
                 var id = residents[i];
                 world.Employment.Seed(id, new EmploymentData { Employer = EntityId.None, PublicOwner = s.Treasury });
-                if (world.Identity.TryGet(id, out var ident) && ident != null) ident.Name = "Town Guard";
+                // Keep the generated name, tag the public role: "Tindyl Sorensen (Guard)".
+                if (world.Identity.TryGet(id, out var ident) && ident != null && ident.Name != null
+                    && !ident.Name.Contains("(Guard)"))
+                    ident.Name += " (Guard)";
             }
 
             // A day's payroll as an opening buffer; the crown tops it up continuously.
@@ -364,6 +377,11 @@ namespace DaggerfallWorkshop.Sim
 
         static int SpawnCivilians(SimWorld world, SimRandom rng, int buildingIndex, BuildingRow row, string blockName, SettlementData s)
         {
+            // One household per building: shared FamilyId + a surname seed both
+            // residents draw the same surname from (the family-tree hook).
+            int familyId = buildingIndex;
+            uint familySeed = FamilySeed(buildingIndex);
+
             switch (row.Kind)
             {
                 case BuildingKind.Alchemist:
@@ -381,7 +399,9 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.Temple:
                 case BuildingKind.Tavern:
                     Spawn(world, rng, buildingIndex, row, ResidentRole.Keeper,
-                        row.Kind + " keeper (" + blockName + " #" + row.RecordIndex + ")", s);
+                        row.Kind + " keeper",
+                        row.Kind + " keeper (" + blockName + " #" + row.RecordIndex + ")",
+                        familyId, familySeed, s);
                     return 1;
 
                 case BuildingKind.House1:
@@ -390,10 +410,15 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.House4:
                 case BuildingKind.House5:
                 case BuildingKind.House6:
-                    Spawn(world, rng, buildingIndex, row, ResidentRole.Resident,
-                        "Resident (" + blockName + " #" + row.RecordIndex + "a)", s);
-                    Spawn(world, rng, buildingIndex, row, ResidentRole.Resident,
-                        "Resident (" + blockName + " #" + row.RecordIndex + "b)", s);
+                    // A settled couple sharing the household surname — the first edges
+                    // a future genealogy/faction system grows a family tree from.
+                    var a = Spawn(world, rng, buildingIndex, row, ResidentRole.Resident,
+                        null, "Resident (" + blockName + " #" + row.RecordIndex + "a)",
+                        familyId, familySeed, s);
+                    var b = Spawn(world, rng, buildingIndex, row, ResidentRole.Resident,
+                        null, "Resident (" + blockName + " #" + row.RecordIndex + "b)",
+                        familyId, familySeed, s);
+                    LinkSpouses(world, a, b);
                     return 2;
 
                 default:
@@ -403,22 +428,55 @@ namespace DaggerfallWorkshop.Sim
             }
         }
 
-        static EntityId Spawn(SimWorld world, SimRandom rng, int buildingIndex, BuildingRow row, ResidentRole role, string name, SettlementData settlement)
+        // Surname RNG seed for a household — id-hash salted so it's independent of the
+        // per-NPC first-name seed and never touches the spawn RNG stream.
+        static uint FamilySeed(int buildingIndex) => LifeHash(buildingIndex ^ 0x71717171);
+
+        // Record a spouse edge both ways (load-time, single-threaded — mutate in place).
+        static void LinkSpouses(SimWorld world, EntityId a, EntityId b)
+        {
+            if (a == EntityId.None || b == EntityId.None) return;
+            if (world.Lineage.TryGet(a, out var la) && la != null) la.Spouse = b;
+            if (world.Lineage.TryGet(b, out var lb) && lb != null) lb.Spouse = a;
+        }
+
+        static EntityId Spawn(SimWorld world, SimRandom rng, int buildingIndex, BuildingRow row, ResidentRole role,
+            string roleLabel, string fallbackName, int familyId, uint familySeed, SettlementData settlement)
         {
             var id = world.Identity.Allocate();
             settlement.Residents.Add(id);
+
+            // Gender is drawn from the spawn rng at exactly its old position, so the
+            // stream stays byte-identical. The NAME is derived from id/family hashes
+            // (not rng), so adding it doesn't perturb any downstream seeded value.
+            int gender = rng.NextBool() ? 0 : 1;
+            int race = DfNameGen.RaceFromFactionRace(settlement.Race);
+
+            string surname = string.Empty;
+            string name = fallbackName;
+            var gen = Names;
+            if (gen != null)
+            {
+                int bank = DfNameGen.BankFromFactionRace(settlement.Race);
+                string first = gen.FirstName(bank, gender, LifeHash(id.Value ^ 0x2D2D2D2D));
+                surname = gen.Surname(bank, familySeed);
+                name = string.IsNullOrEmpty(surname) ? first : first + " " + surname;
+                if (!string.IsNullOrEmpty(roleLabel)) name += " (" + roleLabel + ")";
+            }
 
             world.Identity.Seed(id, new IdentityData
             {
                 Name = name,
                 Kind = EntityKind.CivilianNPC,
-                Race = -1,
-                Gender = rng.NextBool() ? 0 : 1,
+                Race = race,
+                Gender = gender,
                 CareerIndex = -1,
                 Level = 1,
                 FactionId = row.FactionId,
                 Team = 0,
             });
+
+            world.Lineage.Seed(id, new LineageData { FamilyId = familyId, Surname = surname });
 
             int maxHealth = 40 + rng.NextInt(21);
             world.Vitals.Seed(id, new VitalsData
@@ -489,7 +547,9 @@ namespace DaggerfallWorkshop.Sim
             if (settlement == null) return EntityId.None;
             if (!world.Buildings.TryGet(buildingIndex, out var row) || row == null) return EntityId.None;
 
-            var id = Spawn(world, rng, buildingIndex, row, role, "Newcomer (" + settlement.Name + ")", settlement);
+            string roleLabel = role == ResidentRole.Keeper ? row.Kind + " keeper" : null;
+            var id = Spawn(world, rng, buildingIndex, row, role, roleLabel,
+                "Newcomer (" + settlement.Name + ")", buildingIndex, FamilySeed(buildingIndex), settlement);
             world.Coin.Seed(id, 0);                        // broke newcomer — mints no money
             foreach (var b in settlement.Buildings)
                 world.PlaceMemory.Learn(id, b);

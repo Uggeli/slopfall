@@ -45,6 +45,11 @@ namespace DaggerfallWorkshop.Sim
         public int Elevation;
         public bool Mountainous;
 
+        // Dominant race of this settlement's climate zone (FactionFile.FactionRaces;
+        // None=-1). Set at load from the location's climate; drives NPC name banks and
+        // IdentityData.Race for everyone who lives here (residents, immigrants, guards).
+        public int Race = -1;
+
         // Membership, filled as the loader walks this settlement's blocks.
         public readonly List<int> Buildings = new List<int>();
         public readonly List<EntityId> Residents = new List<EntityId>();

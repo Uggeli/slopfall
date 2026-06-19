@@ -42,6 +42,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         public readonly RelationsRegistry Relations;
         public readonly MemoryRegistry Memory;
         public readonly ConscienceRegistry Conscience;
+        public readonly LineageRegistry Lineage;
         public readonly SubjectiveViewRegistry Subjective;
         public readonly SensedRegistry Sensed;
         public readonly CoinRegistry Coin;
@@ -74,7 +75,8 @@ namespace DaggerfallWorkshop.Sim.Engine
             Employment = new EmploymentRegistry(e); Residency = new ResidencyRegistry(e);
             Affects = new AffectsRegistry(e); Meanings = new MeaningsRegistry(e);
             Relations = new RelationsRegistry(e); Memory = new MemoryRegistry(e);
-            Conscience = new ConscienceRegistry(e); Subjective = new SubjectiveViewRegistry(e);
+            Conscience = new ConscienceRegistry(e); Lineage = new LineageRegistry(e);
+            Subjective = new SubjectiveViewRegistry(e);
             Sensed = new SensedRegistry(e); Coin = new CoinRegistry(e); Stock = new StockRegistry(e);
             Larder = new LarderRegistry(e); Treasury = new TreasuryRegistry(e);
             Items = new ItemRegistry(e); ItemTake = new ItemTakeRegistry(e);
@@ -87,7 +89,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 WorldClock, Weather, Lighting, Holiday, Occupancy, TownGrid, Ledger, WorldMarket,
                 Settlements, Buildings, Position, Behavior, Intent, Identity, Needs, Vitals, Life,
                 Personality, Stats, Effects, EffectAggregate, StatusFlags, Progression, Employment,
-                Residency, Affects, Meanings, Relations, Memory, Conscience, Subjective, Sensed,
+                Residency, Affects, Meanings, Relations, Memory, Conscience, Lineage, Subjective, Sensed,
                 Coin, Stock, Larder, Treasury, Items, ItemTake, PlaceMemory, Creatures, Path,
                 SocialCooldown, RequestCooldown, Earnings,
             };

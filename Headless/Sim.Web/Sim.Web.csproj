@@ -26,6 +26,9 @@
 
   <ItemGroup>
     <Content Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Daggerfall name-bank data, loaded at startup to name NPCs. Linked from the
+         repo's Resources (single source of truth) into the output beside the dll. -->
+    <Content Include="../../Assets/Resources/NameGen.txt" Link="NameGen.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
