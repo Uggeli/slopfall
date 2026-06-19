@@ -117,7 +117,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                     Affects, Relations, Meanings, PlaceMemory, Stock, Items, WorldClock, seed),
                 new ExecutionSystem(e, Intent, Behavior, Position, WorldClock),
                 new MovementSystem(e, WorldClock, Behavior, Position, TownGrid, Path, seed),
-                new CreatureSystem(e, WorldClock, Position, Creatures, Identity, Vitals, seed),
+                new CreatureSystem(e, WorldClock, Position, Creatures, Identity, Vitals, TownGrid, seed),
                 new CombatSystem(e, WorldClock, Behavior, Position, Creatures, Vitals, seed),
                 new SenseSystem(e, WorldClock, Behavior, Position, Creatures, TownGrid, seed),
                 new SubjectiveSystem(e, WorldClock, Sensed, Subjective, Relations, Affects, Meanings,

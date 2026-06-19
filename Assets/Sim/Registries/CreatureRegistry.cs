@@ -15,5 +15,6 @@ namespace DaggerfallWorkshop.Sim
         public long NextAttackTick;      // attack cooldown gate
         public EntityId LastAttacker;    // who last struck it — retaliation target (V2b combat)
         public long LastStruckTick;      // when, so the grudge lapses
+        public float HungerLevel;        // 0 sated .. 1 starving; drives the hunt
     }
 }

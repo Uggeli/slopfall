@@ -32,21 +32,29 @@ namespace DaggerfallWorkshop.Sim.Engine
         const long AttackCooldownTicks = 240;  // ~4 game-hours between bites at 1440 ticks/day
         const long RetaliationWindowTicks = 120;   // a creature holds its grudge this long
 
+        const float HungerDriftPerTick = 0.0000015f;   // ~1.3/day at 864k ticks → reliably hungry within a day
+        const float HuntThreshold = 0.5f;              // above this, hunt the nearest civilian
+        const float CivilianHuntRange = 100000f;       // effectively town-wide (vs the old proximity bite range)
+
         readonly WorldClockRegistry _clock;
         readonly PositionRegistry _position;
         readonly CreatureRegistry _creatures;
         readonly IdentityRegistry _identity;
         readonly VitalsRegistry _vitals;
+        readonly TownGridRegistry _townGrid;
         readonly int _seed;
+        readonly List<PathPoint> _scratch = new List<PathPoint>();
 
         public CreatureSystem(EventBus events, WorldClockRegistry clock, PositionRegistry position,
-            CreatureRegistry creatures, IdentityRegistry identity, VitalsRegistry vitals, int seed) : base(events)
+            CreatureRegistry creatures, IdentityRegistry identity, VitalsRegistry vitals,
+            TownGridRegistry townGrid, int seed) : base(events)
         {
             _clock = clock;
             _position = position;
             _creatures = creatures;
             _identity = identity;
             _vitals = vitals;
+            _townGrid = townGrid;
             _seed = seed;
         }
 
@@ -82,25 +90,66 @@ namespace DaggerfallWorkshop.Sim.Engine
                 // pos.X/pos.Z in place; here we track them locally for the attack check.
                 float here_x = pos.X, here_z = pos.Z;
 
-                // Wander toward the current destination; on arrival, pick another.
-                float dx = cr.TargetX - pos.X, dz = cr.TargetZ - pos.Z;
-                float dist = (float)System.Math.Sqrt(dx * dx + dz * dz);
-                if (dist <= ArriveDistance)
+                // Drift hunger every tick; normalize to per-0.1s-tick.
+                cr.HungerLevel = System.Math.Min(1f, cr.HungerLevel + HungerDriftPerTick * (float)gameSeconds / 0.1f);
+
+                var grid = _townGrid.Current;
+                bool night = clock.Hour < 6 || clock.Hour >= 18;
+                bool hunting = cr.HungerLevel >= HuntThreshold;
+
+                float goalX, goalZ; bool haveGoal;
+                if (hunting)
                 {
-                    uint h = Hash(id.Value, tick);
-                    double ang = (h & 0xFFFF) / 65535.0 * 2.0 * System.Math.PI;
-                    double r = WanderRadius * (0.3 + 0.7 * (((h >> 16) & 0xFF) / 255.0));
-                    cr.TargetX = pos.X + (float)(System.Math.Cos(ang) * r);
-                    cr.TargetZ = pos.Z + (float)(System.Math.Sin(ang) * r);
-                    Events.Publish(new CreatureSetIntent { Id = id, Data = cr });
+                    var victim = NearestCivilian(id, here_x, here_z, CivilianHuntRange);
+                    PositionData vp = default;
+                    haveGoal = !victim.IsNone && _position.TryGet(victim, out vp) && vp != null;
+                    goalX = haveGoal ? vp.X : cr.TargetX;
+                    goalZ = haveGoal ? vp.Z : cr.TargetZ;
+                }
+                else { goalX = cr.TargetX; goalZ = cr.TargetZ; haveGoal = true; }
+
+                float nextX = here_x, nextZ = here_z; bool moved = false;
+                bool publishedCreature = false;
+                if (hunting && haveGoal && grid != null
+                    && TownPathfinder.FindPath(grid, here_x, here_z, goalX, goalZ, _scratch, true, blockGates: night)
+                    && _scratch.Count > 0)
+                {
+                    // Follow the path: head to the first waypoint we haven't reached.
+                    var wp = _scratch[0];
+                    float ddx = wp.X - here_x, ddz = wp.Z - here_z;
+                    float dd = (float)System.Math.Sqrt(ddx * ddx + ddz * ddz);
+                    if (dd > 1e-3f) { nextX = here_x + ddx / dd * step; nextZ = here_z + ddz / dd * step; moved = true; }
                 }
                 else
                 {
-                    float nx = pos.X + dx / dist * step;
-                    float nz = pos.Z + dz / dist * step;
-                    float yaw = (float)(System.Math.Atan2(dx, dz) * 180.0 / System.Math.PI);
-                    Events.Publish(new PositionSetIntent { Id = id, X = nx, Y = pos.Y, Z = nz, Yaw = yaw });
-                    here_x = nx; here_z = nz;
+                    // No path (curfew) or just wandering: straight-line, but COLLIDE.
+                    float ddx = goalX - here_x, ddz = goalZ - here_z;
+                    float dd = (float)System.Math.Sqrt(ddx * ddx + ddz * ddz);
+                    if (dd <= ArriveDistance && !hunting)
+                    {
+                        uint h = Hash(id.Value, tick);
+                        double ang = (h & 0xFFFF) / 65535.0 * 2.0 * System.Math.PI;
+                        double r = WanderRadius * (0.3 + 0.7 * (((h >> 16) & 0xFF) / 255.0));
+                        cr.TargetX = here_x + (float)(System.Math.Cos(ang) * r);
+                        cr.TargetZ = here_z + (float)(System.Math.Sin(ang) * r);
+                        Events.Publish(new CreatureSetIntent { Id = id, Data = cr });
+                        publishedCreature = true;
+                    }
+                    else if (dd > 1e-3f)
+                    {
+                        float cand_x = here_x + ddx / dd * step, cand_z = here_z + ddz / dd * step;
+                        // collide: only step if the destination cell is walkable
+                        if (grid == null || grid.Walkable(grid.CellX(cand_x), grid.CellY(cand_z)))
+                        { nextX = cand_x; nextZ = cand_z; moved = true; }
+                        // else: blocked — stall at the wall (no move this tick)
+                    }
+                }
+
+                if (moved)
+                {
+                    float yaw = (float)(System.Math.Atan2(nextX - here_x, nextZ - here_z) * 180.0 / System.Math.PI);
+                    Events.Publish(new PositionSetIntent { Id = id, X = nextX, Y = pos.Y, Z = nextZ, Yaw = yaw });
+                    here_x = nextX; here_z = nextZ;
                 }
 
                 // Reach a civilian → bite (the combat emitter), on cooldown.
@@ -118,13 +167,20 @@ namespace DaggerfallWorkshop.Sim.Engine
                         });
                         cr.NextAttackTick = tick + AttackCooldownTicks;
                         Events.Publish(new CreatureSetIntent { Id = id, Data = cr });
+                        publishedCreature = true;
                     }
                 }
+
+                // If hunger drifted but nothing else triggered a CreatureSetIntent, publish once
+                // so the drifted HungerLevel settles into the registry.
+                if (!publishedCreature)
+                    Events.Publish(new CreatureSetIntent { Id = id, Data = cr });
             }
         }
 
         /// Spawn one creature out past the edge of habitation: the centroid of the
-        /// living crowd, pushed out by SpawnRadius along a deterministic bearing.
+        /// living crowd, pushed out along a deterministic bearing to the last walkable
+        /// cell before the grid edge (outside the inner wall ring).
         /// Returns false if there's no one to be a threat to yet.
         bool TrySpawn(long tick)
         {
@@ -140,8 +196,23 @@ namespace DaggerfallWorkshop.Sim.Engine
             var id = _identity.Allocate();
             uint h = Hash(id.Value, tick);
             double ang = (h & 0xFFFF) / 65535.0 * 2.0 * System.Math.PI;
-            float px = cx + (float)(System.Math.Cos(ang) * SpawnRadius);
-            float pz = cz + (float)(System.Math.Sin(ang) * SpawnRadius);
+
+            var grid = _townGrid.Current;
+            float px, pz;
+            if (grid != null)
+            {
+                float dirx = (float)System.Math.Cos(ang), dirz = (float)System.Math.Sin(ang);
+                float lastX = cx, lastZ = cz;
+                for (float r = 0; r < grid.Width * TownGridData.CellSize; r += TownGridData.CellSize)
+                {
+                    float qx = cx + dirx * r, qz = cz + dirz * r;
+                    int qcx = grid.CellX(qx), qcy = grid.CellY(qz);
+                    if (!grid.InBounds(qcx, qcy)) break;
+                    if (grid.Cost[qcy * grid.Width + qcx] > 0) { lastX = qx; lastZ = qz; }
+                }
+                px = lastX; pz = lastZ;   // farthest walkable cell along the bearing = at the outer wall band
+            }
+            else { px = cx + (float)(System.Math.Cos(ang) * SpawnRadius); pz = cz + (float)(System.Math.Sin(ang) * SpawnRadius); }
 
             Events.Publish(new IdentitySetIntent
             {
@@ -154,7 +225,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             });
             Events.Publish(new PositionSetIntent { Id = id, X = px, Y = 0f, Z = pz, Yaw = 0f });
             Events.Publish(new VitalsSetIntent { Id = id, Data = new VitalsData { CurrentHealth = 20, MaxHealth = 20 } });
-            Events.Publish(new CreatureSetIntent { Id = id, Data = new CreatureData { TargetX = px, TargetZ = pz, NextAttackTick = 0 } });
+            Events.Publish(new CreatureSetIntent { Id = id, Data = new CreatureData { TargetX = px, TargetZ = pz, NextAttackTick = 0, HungerLevel = 0 } });
             return true;
         }
 
