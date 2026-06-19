@@ -48,7 +48,7 @@ namespace DaggerfallWorkshop.Sim
         /// sits on a blocked cell (a building door). Pass false for targets with no
         /// business inside a building (wandering) so strollers stop on walkable ground.
         public static bool FindPath(TownGridData g, float fromX, float fromZ, float toX, float toZ,
-            List<PathPoint> result, bool approachTarget = true)
+            List<PathPoint> result, bool approachTarget = true, bool blockGates = false)
         {
             result.Clear();
             if (g == null || g.Cost == null) return false;
@@ -84,7 +84,7 @@ namespace DaggerfallWorkshop.Sim
             {
                 // Same block-component: one bounded fine search to the goal.
                 s.Goals.Clear(); s.Goals.Add(goalCell);
-                if (FineInBlock(g, startCell, s, path) < 0) return false;
+                if (FineInBlock(g, startCell, s, path, blockGates) < 0) return false;
             }
             else
             {
@@ -97,13 +97,13 @@ namespace DaggerfallWorkshop.Sim
                     var link = route[i];
                     s.Goals.Clear();
                     for (int e = 0; e < link.ExitCells.Length; e++) s.Goals.Add(link.ExitCells[e]);
-                    int reached = FineInBlock(g, entry, s, path);   // bounded to entry's block
-                    if (reached < 0) return false;                  // intra-block break (shouldn't happen on a real route)
-                    entry = reached + link.Delta;                   // step across the border into the next block
+                    int reached = FineInBlock(g, entry, s, path, blockGates);   // bounded to entry's block
+                    if (reached < 0) return false;                               // intra-block break (shouldn't happen on a real route)
+                    entry = reached + link.Delta;                                // step across the border into the next block
                     path.Add(entry);
                 }
                 s.Goals.Clear(); s.Goals.Add(goalCell);             // last block → the goal
-                if (FineInBlock(g, entry, s, path) < 0) return false;
+                if (FineInBlock(g, entry, s, path, blockGates) < 0) return false;
             }
 
             // Thin collinear runs into waypoints, then approach the exact target.
@@ -130,7 +130,7 @@ namespace DaggerfallWorkshop.Sim
         /// `s.Goals` (global cell ids). Appends the reconstructed cells (excluding
         /// startCell, which the caller already placed) to `path`. Block-local scratch,
         /// so it never touches the combined grid. Returns the reached goal cell, or −1.
-        static int FineInBlock(TownGridData g, int startCell, PathScratch s, List<int> path)
+        static int FineInBlock(TownGridData g, int startCell, PathScratch s, List<int> path, bool blockGates = false)
         {
             int W = g.Width;
             int sx = startCell % W, sy = startCell / W;
@@ -153,10 +153,10 @@ namespace DaggerfallWorkshop.Sim
                 int curGlobal = cy * W + cx;
                 if (s.Goals.Contains(curGlobal)) { reached = curLocal; break; }
 
-                StepFine(g, s, gen, bx0, by0, W, cx + 1, cy, curLocal);
-                StepFine(g, s, gen, bx0, by0, W, cx - 1, cy, curLocal);
-                StepFine(g, s, gen, bx0, by0, W, cx, cy + 1, curLocal);
-                StepFine(g, s, gen, bx0, by0, W, cx, cy - 1, curLocal);
+                StepFine(g, s, gen, bx0, by0, W, cx + 1, cy, curLocal, blockGates);
+                StepFine(g, s, gen, bx0, by0, W, cx - 1, cy, curLocal, blockGates);
+                StepFine(g, s, gen, bx0, by0, W, cx, cy + 1, curLocal, blockGates);
+                StepFine(g, s, gen, bx0, by0, W, cx, cy - 1, curLocal, blockGates);
             }
             if (reached < 0) return -1;
 
@@ -173,11 +173,12 @@ namespace DaggerfallWorkshop.Sim
             return (by0 + reached / B) * W + (bx0 + reached % B);
         }
 
-        static void StepFine(TownGridData g, PathScratch s, int gen, int bx0, int by0, int W, int nx, int ny, int curLocal)
+        static void StepFine(TownGridData g, PathScratch s, int gen, int bx0, int by0, int W, int nx, int ny, int curLocal, bool blockGates = false)
         {
             if (nx < bx0 || nx >= bx0 + B || ny < by0 || ny >= by0 + B) return;   // bounded to this block
             byte cost = g.Cost[ny * W + nx];
             if (cost == 0) return;
+            if (blockGates && g.IsGateCell(nx, ny)) return;   // curfew: gate sealed at night
             int nl = (ny - by0) * B + (nx - bx0);
             int t = s.GScore[curLocal] + cost;
             int ns = s.Stamp[nl] == gen ? s.GScore[nl] : int.MaxValue;

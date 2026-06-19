@@ -40,6 +40,19 @@ namespace DaggerfallWorkshop.Sim.Host
                 Console.WriteLine($"settlement '{st.Name}' gate posts={st.GatePosts.Count}");
                 for (int i = 0; i < st.GatePosts.Count; i++)
                     Console.WriteLine($"  gate {i}: ({st.GatePosts[i].X:F1}, {st.GatePosts[i].Z:F1})");
+
+                if (st.GatePosts.Count > 0)
+                {
+                    var gate = st.GatePosts[0];
+                    // an "outside" start: a walkable cell on the grid's edge nearest origin
+                    float outX = g.WorldX(0), outZ = g.WorldZ(0);
+                    var path = new System.Collections.Generic.List<PathPoint>();
+                    bool dayOk = TownPathfinder.FindPath(g, outX, outZ, gate.X, gate.Z, path, true, blockGates: false);
+                    int dayLen = path.Count;
+                    bool nightOk = TownPathfinder.FindPath(g, outX, outZ, gate.X, gate.Z, path, true, blockGates: true);
+                    int nightLen = path.Count;
+                    Console.WriteLine($"  path to gate 0: day found={dayOk} len={dayLen}; curfew found={nightOk} len={nightLen}");
+                }
             }
             return 0;
         }
