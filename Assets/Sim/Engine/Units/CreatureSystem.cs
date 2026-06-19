@@ -29,7 +29,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         const float SpawnRadius = 40f;         // out past the edge of where people are
         const float AttackRange = 2.0f;
         const int AttackDamage = 1;            // light bite (placeholder)
-        const long AttackCooldownTicks = 240;  // ~4 game-hours between bites at 1440 ticks/day
+        public const long AttackCooldownTicks = 240;  // ~4 game-hours between bites at 1440 ticks/day
         const long RetaliationWindowTicks = 120;   // a creature holds its grudge this long
 
         const float HungerDriftPerTick = 0.0000015f;   // ~1.3/day at 864k ticks → reliably hungry within a day

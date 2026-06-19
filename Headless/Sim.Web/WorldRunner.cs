@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using DaggerfallWorkshop.Sim;
 using DaggerfallWorkshop.Sim.Engine;
 
 namespace DaggerfallWorkshop.Sim.Web
@@ -101,6 +102,20 @@ namespace DaggerfallWorkshop.Sim.Web
             }
         }
 
+        // Render categories the viewer maps to sprite pools.
+        const int RenderCivilian = 0, RenderGuard = 1, RenderMonster = 2;
+        const long CreatureAttackAnimTicks = 15;   // how long after a bite to show the attack pose
+
+        int RenderKindOf(EntityId id, bool isCreature)
+        {
+            if (isCreature) return RenderMonster;
+            if (_world.Identity.TryGet(id, out var ident) && ident != null && ident.Kind == EntityKind.EnemyMonster)
+                return RenderMonster;
+            if (_world.Employment.TryGet(id, out var emp) && emp != null && !emp.PublicOwner.IsNone)
+                return RenderGuard;
+            return RenderCivilian;
+        }
+
         Frame Build(long tick)
         {
             var clk = _world.WorldClock.Current;
@@ -112,10 +127,18 @@ namespace DaggerfallWorkshop.Sim.Web
             {
                 var p = kv.Value;
                 if (p == null) continue;
-                int kind = 0, act = 0, phase = 0;
-                if (_world.Identity.TryGet(kv.Key, out var id)) kind = (int)id.Kind;
+
+                int act = 0, phase = 0;
+                bool isCreature = _world.Creatures.TryGet(kv.Key, out var cr);
                 if (_world.Behavior.TryGet(kv.Key, out var b) && b != null) { act = (int)b.Activity; phase = (int)b.Phase; }
-                rows.Add(new AgentRow(kv.Key.Value, p.X, p.Z, p.Yaw, act, phase, kind));
+
+                // Creatures have no BehaviorData; surface a brief Attack so the viewer
+                // can play the bite. The bite sets NextAttackTick = tick + cooldown, so
+                // "just bit" = the cooldown is still almost full.
+                if (isCreature && cr.NextAttackTick - tick > CreatureSystem.AttackCooldownTicks - CreatureAttackAnimTicks)
+                    act = (int)ActivityKind.Attack;
+
+                rows.Add(new AgentRow(kv.Key.Value, p.X, p.Z, p.Yaw, act, phase, RenderKindOf(kv.Key, isCreature)));
             }
 
             return new Frame
