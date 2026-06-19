@@ -28,6 +28,8 @@ namespace DaggerfallWorkshop.Sim
         UseItem,     // use a carried item per its affordance (v1: eat a held Edible) — item block
         StoreItem,   // carry a held item home and stash it (Drop into the home) — item block
         Weave,       // textile-sector primary work (shear/weave) for an employer; serves Attire in-kind (the looms' self-reward) + earns a wage. Appended (not grouped with Farm/Fish/Mine) to keep enum ordinals wire-stable.
+        Patrol,      // guard duty: hold/patrol the town gate by day (Object-Zero injected, Δ=0)
+        StandWatch,  // guard duty: hold the town gate by night (Object-Zero injected, Δ=0)
     }
 
     public enum ActivityPhase

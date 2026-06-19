@@ -186,6 +186,24 @@ namespace DaggerfallWorkshop.Sim
             Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,
         };
 
+        // Guard duty. Δ=0 → scores on BaseUtility alone (the gate term multiplies a
+        // zero gap). BaseUtility sits above Wander (0.004)/Idle (0.002) so an on-duty
+        // guard holds the gate over aimless wandering, but below a real hunger gap
+        // (abandonment) and below the proximity-boosted Attack ad (interception).
+        public static readonly Spec Patrol = new Spec
+        {
+            Kind = ActivityKind.Patrol,
+            DurationMinutes = 20,
+            BaseUtility = 0.010,
+        };
+
+        public static readonly Spec StandWatch = new Spec
+        {
+            Kind = ActivityKind.StandWatch,
+            DurationMinutes = 30,
+            BaseUtility = 0.010,
+        };
+
         public static readonly Spec EatHome = new Spec
         {
             Kind = ActivityKind.EatHome,
@@ -413,7 +431,9 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Farm:      return Farm;
                 case ActivityKind.Fish:      return Fish;
                 case ActivityKind.Mine:      return Mine;
-                case ActivityKind.Weave:     return Weave;
+                case ActivityKind.Weave:      return Weave;
+                case ActivityKind.Patrol:     return Patrol;
+                case ActivityKind.StandWatch: return StandWatch;
                 case ActivityKind.EatHome:   return EatHome;
                 case ActivityKind.EatTavern: return EatTavern;
                 case ActivityKind.Socialize: return Socialize;
