@@ -355,11 +355,12 @@ namespace DaggerfallWorkshop.Sim.Engine
         // GuardDutyUtility is calibrated to beat the innate Attack ad under the guard's
         // constant vigilance-floor fear (GuardCombatBoost=4 × VigilanceFloor=0.15 →
         // routine Attack ≈ 0.035-0.06), so the guard holds post over idle combat-stance.
-        // GuardAttackFloor + GuardAttackGain at point-blank (0.02+0.06=0.08) > duty (0.065),
-        // so a creature within ~3 m beats duty; beyond that, duty holds.
+        // GuardAttackFloor (0.08) > GuardDutyUtility (0.065), so any sensed creature at any
+        // range immediately breaks duty (floor alone beats duty); GuardAttackGain adds urgency
+        // so the nearest creature scores highest. Range: [0.08, 0.14] — always > duty 0.065.
         const double GuardDutyUtility  = 0.065; // beats routine vigilance-floor Attack; see note above
-        const double GuardAttackFloor  = 0.02;  // injected Attack floor (always above catalog Attack at range)
-        const double GuardAttackGain   = 0.06;  // proximity bonus; duty(0.065) beaten at prox≥0.75 (creature ≤3 m)
+        const double GuardAttackFloor  = 0.08;  // raised from 0.02: beats duty at any sense range → guard engages on sight
+        const double GuardAttackGain   = 0.06;  // proximity bonus adds urgency; nearest creature preferred
         const float  GuardSenseRange   = 12f;   // matches SenseSystem sight radius
 
         void InjectGuardAds(EntityId id, ScoreContext sc, List<Ad> ads, int hour)
