@@ -185,7 +185,8 @@ namespace DaggerfallWorkshop.Sim
                 var bh = kvb.Value;
                 if (bh.Phase != ActivityPhase.Doing || bh.TargetBuilding < 0) continue;
                 if (bh.Activity != ActivityKind.Farm && bh.Activity != ActivityKind.Fish
-                    && bh.Activity != ActivityKind.Mine && bh.Activity != ActivityKind.Labor) continue;
+                    && bh.Activity != ActivityKind.Mine && bh.Activity != ActivityKind.Labor
+                    && bh.Activity != ActivityKind.Weave) continue;
                 if (!_ctx.Buildings.TryGet(bh.TargetBuilding, out var wb) || wb == null || !GoodsCatalog.IsStaffedWorkplace(wb.Kind)) continue;
                 _farmWorkers.TryGetValue(bh.TargetBuilding, out var c);
                 _farmWorkers[bh.TargetBuilding] = c + 1;
@@ -239,6 +240,7 @@ namespace DaggerfallWorkshop.Sim
                         case ActivityKind.Fish:
                         case ActivityKind.Mine:
                         case ActivityKind.Labor:
+                        case ActivityKind.Weave:
                             // Working the employer's premises (fields, shore, diggings, loom):
                             // wages aren't paid by the tick — the hand ACCRUES what it earns
                             // (LaborDailyWage pro-rated by the workday) and is paid in one

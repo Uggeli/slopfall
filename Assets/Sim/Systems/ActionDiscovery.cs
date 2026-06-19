@@ -59,13 +59,20 @@ namespace DaggerfallWorkshop.Sim
             foreach (var verb in AffordanceCatalog.Innate)
                 ads.Add(new Ad { Verb = verb, Building = -1, X = px, Z = pz, Spec = ActivityCatalog.SpecFor(verb) });
 
-            foreach (var building in ctx.PlaceMemory.Known(agent))
-                Discover(ctx, agent, building, ads);
-
             // Jobs-at-workplace: an employed resident can work at their employer's
             // premises (wage paid from that purse — EconomySystem). The verb is the
-            // workplace's trade: Farm at the fields, Fish at the shore, generic Labor
-            // anywhere else — so the act is the job, at its own place.
+            // workplace's trade: Farm at the fields, Fish at the shore, Weave at the
+            // looms, generic Labor anywhere else — so the act is the job, at its own place.
+            //
+            // ORDER MATTERS — gathered BEFORE building ads (Beg/Buy) on purpose. Beg and
+            // Weave/Labor are both Enables-parents of the same Buy→eat payoff, but the
+            // OddTree flattens that DAG: the shared child attaches to whichever enabler is
+            // placed FIRST, and only it inherits the propagated meal-value. Gathering the
+            // JOB first means an employed hand's Weave/Labor claims the food chain (it
+            // works to eat); an unemployed agent has no job ad, so Beg claims it (it begs
+            // to eat). That division — employed work, idle beg — is the right one, and it
+            // stops the ordering accident that had every broke weaver begging (and getting
+            // refused) instead of weaving. See OddSystem/OddTree (odd_convergence O1).
             if (ctx.Employment.TryGet(agent, out var emp) && !emp.Employer.IsNone
                 && ctx.Residency.TryGet(emp.Employer, out var empRes)
                 && ctx.Buildings.TryGet(empRes.BuildingIndex, out var empBldg))
@@ -73,6 +80,9 @@ namespace DaggerfallWorkshop.Sim
                 var verb = empBldg.Kind == BuildingKind.Farm ? ActivityKind.Farm
                          : empBldg.Kind == BuildingKind.Fishery ? ActivityKind.Fish
                          : empBldg.Kind == BuildingKind.Mine ? ActivityKind.Mine
+                         : empBldg.Kind == BuildingKind.Pasture
+                           || empBldg.Kind == BuildingKind.Weaver
+                           || empBldg.Kind == BuildingKind.ClothingStore ? ActivityKind.Weave   // textile sector → the looms' self-rewarding work (Attire in-kind)
                          : ActivityKind.Labor;
                 ads.Add(new Ad
                 {
@@ -80,6 +90,9 @@ namespace DaggerfallWorkshop.Sim
                     X = empBldg.X, Z = empBldg.Z, Spec = ActivityCatalog.SpecFor(verb),
                 });
             }
+
+            foreach (var building in ctx.PlaceMemory.Known(agent))
+                Discover(ctx, agent, building, ads);
 
             // Inventory blocks: what the agent can DO with what it carries — eat the
             // loaf it took, or carry it home and stash it. The later links of the

@@ -143,6 +143,21 @@ namespace DaggerfallWorkshop.Sim
                 Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.ResetOnPercept,
                 Level = LevelSource.DerivedThreat, Gates = DeficiencyGates,
             };
+            // Attire: clothing wears out. A Stored/Deplete pole like hunger, but with a
+            // FAR slower metabolism — a garment lasts ~10 days of wear (drift 0.004/hr ≈
+            // 0.1/day), where hunger drifts ~1.0/day. Its relief is DIRECT, not
+            // larder-gated: textile work (Weave) clothes you in-kind (the self-reward
+            // that motivates the looms, the Farm pattern), and buying clothes relieves it
+            // too. Weight below the body poles (you get ragged before you starve), but a
+            // real want, so the textile sector has genuine demand to serve. Gates nothing
+            // — and isn't a cull target: the body poles (ScoreField 1.0-1.3) dominate the
+            // gap math over Attire (0.6) naturally, so a hungry weaver eats before weaving.
+            Defs[NeedAxis.Attire] = new DriveDef
+            {
+                Name = "attire", ScoreField = 0.6, DriftPerHour = 0.004,
+                Projection = UrgencyProjection.Max, Satisfaction = SatisfactionModel.Deplete,
+                Level = LevelSource.Stored, Gates = System.Array.Empty<GateEdge>(),
+            };
         }
     }
 }

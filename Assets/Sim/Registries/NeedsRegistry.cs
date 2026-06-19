@@ -17,7 +17,8 @@ namespace DaggerfallWorkshop.Sim
         public const int CoinDef   = 3;   // poverty pressure
         public const int GoodsDef  = 4;   // household provisions running low → drives shopping
         public const int Fear      = 5;   // safety: a directed drive over perceived threats (V2b)
-        public const int Count     = 6;
+        public const int Attire    = 6;   // clothing wearing out → drives textile work (in-kind) and clothes-buying; the demand that gives the textile sector a livelihood
+        public const int Count     = 7;
     }
 
     public sealed class NeedsData

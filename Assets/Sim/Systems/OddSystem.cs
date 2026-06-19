@@ -142,7 +142,15 @@ namespace DaggerfallWorkshop.Sim
             {
                 var ad = ads[i];
                 double s = V(ad, sc);
-                if (s <= 0) continue;
+                // The direct-score cull drops worthless ads BEFORE the tree is built — but
+                // an ENABLER (work/labor/beg/buy: a verb that Enables others) earns its keep
+                // from what it UNLOCKS, not from its own served-Δ. Retiring coin (instrumental,
+                // ScoreField 0) left Labor/Beg scoring exactly 0 direct — precisely the actions
+                // whose worth IS the meal they eventually buy. Keep them so Propagate can lend
+                // them the chain's discounted value, and cull only genuinely-worthless LEAVES
+                // (s≤0 AND Enables nothing). Without this the work→buy→eat chain never forms
+                // for the broke — its head is gone before Build sees it (odd_convergence O1).
+                if (s <= 0 && ActionCatalog.Enables(ad.Verb).Length == 0) continue;
                 if (ad.Verb == incumbent && ad.Building == incumbentBuilding) s *= Sticky;
                 if (verbIndex.TryGetValue(ad.Verb, out int vi))
                 {

@@ -52,6 +52,7 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Sleep:     return JustSustain;
                 case ActivityKind.Work:      return LaborAndEarn;
                 case ActivityKind.Labor:     return LaborAndEarn;
+                case ActivityKind.Weave:     return LaborAndEarn;
                 case ActivityKind.EatHome:   return JustSustain;
                 case ActivityKind.EatTavern: return PayThenSustain;
                 case ActivityKind.Socialize: return PayThenSustain;
@@ -89,8 +90,9 @@ namespace DaggerfallWorkshop.Sim
             {
                 case ActivityKind.Work:
                 case ActivityKind.Labor:
+                case ActivityKind.Weave:
                 case ActivityKind.Beg:
-                    return PaidConsumption;   // earning — wages OR alms — → the paid meal (EatTavern) or groceries (Buy) it funds. Begging is instrumental too now that CoinDef is retired (no standalone coin-want drives it).
+                    return PaidConsumption;   // earning — wages OR alms — → the paid meal (EatTavern) or groceries (Buy) it funds. Weave clothes you in-kind (Attire Δ), but cloth isn't food, so it ALSO heads this food chain: a weaver eats by wage→buy→eat. Begging is instrumental too now that CoinDef is retired.
                 case ActivityKind.Buy:
                     return HomeMeal;          // groceries → the home meal: the HUNGER payoff that motivates the work→buy→eat chain
                 // NOT Steal: theft is a desperate REACTION (it relieves GoodsDef when the

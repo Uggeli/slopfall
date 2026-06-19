@@ -45,6 +45,9 @@ namespace DaggerfallWorkshop.Sim
             // wins selection sooner. Centered (0.5) reproduces the base weight.
             p.Weights[NeedAxis.Fear] = ActivityCatalog.Weights[NeedAxis.Fear]
                 * (0.5 + traits[TraitIndex.HarmAvoidance]);
+            // Attire: plain base weight (no trait coupling yet). MUST be set explicitly —
+            // an unset weight stays 0 and would silently zero out all attire scoring.
+            p.Weights[NeedAxis.Attire] = ActivityCatalog.Weights[NeedAxis.Attire];
 
             for (int i = 0; i < NeedAxis.Count; i++) p.DriftScale[i] = 1.0;
             p.DriftScale[NeedAxis.SocialDef] = 0.5 + traits[TraitIndex.Sociability];

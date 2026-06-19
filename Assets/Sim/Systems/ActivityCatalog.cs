@@ -168,6 +168,24 @@ namespace DaggerfallWorkshop.Sim
             Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,
         };
 
+        /// Textile-sector primary work — shearing at a pasture, weaving at a loom — out
+        /// at the employer's premises (ActionDiscovery routes Pasture/Weaver hands here).
+        /// The textile analog of Farm/Fish, applying the SAME self-reward trick: just as
+        /// farming FEEDS the hand (goods Δ), weaving CLOTHES the hand (attire Δ), so the
+        /// promise leads with a satisfied need, not the demoted coin. That direct attire
+        /// relief is what motivates the looms — and (since coin is retired) is what keeps
+        /// the verb off the s≤0 cull when attire is already low. UNLIKE Farm/Fish it is
+        /// NOT terminal: cloth isn't food, so a weaver still eats by wage→buy→eat —
+        /// Weave ENABLES PaidConsumption (ActionCatalog), heading the food chain too.
+        public static readonly Spec Weave = new Spec
+        {
+            Kind = ActivityKind.Weave,
+            DurationMinutes = 180,
+            Delta = Deltas(attire: -0.4, energyDef: +0.10),
+            OpenHour = 6, CloseHour = 19,
+            Trait = TraitIndex.Industry, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,
+        };
+
         public static readonly Spec EatHome = new Spec
         {
             Kind = ActivityKind.EatHome,
@@ -395,6 +413,7 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.Farm:      return Farm;
                 case ActivityKind.Fish:      return Fish;
                 case ActivityKind.Mine:      return Mine;
+                case ActivityKind.Weave:     return Weave;
                 case ActivityKind.EatHome:   return EatHome;
                 case ActivityKind.EatTavern: return EatTavern;
                 case ActivityKind.Socialize: return Socialize;
@@ -412,7 +431,7 @@ namespace DaggerfallWorkshop.Sim
             }
         }
 
-        static double[] Deltas(double hunger = 0, double energyDef = 0, double socialDef = 0, double coinDef = 0, double goodsDef = 0, double fear = 0)
+        static double[] Deltas(double hunger = 0, double energyDef = 0, double socialDef = 0, double coinDef = 0, double goodsDef = 0, double fear = 0, double attire = 0)
         {
             var d = new double[NeedAxis.Count];
             d[NeedAxis.Hunger] = hunger;
@@ -421,6 +440,7 @@ namespace DaggerfallWorkshop.Sim
             d[NeedAxis.CoinDef] = coinDef;
             d[NeedAxis.GoodsDef] = goodsDef;
             d[NeedAxis.Fear] = fear;
+            d[NeedAxis.Attire] = attire;
             return d;
         }
     }

@@ -447,6 +447,7 @@ namespace DaggerfallWorkshop.Sim
             needs.V[NeedAxis.EnergyDef] = 0.1 + ctx.Random.NextDouble() * 0.3;
             needs.V[NeedAxis.SocialDef] = 0.3 + ctx.Random.NextDouble() * 0.4;
             needs.V[NeedAxis.GoodsDef] = 0.2 + ctx.Random.NextDouble() * 0.3;
+            needs.V[NeedAxis.Attire] = 0.2 + ctx.Random.NextDouble() * 0.3;   // clothes already partly worn (spread) → the looms have real demand to serve from day one
 
             // Real money, recapitalised (money arc): everyone starts with a buffer (~20),
             // keepers a bit more for working capital to stock + pay wages before sales
