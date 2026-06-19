@@ -66,7 +66,10 @@ namespace DaggerfallWorkshop.Sim
                 return true;
             }
 
-            var conn = g.Connectivity ?? (g.Connectivity = BlockConnectivity.Build(g));
+            // Connectivity is a pure function of the immutable grid geometry, baked at
+            // load (see the loaders). Read it; only fall back to a local build (never
+            // stored) if somehow unbaked — so the read phase never mutates shared state.
+            var conn = g.Connectivity ?? BlockConnectivity.Build(g);
             int startCell = sy * g.Width + sx, goalCell = gy * g.Width + gx;
             int fromComp = conn.CompOfCell(g, sx, sy);
             int toComp = conn.CompOfCell(g, gx, gy);

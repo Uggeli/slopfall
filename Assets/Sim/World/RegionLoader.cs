@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using DaggerfallConnect;
 using DaggerfallConnect.Arena2;
 using DaggerfallConnect.Utility;
+using DaggerfallWorkshop.Sim.Engine;
 
 namespace DaggerfallWorkshop.Sim
 {
@@ -35,7 +36,7 @@ namespace DaggerfallWorkshop.Sim
             t == DFRegion.LocationTypes.ReligionTemple ||
             t == DFRegion.LocationTypes.Tavern;
 
-        public static RegionLoadResult LoadRegion(SimulationContext ctx, MapsFile maps, BlocksFile blocks, string regionName, WoodsFile woods = null)
+        public static RegionLoadResult LoadRegion(SimWorld world, SimRandom rng, MapsFile maps, BlocksFile blocks, string regionName, WoodsFile woods = null)
         {
             var region = maps.GetRegion(regionName);
             var result = new RegionLoadResult { RegionName = regionName };
@@ -82,7 +83,7 @@ namespace DaggerfallWorkshop.Sim
             result.BlocksWide = gridW;
             result.BlocksHigh = gridH;
 
-            if (locs.Count == 0) { ctx.TownGrid.Set(grid); return result; }
+            if (locs.Count == 0) { grid.Connectivity = BlockConnectivity.Build(grid); world.TownGrid.Set(grid); return result; }
 
             float blockSide = BlocksFile.RMBDimension * TownLoader.GlobalScale;
 
@@ -90,7 +91,7 @@ namespace DaggerfallWorkshop.Sim
             for (int i = 0; i < locs.Count; i++)
             {
                 var loc = locs[i];
-                var s = ctx.Settlements.Add(loc.Name, regionName, TownLoader.KindOf(loc));
+                var s = world.Settlements.Add(loc.Name, regionName, TownLoader.KindOf(loc));
                 s.BlocksWide = loc.Exterior.ExteriorData.Width;
                 s.BlocksHigh = loc.Exterior.ExteriorData.Height;
                 s.OriginX = originX[i] * blockSide;
@@ -105,16 +106,17 @@ namespace DaggerfallWorkshop.Sim
                     Name = loc.Name, RegionName = regionName,
                     BlocksWide = s.BlocksWide, BlocksHigh = s.BlocksHigh,
                 };
-                TownLoader.LoadLocationInto(ctx, loc, blocks, grid, originX[i], originY[i], s, sub);
-                TownLoader.SeedSettlement(ctx, s);
+                TownLoader.LoadLocationInto(world, rng, loc, blocks, grid, originX[i], originY[i], s, sub);
+                TownLoader.SeedSettlement(world, s);
 
                 result.Buildings += sub.Buildings;
                 result.Civilians += sub.Civilians;
                 result.Settlements++;
             }
 
-            TownLoader.SeedStock(ctx);     // global, per-building — same as single-town
-            ctx.TownGrid.Set(grid);
+            TownLoader.SeedStock(world);     // global, per-building — same as single-town
+            grid.Connectivity = BlockConnectivity.Build(grid);   // bake once at load → read phase never builds it
+            world.TownGrid.Set(grid);
             return result;
         }
     }

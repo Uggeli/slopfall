@@ -1,6 +1,7 @@
 using System;
 using DaggerfallConnect;
 using DaggerfallConnect.Arena2;
+using DaggerfallWorkshop.Sim.Engine;
 
 namespace DaggerfallWorkshop.Sim
 {
@@ -32,7 +33,7 @@ namespace DaggerfallWorkshop.Sim
         public const float GlobalScale = 0.025f;    // matches MeshReader.GlobalScale
         const double InitialStock = 20.0;            // units a shop/tavern holds at load; G2 replenishes
 
-        public static TownLoadResult Load(SimulationContext ctx, in DFLocation location, BlocksFile blocksFile, MapsFile maps = null, WoodsFile woods = null)
+        public static TownLoadResult Load(SimWorld world, SimRandom rng, in DFLocation location, BlocksFile blocksFile, MapsFile maps = null, WoodsFile woods = null)
         {
             int width = location.Exterior.ExteriorData.Width;
             int height = location.Exterior.ExteriorData.Height;
@@ -49,7 +50,7 @@ namespace DaggerfallWorkshop.Sim
             // the multi-settlement path; this stays the single-town case and must
             // stay behavior-identical (the LOD ground-truth + the test/soak baseline).
             var grid = NewGrid(width, height, location.RegionIndex);
-            var settlement = ctx.Settlements.Add(location.Name, location.RegionName, KindOf(location));
+            var settlement = world.Settlements.Add(location.Name, location.RegionName, KindOf(location));
             settlement.BlocksWide = width;
             settlement.BlocksHigh = height;
             var pix = MapsFile.LongitudeLatitudeToMapPixel(location.MapTableData.Longitude, location.MapTableData.Latitude);
@@ -57,26 +58,27 @@ namespace DaggerfallWorkshop.Sim
             settlement.MapPixelY = pix.Y;
             RegionIndustry.DetectInto(maps, woods, settlement);   // climate/coast/elevation (maps==null → authored fallback)
 
-            LoadLocationInto(ctx, location, blocksFile, grid, 0, 0, settlement, result);
+            LoadLocationInto(world, rng, location, blocksFile, grid, 0, 0, settlement, result);
 
-            ctx.TownGrid.Set(grid);
-            SeedSettlement(ctx, settlement);
-            SeedStock(ctx);
+            grid.Connectivity = BlockConnectivity.Build(grid);   // bake once at load (pure fn of grid) → read phase never builds it
+            world.TownGrid.Set(grid);
+            SeedSettlement(world, settlement);
+            SeedStock(world);
             return result;
         }
 
         /// Run the per-settlement structural seeds (local knowledge, employment,
         /// guards). Called once per settlement by both Load and RegionLoader.
-        public static void SeedSettlement(SimulationContext ctx, SettlementData s)
+        public static void SeedSettlement(SimWorld world, SettlementData s)
         {
             // Employment/guards first — they SYNTHESIZE the primary workplaces (farm,
             // and a fishery where the coast is near). Knowledge runs last so every
             // resident knows their whole settlement INCLUDING those workplaces (a
             // farmhand still knows where the shore is). Knowledge draws no RNG, so the
             // spawn/RNG order is unchanged.
-            SeedFarmAndEmployment(ctx, s);
-            SeedGuards(ctx, s);
-            SeedTownKnowledge(ctx, s);
+            SeedFarmAndEmployment(world, s);
+            SeedGuards(world, s);
+            SeedTownKnowledge(world, s);
         }
 
         /// Allocate a combined walkability grid of blocksWide × blocksHigh blocks.
@@ -118,7 +120,7 @@ namespace DaggerfallWorkshop.Sim
         /// `settlement`. The y,x,subrecord walk order is fixed, so EntityId/RNG draws
         /// are deterministic and the single-town path (offset 0,0, grid sized to the
         /// one location) is bit-for-bit unchanged.
-        public static void LoadLocationInto(SimulationContext ctx, in DFLocation location, BlocksFile blocksFile,
+        public static void LoadLocationInto(SimWorld world, SimRandom rng, in DFLocation location, BlocksFile blocksFile,
             TownGridData grid, int blockOriginX, int blockOriginY, SettlementData settlement, TownLoadResult result)
         {
             float blockSide = BlocksFile.RMBDimension * GlobalScale;
@@ -171,11 +173,11 @@ namespace DaggerfallWorkshop.Sim
                             building.NameSeed = data.NameSeed;
                         }
 
-                        int buildingIndex = ctx.Buildings.Add(building);
+                        int buildingIndex = world.Buildings.Add(building);
                         settlement.Buildings.Add(buildingIndex);
                         result.Buildings++;
 
-                        result.Civilians += SpawnCivilians(ctx, buildingIndex, building, blockName, settlement);
+                        result.Civilians += SpawnCivilians(world, rng, buildingIndex, building, blockName, settlement);
                     }
                 }
             }
@@ -187,9 +189,9 @@ namespace DaggerfallWorkshop.Sim
         /// crown reimburses the treasury for their pay each tick (G6), so a small
         /// opening buffer is plenty. Patrol behaviour + the KnightlyGuard faction
         /// are later; here a guard is a salaried resident.
-        static void SeedGuards(SimulationContext ctx, SettlementData s)
+        static void SeedGuards(SimWorld world, SettlementData s)
         {
-            var residents = ResidentsOfRole(ctx, s, ResidentRole.Resident);
+            var residents = ResidentsOfRole(world, s, ResidentRole.Resident);
             if (residents.Count == 0) return;
 
             int guards = GuardCountFor(s.Kind, residents.Count);    // scaled by settlement kind
@@ -199,15 +201,15 @@ namespace DaggerfallWorkshop.Sim
             for (int i = 0; i < guards; i++)
             {
                 var id = residents[i];
-                ctx.Employment.Set(id, new EmploymentData { Employer = EntityId.None, PublicOwner = s.Treasury });
-                if (ctx.Identity.TryGet(id, out var ident) && ident != null) ident.Name = "Town Guard";
+                world.Employment.Seed(id, new EmploymentData { Employer = EntityId.None, PublicOwner = s.Treasury });
+                if (world.Identity.TryGet(id, out var ident) && ident != null) ident.Name = "Town Guard";
             }
 
             // A day's payroll as an opening buffer; the crown tops it up continuously.
             // Add (not Set) so it accumulates when settlements share the global purse
             // (Stage 2); single-town starts from an empty treasury, so it's the same.
-            ctx.Treasury.Add(s.Treasury,
-                guards * EconomySystem.GuardDailyWage);
+            world.Treasury.Seed(s.Treasury,
+                guards * Engine.EconomySystem.GuardDailyWage);
         }
 
         /// How many town guards a settlement of this kind keeps — cities are policed,
@@ -228,13 +230,13 @@ namespace DaggerfallWorkshop.Sim
         /// This settlement's residents holding `role`, sorted by EntityId for a
         /// deterministic, settlement-local pick (no cross-settlement bleed).
         static System.Collections.Generic.List<EntityId> ResidentsOfRole(
-            SimulationContext ctx, SettlementData s, ResidentRole role)
+            SimWorld world, SettlementData s, ResidentRole role)
         {
             var list = new System.Collections.Generic.List<EntityId>();
             for (int i = 0; i < s.Residents.Count; i++)
             {
                 var id = s.Residents[i];
-                if (ctx.Residency.TryGet(id, out var r) && r.Role == role) list.Add(id);
+                if (world.Residency.TryGet(id, out var r) && r.Role == role) list.Add(id);
             }
             list.Sort((a, b) => a.Value.CompareTo(b.Value));
             return list;
@@ -244,13 +246,13 @@ namespace DaggerfallWorkshop.Sim
         /// the starting inventory the supply chain then replenishes (imports +
         /// craft, G2). Flat seed for now; scaling by building Quality is a tuning
         /// lever for later, not something to guess at before the loop is closed.
-        public static void SeedStock(SimulationContext ctx)
+        public static void SeedStock(SimWorld world)
         {
-            foreach (var kv in ctx.Buildings.All)
+            foreach (var kv in world.Buildings.All)
             {
                 var goods = GoodsCatalog.Stocks(kv.Value.Kind);
                 for (int i = 0; i < goods.Length; i++)
-                    ctx.Stock.Set(kv.Key, goods[i], InitialStock);
+                    world.Stock.Seed(kv.Key, goods[i], InitialStock);
             }
         }
 
@@ -263,9 +265,9 @@ namespace DaggerfallWorkshop.Sim
         /// v1 the settlement's farmland is the mass workplace — they farm (food, the
         /// primary sector), employed by a farm keeper promoted from among them. This
         /// is what turns "271 idle laborers" into producers earning from real output.
-        static void SeedFarmAndEmployment(SimulationContext ctx, SettlementData s)
+        static void SeedFarmAndEmployment(SimWorld world, SettlementData s)
         {
-            var laborers = ResidentsOfRole(ctx, s, ResidentRole.Resident);
+            var laborers = ResidentsOfRole(world, s, ResidentRole.Resident);
             if (laborers.Count == 0) return;
 
             // The settlement's primary workplaces — farmland always, plus a fishery in
@@ -275,7 +277,7 @@ namespace DaggerfallWorkshop.Sim
             // work, not to the town centre. Each is run by a keeper promoted from the
             // laborers; the rest are its hands.
             var kinds = RegionIndustry.Workplaces(s);
-            var anchors = PeripheralAnchors(ctx, s, kinds.Count);
+            var anchors = PeripheralAnchors(world, s, kinds.Count);
             if (anchors.Count == 0) return;
 
             var workplaces = new System.Collections.Generic.List<int>();
@@ -285,19 +287,19 @@ namespace DaggerfallWorkshop.Sim
             for (int k = 0; k < kinds.Count && k < anchors.Count && li < laborers.Count; k++)
             {
                 var a = anchors[k];
-                int wp = ctx.Buildings.Add(new BuildingRow
+                int wp = world.Buildings.Add(new BuildingRow
                 {
                     Kind = kinds[k],
                     X = a.X, Z = a.Z, BlockX = a.BlockX, BlockY = a.BlockY, RecordIndex = -1,
                 });
                 s.Buildings.Add(wp);
                 var goods = GoodsCatalog.Stocks(kinds[k]);
-                for (int i = 0; i < goods.Length; i++) ctx.Stock.Set(wp, goods[i], InitialStock);
+                for (int i = 0; i < goods.Length; i++) world.Stock.Seed(wp, goods[i], InitialStock);
 
                 var keeper = laborers[li++];
-                ctx.Residency.Set(keeper, new ResidencyData { BuildingIndex = wp, Role = ResidentRole.Keeper });
-                ctx.Employment.Set(keeper, new EmploymentData());   // a keeper has no employer
-                ctx.PlaceMemory.Learn(keeper, wp);
+                world.Residency.Seed(keeper, new ResidencyData { BuildingIndex = wp, Role = ResidentRole.Keeper });
+                world.Employment.Seed(keeper, new EmploymentData());   // a keeper has no employer
+                world.PlaceMemory.Learn(keeper, wp);
                 workplaces.Add(wp);
                 keepers.Add(keeper);
             }
@@ -308,8 +310,8 @@ namespace DaggerfallWorkshop.Sim
             for (; li < laborers.Count; li++)
             {
                 int w = li % workplaces.Count;
-                ctx.Employment.Set(laborers[li], new EmploymentData { Employer = keepers[w] });
-                ctx.PlaceMemory.Learn(laborers[li], workplaces[w]);
+                world.Employment.Seed(laborers[li], new EmploymentData { Employer = keepers[w] });
+                world.PlaceMemory.Learn(laborers[li], workplaces[w]);
             }
         }
 
@@ -320,7 +322,7 @@ namespace DaggerfallWorkshop.Sim
         /// settlement is tiny. Building positions are reachable (agents path to them),
         /// so the fields stay walkable while being away from the homes.
         static System.Collections.Generic.List<BuildingRow> PeripheralAnchors(
-            SimulationContext ctx, SettlementData s, int count)
+            SimWorld world, SettlementData s, int count)
         {
             // The settlement's real buildings (skip walls/None), sorted by X (Z as a
             // deterministic tiebreak), so the `count` workplaces spread across its width —
@@ -328,7 +330,7 @@ namespace DaggerfallWorkshop.Sim
             // away from the centre. Positions are reachable (agents path to them).
             var reals = new System.Collections.Generic.List<BuildingRow>();
             for (int i = 0; i < s.Buildings.Count; i++)
-                if (ctx.Buildings.TryGet(s.Buildings[i], out var b) && b != null && b.Kind != BuildingKind.None)
+                if (world.Buildings.TryGet(s.Buildings[i], out var b) && b != null && b.Kind != BuildingKind.None)
                     reals.Add(b);
             var list = new System.Collections.Generic.List<BuildingRow>();
             if (reals.Count == 0) return list;
@@ -347,7 +349,7 @@ namespace DaggerfallWorkshop.Sim
         /// (SenseSystem) is then about live perception — who's near right now —
         /// not learning where places are. Discovery (other towns, the player,
         /// wandering creatures) comes later, for agents without this grant.
-        static void SeedTownKnowledge(SimulationContext ctx, SettlementData s)
+        static void SeedTownKnowledge(SimWorld world, SettlementData s)
         {
             // Each resident knows the buildings of their OWN settlement only — no
             // omniscient awareness of other settlements across the region.
@@ -355,12 +357,12 @@ namespace DaggerfallWorkshop.Sim
                 for (int b = 0; b < s.Buildings.Count; b++)
                 {
                     int bi = s.Buildings[b];
-                    if (ctx.Buildings.TryGet(bi, out var br) && br.Kind == BuildingKind.None) continue;
-                    ctx.PlaceMemory.Learn(s.Residents[r], bi);
+                    if (world.Buildings.TryGet(bi, out var br) && br.Kind == BuildingKind.None) continue;
+                    world.PlaceMemory.Learn(s.Residents[r], bi);
                 }
         }
 
-        static int SpawnCivilians(SimulationContext ctx, int buildingIndex, BuildingRow row, string blockName, SettlementData s)
+        static int SpawnCivilians(SimWorld world, SimRandom rng, int buildingIndex, BuildingRow row, string blockName, SettlementData s)
         {
             switch (row.Kind)
             {
@@ -378,7 +380,7 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.WeaponSmith:
                 case BuildingKind.Temple:
                 case BuildingKind.Tavern:
-                    Spawn(ctx, buildingIndex, row, ResidentRole.Keeper,
+                    Spawn(world, rng, buildingIndex, row, ResidentRole.Keeper,
                         row.Kind + " keeper (" + blockName + " #" + row.RecordIndex + ")", s);
                     return 1;
 
@@ -388,9 +390,9 @@ namespace DaggerfallWorkshop.Sim
                 case BuildingKind.House4:
                 case BuildingKind.House5:
                 case BuildingKind.House6:
-                    Spawn(ctx, buildingIndex, row, ResidentRole.Resident,
+                    Spawn(world, rng, buildingIndex, row, ResidentRole.Resident,
                         "Resident (" + blockName + " #" + row.RecordIndex + "a)", s);
-                    Spawn(ctx, buildingIndex, row, ResidentRole.Resident,
+                    Spawn(world, rng, buildingIndex, row, ResidentRole.Resident,
                         "Resident (" + blockName + " #" + row.RecordIndex + "b)", s);
                     return 2;
 
@@ -401,25 +403,25 @@ namespace DaggerfallWorkshop.Sim
             }
         }
 
-        static EntityId Spawn(SimulationContext ctx, int buildingIndex, BuildingRow row, ResidentRole role, string name, SettlementData settlement)
+        static EntityId Spawn(SimWorld world, SimRandom rng, int buildingIndex, BuildingRow row, ResidentRole role, string name, SettlementData settlement)
         {
-            var id = ctx.Identity.Allocate();
+            var id = world.Identity.Allocate();
             settlement.Residents.Add(id);
 
-            ctx.Identity.Set(id, new IdentityData
+            world.Identity.Seed(id, new IdentityData
             {
                 Name = name,
                 Kind = EntityKind.CivilianNPC,
                 Race = -1,
-                Gender = ctx.Random.NextBool() ? 0 : 1,
+                Gender = rng.NextBool() ? 0 : 1,
                 CareerIndex = -1,
                 Level = 1,
                 FactionId = row.FactionId,
                 Team = 0,
             });
 
-            int maxHealth = 40 + ctx.Random.NextInt(21);
-            ctx.Vitals.Set(id, new VitalsData
+            int maxHealth = 40 + rng.NextInt(21);
+            world.Vitals.Seed(id, new VitalsData
             {
                 CurrentHealth = maxHealth, MaxHealth = maxHealth,
                 CurrentMagicka = 10, MaxMagicka = 10,
@@ -429,12 +431,12 @@ namespace DaggerfallWorkshop.Sim
 
             var stats = new StatsData();
             for (int s = 0; s < StatIndex.Count; s++)
-                stats.Stats[s] = 30 + ctx.Random.NextInt(31);
-            ctx.Stats.Set(id, stats);
+                stats.Stats[s] = 30 + rng.NextInt(31);
+            world.Stats.Seed(id, stats);
 
-            ctx.Position.Set(id, row.X, 0f, row.Z, row.YRotation);
+            world.Position.Seed(id, row.X, 0f, row.Z, row.YRotation);
 
-            ctx.Residency.Set(id, new ResidencyData
+            world.Residency.Seed(id, new ResidencyData
             {
                 BuildingIndex = buildingIndex,
                 Role = role,
@@ -443,11 +445,11 @@ namespace DaggerfallWorkshop.Sim
             // Seed the need poles mid-range so the first sim day starts varied
             // rather than everyone rushing the same urgent deficit at once.
             var needs = new NeedsData();
-            needs.V[NeedAxis.Hunger] = 0.2 + ctx.Random.NextDouble() * 0.3;
-            needs.V[NeedAxis.EnergyDef] = 0.1 + ctx.Random.NextDouble() * 0.3;
-            needs.V[NeedAxis.SocialDef] = 0.3 + ctx.Random.NextDouble() * 0.4;
-            needs.V[NeedAxis.GoodsDef] = 0.2 + ctx.Random.NextDouble() * 0.3;
-            needs.V[NeedAxis.Attire] = 0.2 + ctx.Random.NextDouble() * 0.3;   // clothes already partly worn (spread) → the looms have real demand to serve from day one
+            needs.V[NeedAxis.Hunger] = 0.2 + rng.NextDouble() * 0.3;
+            needs.V[NeedAxis.EnergyDef] = 0.1 + rng.NextDouble() * 0.3;
+            needs.V[NeedAxis.SocialDef] = 0.3 + rng.NextDouble() * 0.4;
+            needs.V[NeedAxis.GoodsDef] = 0.2 + rng.NextDouble() * 0.3;
+            needs.V[NeedAxis.Attire] = 0.2 + rng.NextDouble() * 0.3;   // clothes already partly worn (spread) → the looms have real demand to serve from day one
 
             // Real money, recapitalised (money arc): everyone starts with a buffer (~20),
             // keepers a bit more for working capital to stock + pay wages before sales
@@ -455,25 +457,25 @@ namespace DaggerfallWorkshop.Sim
             // not a poverty anchor; dynamic local prices decide whether 20 is rich or
             // poor (a busy city is dearer than a hamlet).
             double coin = role == ResidentRole.Keeper
-                ? 25.0 + ctx.Random.NextDouble() * 10.0
-                : 18.0 + ctx.Random.NextDouble() * 4.0;
-            ctx.Coin.Set(id, coin);
+                ? 25.0 + rng.NextDouble() * 10.0
+                : 18.0 + rng.NextDouble() * 4.0;
+            world.Coin.Seed(id, coin);
             needs.V[NeedAxis.CoinDef] = 0.0;              // retired axis; coin ≥ 1 ⇒ not "poor" (NeedsSystem re-derives, clamped)
-            ctx.Needs.Set(id, needs);
+            world.Needs.Seed(id, needs);
 
             // Personality: sum of two draws biases toward the middle, so
             // extremes exist but are rare.
             var traits = new double[TraitIndex.Count];
             for (int t = 0; t < TraitIndex.Count; t++)
-                traits[t] = (ctx.Random.NextDouble() + ctx.Random.NextDouble()) * 0.5;
-            ctx.Personality.Set(id, PersonalityData.Derive(traits));
+                traits[t] = (rng.NextDouble() + rng.NextDouble()) * 0.5;
+            world.Personality.Seed(id, PersonalityData.Derive(traits));
 
             // L2 (docs/living_world_L2_lifecycle.md): age + lifespan, derived from a
-            // hash of the id — NOT ctx.Random — so adding it leaves the spawn RNG
+            // hash of the id — NOT rng — so adding it leaves the spawn RNG
             // stream (and every existing seeded value) byte-identical. Adults at
             // load / immigration; the distribution is a FROZEN placeholder.
-            ctx.Life.Set(id, SeedLife(id));
-            ctx.Conscience.Set(id, SeedConscience(id));
+            world.Life.Seed(id, SeedLife(id));
+            world.Conscience.Seed(id, SeedConscience(id));
             return id;
         }
 
@@ -482,15 +484,15 @@ namespace DaggerfallWorkshop.Sim
         /// keeps headcount roughly stationary. Arrives with NO coin (mints no
         /// money → conservation holds) and knows its new settlement on arrival,
         /// matching the load-time "residents know the whole town" policy.
-        public static EntityId SpawnImmigrant(SimulationContext ctx, SettlementData settlement, int buildingIndex, ResidentRole role)
+        public static EntityId SpawnImmigrant(SimWorld world, SimRandom rng, SettlementData settlement, int buildingIndex, ResidentRole role)
         {
             if (settlement == null) return EntityId.None;
-            if (!ctx.Buildings.TryGet(buildingIndex, out var row) || row == null) return EntityId.None;
+            if (!world.Buildings.TryGet(buildingIndex, out var row) || row == null) return EntityId.None;
 
-            var id = Spawn(ctx, buildingIndex, row, role, "Newcomer (" + settlement.Name + ")", settlement);
-            ctx.Coin.Set(id, 0);                        // broke newcomer — mints no money
+            var id = Spawn(world, rng, buildingIndex, row, role, "Newcomer (" + settlement.Name + ")", settlement);
+            world.Coin.Seed(id, 0);                        // broke newcomer — mints no money
             foreach (var b in settlement.Buildings)
-                ctx.PlaceMemory.Learn(id, b);
+                world.PlaceMemory.Learn(id, b);
             return id;
         }
 
