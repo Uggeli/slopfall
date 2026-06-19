@@ -10,7 +10,22 @@
            border-radius: 6px; padding: 10px 12px; max-width: 300px; z-index: 10; }
   #panel h1 { font-size: 13px; margin: 0 0 6px; color: #9fd0ff; }
   #panel label { display: block; margin: 2px 0; cursor: pointer; }
+  #gfx { margin-top: 6px; border-top: 1px solid #2c3444; padding-top: 6px; }
+  #gfx .ghead { color: #9fd0ff; margin-bottom: 2px; }
+  #gfx label { display: flex; align-items: center; gap: 6px; }
+  #gfx input[type=range] { flex: 1; min-width: 0; accent-color: #9fd0ff; }
+  #gfx .gval { color: #ffd479; min-width: 42px; text-align: right; }
   #stat { margin-top: 6px; color: #8893a7; white-space: pre-wrap; }
+  #detail { position: absolute; top: 10px; right: 10px; width: 220px; z-index: 10; display: none;
+            background: rgba(20,24,32,.9); border: 1px solid #2c3444; border-radius: 6px; padding: 10px 12px; }
+  #detail .dh { color: #9fd0ff; font-weight: bold; margin-bottom: 3px; }
+  #detail .dx { float: right; color: #6b768a; cursor: pointer; font-weight: normal; }
+  #detail .dim { color: #8893a7; }
+  #detail .ndh { color: #9fd0ff; margin: 7px 0 3px; }
+  #detail .nb { display: flex; align-items: center; gap: 6px; margin: 1px 0; }
+  #detail .nb > span:first-child { width: 64px; }
+  #detail .nbar { flex: 1; height: 8px; background: #20262f; border-radius: 3px; overflow: hidden; }
+  #detail .nbar > i { display: block; height: 100%; }
 </style>
 </head>
 <body>
@@ -21,14 +36,23 @@
   <label><input type="checkbox" id="wire"> wireframe</label>
   <label><input type="checkbox" id="grid" checked> grid</label>
   <label><input type="checkbox" id="terr" checked> terrain</label>
-  <div style="margin-top:4px;color:#6b768a">WASD move · E/Q up/down · Shift fast · drag orbit</div>
+  <div id="gfx">
+    <div class="ghead">graphics</div>
+    <label><input type="checkbox" id="fogOn" checked> fog</label>
+    <label>distance <span id="fogVal" class="gval"></span><input type="range" id="fog" min="200" max="8000" step="100"></label>
+    <label>brightness <span id="brightVal" class="gval"></span><input type="range" id="bright" min="0" max="200" value="100"></label>
+    <label>field of view <span id="fovVal" class="gval"></span><input type="range" id="fov" min="35" max="100" value="60"></label>
+    <label>resolution <span id="resVal" class="gval"></span><input type="range" id="res" min="50" max="100" value="100"></label>
+  </div>
+  <div style="margin-top:4px;color:#6b768a">WASD move · E/Q up/down · Shift fast · drag orbit · click a person</div>
   <div id="clock" style="margin-top:6px;color:#ffd479">--:-- · —</div>
-  <div id="speed" style="margin-top:6px">speed
-    <button data-s="0">⏸</button><button data-s="1">1×</button><button data-s="4">4×</button>
-    <button data-s="12">12×</button><button data-s="60">60×</button>
+  <div id="speed" style="margin-top:6px">tick rate
+    <button data-s="0">⏸</button><button data-s="10">10</button><button data-s="30">30</button>
+    <button data-s="60">60</button><button data-s="-1">MAX</button>
   </div>
   <div id="stat">loading…</div>
 </div>
+<div id="detail"></div>
 
 <script type="importmap">
 { "imports": {
@@ -347,6 +371,26 @@ function animate() {
 // ---- M5a: day/night sky, sun arc, weather tint, fog ----
 const world = { hour: 12, minute: 0, night: false, sun: 1, weather: 'Sunny' };
 let fogFar = 1600;   // town scale; region mode widens this so several tiles show
+
+// ---- Graphics sliders: fog distance/toggle, brightness, FOV, render scale ----
+// These feed live into the atmosphere/camera/renderer state. fogFar and brightness
+// are read each frame by updateAtmosphere(); FOV and resolution apply on change.
+const gfx = { bright: 1, fogOn: true };
+function syncGfx() {
+  fogFar = +ui('fog').value;
+  gfx.bright = +ui('bright').value / 100;
+  gfx.fogOn = ui('fogOn').checked;
+  camera.fov = +ui('fov').value; camera.updateProjectionMatrix();
+  renderer.setPixelRatio(devicePixelRatio * (+ui('res').value / 100));
+  renderer.setSize(innerWidth, innerHeight);
+  ui('fogVal').textContent = fogFar >= 1000 ? (fogFar / 1000).toFixed(1) + 'km' : fogFar + 'm';
+  ui('brightVal').textContent = Math.round(gfx.bright * 100) + '%';
+  ui('fovVal').textContent = camera.fov + '°';
+  ui('resVal').textContent = ui('res').value + '%';
+}
+// Reflect the active fogFar in the slider (init picks town 1600 vs region 3200).
+function setFogSlider() { ui('fog').value = fogFar; syncGfx(); }
+for (const id of ['fog', 'bright', 'fov', 'res', 'fogOn']) ui(id).addEventListener('input', syncGfx);
 const SKY_DAY = new THREE.Color(0x9fc0e8), SKY_NIGHT = new THREE.Color(0x10141f);
 const SKY_DUSK = new THREE.Color(0xd98a4a);   // dawn/dusk warm
 const tmpA = new THREE.Color(), tmpB = new THREE.Color();
@@ -381,18 +425,22 @@ function updateAtmosphere(dt) {
   const k = 1 - Math.pow(0.001, dt);   // ~frame-rate-independent smoothing
   scene.background.lerp(tmpA, k);
   scene.fog.color.copy(scene.background);
-  scene.fog.far = fogFar * wm.fog;
-  scene.fog.near = scene.fog.far * 0.25;
+  if (gfx.fogOn) {
+    scene.fog.far = fogFar * wm.fog;
+    scene.fog.near = scene.fog.far * 0.25;
+  } else {
+    scene.fog.near = scene.fog.far = 1e9;   // push fog past everything
+  }
 
   // sun light: arc by hour (east→west), intensity by daylight*weather, warm at twilight
   const az = (h / 24) * Math.PI * 2 - Math.PI / 2;   // rough azimuth
   const pitch = Math.max(0.05, sun01);
   sun.position.set(Math.cos(az), pitch * 1.2 + 0.15, Math.sin(az));
-  const sunTargetI = sun01 * wm.sun * 1.4;
+  const sunTargetI = sun01 * wm.sun * 1.4 * gfx.bright;
   sun.intensity += (sunTargetI - sun.intensity) * k;
   tmpB.setRGB(1, 1 - twilight * 0.35, 1 - twilight * 0.55);   // warm at dawn/dusk
   sun.color.lerp(tmpB, k);
-  const ambTarget = 0.25 + sun01 * 0.45 * (1 - wm.grey * 0.4);
+  const ambTarget = (0.25 + sun01 * 0.45 * (1 - wm.grey * 0.4)) * gfx.bright;
   ambient.intensity += (ambTarget - ambient.intensity) * k;
 
   // HUD clock
@@ -443,6 +491,74 @@ function setCellUV(geo, s, record, frame, flip) {
   uv.needsUpdate = true;
 }
 
+// ---- Click-to-inspect: pick a person billboard, show its live detail ----
+// A flat ring marks the selected agent (updateAgents keeps it on their feet).
+const selRing = new THREE.Mesh(
+  new THREE.RingGeometry(0.55, 0.78, 28),
+  new THREE.MeshBasicMaterial({ color: 0x9fd0ff, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false }));
+selRing.rotation.x = -Math.PI / 2;   // lay flat on the ground
+selRing.visible = false;
+scene.add(selRing);
+
+const raycaster = new THREE.Raycaster();
+const ptr = new THREE.Vector2();
+let selectedId = -1, inspectTimer = null, downX = 0, downY = 0;
+
+// Distinguish a click from an orbit-drag: only pick if the pointer barely moved.
+renderer.domElement.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (e.button !== 0 || Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return;
+  ptr.x = (e.clientX / innerWidth) * 2 - 1;
+  ptr.y = -(e.clientY / innerHeight) * 2 + 1;
+  raycaster.setFromCamera(ptr, camera);
+  const hit = raycaster.intersectObjects(agents.children, false)[0];
+  if (hit && hit.object.userData.id != null) selectAgent(hit.object.userData.id);
+  else deselect();
+});
+addEventListener('keydown', e => { if (e.code === 'Escape') deselect(); });
+
+function selectAgent(id) {
+  selectedId = id;
+  ui('detail').style.display = 'block';
+  ui('detail').innerHTML = `<div class="dh">#${id}…</div>`;
+  const ask = () => { if (agentWs && agentWs.readyState === 1) agentWs.send(JSON.stringify({ type: 'inspect', id })); };
+  ask();
+  clearInterval(inspectTimer);
+  inspectTimer = setInterval(ask, 1000);   // keep the panel live while selected
+}
+function deselect() {
+  selectedId = -1; clearInterval(inspectTimer); inspectTimer = null;
+  ui('detail').style.display = 'none'; selRing.visible = false;
+}
+
+// Server needs.V axes, in order (NeedsRegistry.NeedAxis); each is a deficit 0..1.
+const NEED_LABELS = ['hunger', 'tiredness', 'loneliness', 'poverty', 'goods', 'fear', 'attire'];
+function renderDetail(d) {
+  if (!d || d.id !== selectedId) return;   // stale (deselected or reselected since the ask)
+  if (d.busy) return;                      // transient registry contention — keep last render
+  if (d.missing) { ui('detail').innerHTML = `<div class="dh"><span class="dx">×</span>#${d.id}</div><div class="dim">no longer here</div>`; wireClose(); return; }
+  let h = `<div class="dh"><span class="dx">×</span>#${d.id} ${d.name ?? ''}</div>`
+    + `<div class="dim">${d.kind} · ${d.race} · lvl ${d.level}</div>`
+    + `<div class="dim">activity: ${d.activity} (${d.phase})</div>`
+    + `<div class="dim">coin: ${(d.coin ?? 0).toFixed(2)}</div>`;
+  if (Array.isArray(d.needs)) {
+    h += `<div class="ndh">needs</div>`;
+    for (let i = 0; i < NEED_LABELS.length; i++) h += needBar(NEED_LABELS[i], d.needs[i]);
+  }
+  ui('detail').innerHTML = h;
+  wireClose();
+}
+function wireClose() {
+  const x = ui('detail').querySelector('.dx');
+  if (x) x.onclick = deselect;
+}
+function needBar(label, v) {
+  v = Math.max(0, Math.min(1, v || 0));   // deficit 0..1 (drift can exceed 1; clamp the bar)
+  const pct = Math.round(v * 100);
+  const col = v < 0.4 ? '#5cc77a' : v < 0.7 ? '#d4b04a' : '#c75c5c';   // green→amber→red as it worsens
+  return `<div class="nb"><span>${label}</span><span class="nbar"><i style="width:${pct}%;background:${col}"></i></span></div>`;
+}
+
 function updateAgents(t) {
   // Interpolate prev->cur over the ACTUAL snapshot gap (the web pump runs ~5 Hz,
   // not the 10 tps tick rate), so movement glides instead of teleport-then-freeze.
@@ -450,6 +566,7 @@ function updateAgents(t) {
   const alpha = curTime ? Math.min(1, (t - curTime) / interval) : 0;
   const walkFrame = Math.floor(t * WALK_FPS);
   const seen = new Set();
+  selRing.visible = false;   // re-shown below only if the selected agent is present
 
   for (const [id, c] of curSnap) {
     seen.add(id);
@@ -462,6 +579,7 @@ function updateAgents(t) {
       if (p) agents.remove(p.mesh);
       const geo = new THREE.PlaneGeometry(s.meta.worldW, s.meta.worldH);
       const mesh = new THREE.Mesh(geo, s.mat);
+      mesh.userData.id = id;   // for click-to-inspect raycasting
       agents.add(mesh);
       p = { mesh, archive, geo };
       people.set(id, p);
@@ -472,7 +590,12 @@ function updateAgents(t) {
     const x = pr[0] + (c[0] - pr[0]) * alpha, z = pr[1] + (c[1] - pr[1]) * alpha;
     const gy = pr[3] + (c[3] - pr[3]) * alpha;
     p.mesh.position.set(x, gy + s.meta.worldH / 2, z);
-    p.mesh.lookAt(camera.position.x, s.meta.worldH / 2, camera.position.z);   // upright billboard
+    // Aim at the camera in the XZ plane only (same height as the sprite), so the
+    // billboard stays vertical. Using a fixed Y here tilted it by the town's ground
+    // pad height (gy), which differs per town — hence the axis flip when panning.
+    p.mesh.lookAt(camera.position.x, p.mesh.position.y, camera.position.z);   // upright billboard
+
+    if (id === selectedId) { selRing.position.set(x, gy + 0.05, z); selRing.visible = true; }
 
     // Facing from actual movement (cur-prev); idle sprite when stationary.
     const mvx = c[0] - pr[0], mvz = c[1] - pr[1];
@@ -511,11 +634,12 @@ let agentWs = null;
 function connectAgents() {
   stat('agents: connecting…');
   agentWs = new WebSocket(`ws://${location.host}/ws`);
-  agentWs.onopen = () => { stat('agents: stream open, waiting…'); setSpeed(1); };
+  agentWs.onopen = () => { stat('agents: stream open, waiting…'); setSpeed(10); };
   agentWs.onerror = () => stat('agents: WebSocket error');
   agentWs.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
-    if (msg.type === 'snap') onSnap(msg);   // ignore the 'world' frame; we have /asset/town
+    if (msg.type === 'snap') onSnap(msg);        // ignore the 'world' frame; we have /asset/town
+    else if (msg.type === 'detail') renderDetail(msg.detail);
   };
   agentWs.onclose = () => { stat('agents: stream closed, retrying…'); setTimeout(connectAgents, 1000); };
 }
@@ -527,8 +651,8 @@ function setSpeed(scale) {
     b.style.color = Number(b.dataset.s) === scale ? '#9fd0ff' : '#8893a7');
 }
 
-// Speed control → SetTimeScaleInput (server handles {type:"speed",scale}). 1× ≈
-// real-time walking (1.4 m/s); higher to watch the day cycle.
+// Speed control = engine tick rate (server handles {type:"speed",scale}). scale is
+// ticks/real-second: 0 pauses, 10 is the normal rate, -1 (MAX) runs flat out.
 document.querySelectorAll('#speed button').forEach(btn => {
   btn.addEventListener('click', () => setSpeed(Number(btn.dataset.s)));
 });
@@ -553,6 +677,7 @@ async function init() {
       buildTerrain(terrainTiles);
     }
   } catch (e) { console.warn('terrain load failed', e); }
+  setFogSlider();   // seed the fog slider with the chosen town/region distance
 
   stat(`loading ${data.modelIds.length} unique models…`);
 

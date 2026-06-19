@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using DaggerfallWorkshop.Sim.Engine;
 
@@ -11,9 +12,11 @@ namespace DaggerfallWorkshop.Sim.Web
     /// the Frame in the post-Step read phase); the web threads only ever touch the
     /// already-frozen Frame via Latest.
     ///
-    /// The engine is fixed-timestep (≈0.1 game-seconds per tick), so wall-clock speed
-    /// is purely how fast we step: ticksPerBatch is derived from the requested
-    /// timeScale (game-seconds per real-second).
+    /// The engine is fixed-timestep (each Step advances 0.1 game-seconds), so "speed"
+    /// is nothing but how fast we call Step(): a target tick rate in ticks/real-second.
+    /// 0 pauses (we simply stop stepping); a negative target runs flat out, CPU-bound.
+    /// Publishing the Frame is decoupled — it refreshes at a steady cadence regardless
+    /// of the tick rate, and the web pump samples Latest at its own (slower) rate.
     public sealed class WorldRunner
     {
         public readonly struct AgentRow
@@ -35,31 +38,29 @@ namespace DaggerfallWorkshop.Sim.Web
             public AgentRow[] Agents;
         }
 
-        const int BatchSleepMs = 33;   // ~30 publishes/sec
+        const double PublishHz = 30.0;   // snapshot refresh rate, independent of tick rate
+        const int UnlimitedTps = -1;     // run the engine flat out, CPU-bound
 
         readonly SimWorld _world;
         volatile Frame _latest;
-        volatile int _ticksPerBatch;
-        volatile float _timeScale;
+        volatile int _targetTps;         // ticks/real-second; 0 = paused, <0 = unlimited
         bool _running = true;
 
         public Frame Latest => _latest;
-        public float TimeScale => _timeScale;
+        public int TargetTps => _targetTps;
         public SimWorld World => _world;
 
-        public WorldRunner(SimWorld world, float timeScale)
+        public WorldRunner(SimWorld world, int tps)
         {
             _world = world;
-            SetTimeScale(timeScale);
+            SetTickRate(tps);
             _latest = Build(0);
         }
 
-        public void SetTimeScale(float ts)
-        {
-            _timeScale = Math.Clamp(ts, 1f, 60000f);
-            // ts game-sec/sec ÷ 0.1 game-sec/tick = ticks/sec; spread over ~30 batches/sec.
-            _ticksPerBatch = Math.Clamp((int)MathF.Round(_timeScale / 3f), 1, 20000);
-        }
+        // The viewer's speed control: how fast to tick the engine, in ticks/real-second.
+        // 0 pauses (the loop stops stepping); a negative value runs flat out. There is
+        // no game-time multiplier — each tick always advances the engine's fixed step.
+        public void SetTickRate(int tps) => _targetTps = tps < 0 ? UnlimitedTps : Math.Min(tps, 100000);
 
         public void Start()
         {
@@ -71,13 +72,32 @@ namespace DaggerfallWorkshop.Sim.Web
 
         void Loop()
         {
+            var sw = Stopwatch.StartNew();
             long tick = 0;
+            double prev = sw.Elapsed.TotalSeconds, tickAcc = 0, nextPublish = 0;
             while (_running)
             {
-                int n = _ticksPerBatch;
-                for (int i = 0; i < n; i++) { _world.Step(); tick++; }
-                _latest = Build(tick);   // built here, on the sim thread, in the read phase
-                Thread.Sleep(BatchSleepMs);
+                double now = sw.Elapsed.TotalSeconds;
+                double dt = now - prev; prev = now;
+                int tps = _targetTps;
+
+                if (tps == UnlimitedTps) { _world.Step(); tick++; }   // flat out, CPU-bound
+                else if (tps > 0)
+                {
+                    // Accumulate the time we owe and spend it in whole ticks. Cap the
+                    // backlog so a hitch (or a tab regaining focus) can't trigger a
+                    // catch-up spiral of thousands of steps.
+                    tickAcc += dt * tps;
+                    if (tickAcc > tps) tickAcc = tps;
+                    while (tickAcc >= 1.0) { _world.Step(); tick++; tickAcc -= 1.0; }
+                }
+                else tickAcc = 0;   // paused: don't bank time while stopped
+
+                // Refresh the published Frame on a fixed cadence, not per tick — so an
+                // unlimited run doesn't rebuild the snapshot thousands of times a second.
+                if (now >= nextPublish) { _latest = Build(tick); nextPublish = now + 1.0 / PublishHz; }
+
+                if (tps != UnlimitedTps) Thread.Sleep(1);   // yield unless running flat out
             }
         }
 

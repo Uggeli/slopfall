@@ -8,11 +8,12 @@ using Sim.AssetExport;
 
 // Web spectator: pan over the living town/region in a browser (town3d.html) on the
 // parallel CQRS engine. Usage: dotnet run <region> <location> [--port 8080]
-//   [--timescale 600] [--region] [--starthour H]
+//   [--tps 30] [--region] [--starthour H]
 
 string region = null, location = null;
 int port = 8080;
-float timeScale = 120f;     // 2 game-min per real second — watchable walking
+int tickRate = 10;          // engine ticks per real-second at startup; viewer overrides live
+const float ClockRunning = 1f;   // clock seed: any value >0 means "advancing" (no longer a rate)
 bool wholeRegion = false;   // --region: spectate every settlement at once, not one town
 int startHour = -1;         // --starthour H: boot the clock at hour H (else dawn)
 
@@ -21,7 +22,7 @@ for (int i = 0; i < args.Length; i++)
     switch (args[i])
     {
         case "--port": port = int.Parse(args[++i]); break;
-        case "--timescale": timeScale = float.Parse(args[++i]); break;
+        case "--tps": tickRate = int.Parse(args[++i]); break;
         case "--region": wholeRegion = true; break;
         case "--starthour": startHour = int.Parse(args[++i]); break;
         default:
@@ -51,7 +52,7 @@ List<(int mx, int my, string name, int w, int h)> rTowns = null;
 (int mx, int my, string name, int w, int h) rCentre = default;
 if (wholeRegion)
 {
-    world = SimBoot.CreateRegion(SimBoot.DefaultArena2Path, region, timeScale);
+    world = SimBoot.CreateRegion(SimBoot.DefaultArena2Path, region, ClockRunning);
     var grid0 = world.TownGrid.Current;
     worldRegionName = region;
     worldName = world.Settlements.All.Count + " settlements";
@@ -133,7 +134,7 @@ if (wholeRegion)
 }
 else
 {
-    world = SimBoot.CreateTown(SimBoot.DefaultArena2Path, region, location, timeScale);
+    world = SimBoot.CreateTown(SimBoot.DefaultArena2Path, region, location, ClockRunning);
     worldRegionName = region;
     worldName = location;
     var grid0 = world.TownGrid.Current;
@@ -150,12 +151,12 @@ if (startHour >= 0)
     world.Events.Publish(new WorldClockSetIntent
     {
         Year = 405, Month = 0, Day = 3, Hour = startHour, Minute = 0, Second = 0f,
-        TimeScale = timeScale, DeltaGameSeconds = 0.1,
+        TimeScale = ClockRunning, DeltaGameSeconds = 0.1,
     });
     world.ApplySeed();
 }
 
-var runner = new WorldRunner(world, timeScale);
+var runner = new WorldRunner(world, tickRate);
 runner.Start();
 
 // IncludeFields: the DTOs use public fields, which System.Text.Json ignores by default.
@@ -374,7 +375,7 @@ app.Map("/ws", async context =>
                     night = snap.Night,
                     sun = snap.Sun,
                     weather = snap.Weather.ToString(),
-                    speed = runner.TimeScale,
+                    speed = runner.TargetTps,   // now a tick rate (ticks/sec); -1 = unlimited
                     // Compact rows: [id, x, z, activity, phase, yaw, kind, groundY]
                     // (2D spectator reads [0..4]; 3D viewer also uses yaw+kind+groundY.)
                     // Region mode projects packed coords to the geographic world and
@@ -419,7 +420,7 @@ app.Map("/ws", async context =>
                     break;
 
                 case "speed" when doc.RootElement.TryGetProperty("scale", out var sProp):
-                    runner.SetTimeScale((float)sProp.GetDouble());
+                    runner.SetTickRate((int)sProp.GetDouble());   // ticks/sec; -1 = unlimited
                     break;
             }
         }
