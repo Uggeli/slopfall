@@ -170,6 +170,23 @@ namespace DaggerfallWorkshop.Sim
                     {
                         var sub = block.RmbBlock.SubRecords[i];
 
+                        // Gate posts: a guard-holdable opening is a gate 3D model
+                        // (446 open / 447 closed) carried by a WALL* block's subrecord.
+                        // World pos = subrecord origin (same math as BuildingRow.X/Z below)
+                        // + the gate object's offset within the subrecord.
+                        if (blockName.StartsWith("WALL") && sub.Exterior.Block3dObjectRecords != null)
+                        {
+                            foreach (var obj in sub.Exterior.Block3dObjectRecords)
+                            {
+                                if (obj.ModelIdNum != 446 && obj.ModelIdNum != 447) continue;
+                                float gateX = gx * blockSide + (sub.XPos + obj.XPos) * GlobalScale;
+                                float gateZ = gy * blockSide
+                                              + (BlocksFile.RMBDimension - sub.ZPos) * GlobalScale
+                                              + obj.ZPos * GlobalScale;
+                                settlement.GatePosts.Add(new GatePost { X = gateX, Z = gateZ });
+                            }
+                        }
+
                         var building = new BuildingRow
                         {
                             Kind = BuildingKind.None,

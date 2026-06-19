@@ -34,6 +34,13 @@ namespace DaggerfallWorkshop.Sim.Host
                 }
             Console.WriteLine($"grid {g.Width}x{g.Height} cells, {g.BlocksWide}x{g.BlocksHigh} blocks; " +
                               $"WALL blocks={wallBlocks}, with gate openings={gateOpeningBlocks}");
+
+            foreach (var st in w.Settlements.All)
+            {
+                Console.WriteLine($"settlement '{st.Name}' gate posts={st.GatePosts.Count}");
+                for (int i = 0; i < st.GatePosts.Count; i++)
+                    Console.WriteLine($"  gate {i}: ({st.GatePosts[i].X:F1}, {st.GatePosts[i].Z:F1})");
+            }
             return 0;
         }
     }

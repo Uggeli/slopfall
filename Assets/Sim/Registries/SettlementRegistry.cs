@@ -18,6 +18,9 @@ namespace DaggerfallWorkshop.Sim
         Tavern,      // Tavern — standalone roadside service site
     }
 
+    /// A town-wall gate opening (gate model 446/447) — a post a guard holds / patrols to.
+    public struct GatePost { public float X, Z; }
+
     /// One settled place inside a loaded region. Buildings and residents are tagged
     /// to exactly one settlement so the load-time seeds (employment, local knowledge,
     /// guards/treasury) stay settlement-local instead of bleeding across the region.
@@ -53,5 +56,6 @@ namespace DaggerfallWorkshop.Sim
         // Membership, filled as the loader walks this settlement's blocks.
         public readonly List<int> Buildings = new List<int>();
         public readonly List<EntityId> Residents = new List<EntityId>();
+        public readonly List<GatePost> GatePosts = new List<GatePost>();
     }
 }
