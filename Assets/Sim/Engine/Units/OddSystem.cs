@@ -176,6 +176,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             };
 
             var ads = GatherAds(id);
+            if (sc.IsGuard) InjectGuardAds(id, sc, ads, hour);
 
             var verbs = new List<ActivityKind>();
             var verbAd = new List<Ad>();
@@ -345,6 +346,79 @@ namespace DaggerfallWorkshop.Sim.Engine
                                || !SaleStockAvailable(a));
 
             return ads;
+        }
+
+        // Dynamic Object Zero (guards): role/context-aware ads injected into the
+        // marketplace before consolidation. Posting/patrol/interception/abandonment
+        // all emerge from scoring — no state machine.
+        //
+        // GuardDutyUtility is calibrated to beat the innate Attack ad under the guard's
+        // constant vigilance-floor fear (GuardCombatBoost=4 × VigilanceFloor=0.15 →
+        // routine Attack ≈ 0.035-0.06), so the guard holds post over idle combat-stance.
+        // GuardAttackFloor + GuardAttackGain at point-blank (0.02+0.06=0.08) > duty (0.065),
+        // so a creature within ~3 m beats duty; beyond that, duty holds.
+        const double GuardDutyUtility  = 0.065; // beats routine vigilance-floor Attack; see note above
+        const double GuardAttackFloor  = 0.02;  // injected Attack floor (always above catalog Attack at range)
+        const double GuardAttackGain   = 0.06;  // proximity bonus; duty(0.065) beaten at prox≥0.75 (creature ≤3 m)
+        const float  GuardSenseRange   = 12f;   // matches SenseSystem sight radius
+
+        void InjectGuardAds(EntityId id, ScoreContext sc, List<Ad> ads, int hour)
+        {
+            if (!_employment.TryGet(id, out var emp) || emp == null || emp.PublicOwner.IsNone) return;
+            bool civicNight = hour < 6 || hour >= 18;
+
+            // On-shift duty ad at the assigned gate post (skip if this guard has no gate).
+            // Uses GuardDutyUtility (not the catalog BaseUtility) so the duty ad beats the
+            // innate Attack score that GuardCombatBoost + vigilance-floor fear produces.
+            if (emp.GateIndex >= 0 && emp.NightShift == civicNight)
+            {
+                var verb = civicNight ? ActivityKind.StandWatch : ActivityKind.Patrol;
+                var catalogSpec = ActivityCatalog.SpecFor(verb);
+                ads.Add(new Ad
+                {
+                    Verb = verb, Building = -1, X = emp.GateX, Z = emp.GateZ,
+                    Spec = new ActivityCatalog.Spec
+                    {
+                        Kind = verb,
+                        DurationMinutes = catalogSpec.DurationMinutes,
+                        BaseUtility = GuardDutyUtility,
+                    },
+                });
+            }
+
+            // Sensed creature → proximity-boosted Attack ad. Δ=0 so it scores purely
+            // on BaseUtility (independent of the guard's own Fear): floor + proximity,
+            // always above duty. Targeting is resolved to NearestCreature downstream.
+            if (_subjective.TryGet(id, out var view) && view != null
+                && _position.TryGet(id, out var gp) && gp != null)
+            {
+                float best2 = GuardSenseRange * GuardSenseRange;
+                bool have = false; float tx = 0, tz = 0;
+                for (int i = 0; i < view.Entities.Count; i++)
+                {
+                    var e = view.Entities[i];
+                    if (e.Threat <= 0) continue;
+                    if (!_position.TryGet(e.Other, out var cp) || cp == null) continue;
+                    float dx = cp.X - gp.X, dz = cp.Z - gp.Z;
+                    float d2 = dx * dx + dz * dz;
+                    if (d2 < best2) { best2 = d2; tx = cp.X; tz = cp.Z; have = true; }
+                }
+                if (have)
+                {
+                    double prox = 1.0 - System.Math.Sqrt(best2) / GuardSenseRange;   // 0..1, 1 at point-blank
+                    double util = GuardAttackFloor + prox * GuardAttackGain;
+                    ads.Add(new Ad
+                    {
+                        Verb = ActivityKind.Attack, Building = -1, X = tx, Z = tz,
+                        Spec = new ActivityCatalog.Spec
+                        {
+                            Kind = ActivityKind.Attack,
+                            DurationMinutes = 10,
+                            BaseUtility = util,
+                        },
+                    });
+                }
+            }
         }
 
         void Discover(EntityId agent, int buildingIndex, List<Ad> into)
