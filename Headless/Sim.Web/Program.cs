@@ -83,15 +83,18 @@ if (wholeRegion)
         int tilePosX = (128 - blocksWide * 16) / 2, tilePosY = (128 - blocksHigh * 16) / 2;
         return (tilePosX / 16f * BlockSide, tilePosY / 16f * BlockSide);
     }
-    var sAll = world.Settlements.All;
-    const int TerrainPad = 3;   // pixels of wilderness/sea to keep around the towns
+    // Render every POI with an exterior — settled towns AND the non-settled POIs
+    // (dungeons, covens, graveyards, isolated homes). Each lands at its true map
+    // pixel; only settlement-owning POIs additionally remap agents (below).
+    var pAll = world.Pois.All.Where(p => p.HasExterior).ToList();
+    const int TerrainPad = 3;   // pixels of wilderness/sea to keep around the locations
     int mx0 = int.MaxValue, my0 = int.MaxValue, mx1 = int.MinValue, my1 = int.MinValue;
-    foreach (var s in sAll)
+    foreach (var p in pAll)
     {
-        if (s.MapPixelX < mx0) mx0 = s.MapPixelX;
-        if (s.MapPixelX > mx1) mx1 = s.MapPixelX;
-        if (s.MapPixelY < my0) my0 = s.MapPixelY;
-        if (s.MapPixelY > my1) my1 = s.MapPixelY;
+        if (p.MapPixelX < mx0) mx0 = p.MapPixelX;
+        if (p.MapPixelX > mx1) mx1 = p.MapPixelX;
+        if (p.MapPixelY < my0) my0 = p.MapPixelY;
+        if (p.MapPixelY > my1) my1 = p.MapPixelY;
     }
     mx0 = Math.Max(0, mx0 - TerrainPad); my0 = Math.Max(0, my0 - TerrainPad);
     mx1 = Math.Min(999, mx1 + TerrainPad); my1 = Math.Min(499, my1 + TerrainPad);
@@ -100,7 +103,7 @@ if (wholeRegion)
     // knows which pixels flatten a location).
     rTileSize = TileSize;
     rMx0 = mx0; rMy0 = my0; rMx1 = mx1; rMy1 = my1;
-    rTowns = sAll.Select(s => (s.MapPixelX, s.MapPixelY, s.Name, s.BlocksWide, s.BlocksHigh)).ToList();
+    rTowns = pAll.Select(p => (p.MapPixelX, p.MapPixelY, p.Name, p.BlocksWide, p.BlocksHigh)).ToList();
     // The settlement nearest the bbox centre supplies the datum the region levels to.
     int cmx = (rMx0 + rMx1) / 2, cmy = (rMy0 + rMy1) / 2;
     rCentre = rTowns[0];
@@ -120,21 +123,26 @@ if (wholeRegion)
     // query each town's own tile floor and turn the elevation gap into a Y offset.
     settlements = new List<(string, float, float, float)>();
     remap = new List<(float, float, float, float, float, float, float)>();
-    foreach (var s in sAll)
+    foreach (var p in pAll)
     {
-        var (cx, cz) = TownCentre(s.BlocksWide, s.BlocksHigh);
+        var (cx, cz) = TownCentre(p.BlocksWide, p.BlocksHigh);
         // +X = east (MapPixelX grows east), +Z = north (MapPixelY grows south, so Z
         // counts down from the bbox's south edge my1). This matches DFU's native
         // terrain frame, so heights + autotiling render with no reflection.
-        float geoX = (s.MapPixelX - mx0) * TileSize + cx;
-        float geoZ = (my1 - s.MapPixelY) * TileSize + cz;
-        float floor = assets.RegionTileFloor(region, s.Name, s.BlocksWide, s.BlocksHigh);
+        float geoX = (p.MapPixelX - mx0) * TileSize + cx;
+        float geoZ = (my1 - p.MapPixelY) * TileSize + cz;
+        float floor = assets.RegionTileFloor(region, p.Name, p.BlocksWide, p.BlocksHigh);
         float padY = (floor - rDatum) * TerrainTile.MaxTerrainHeight;
-        settlements.Add((s.Name, geoX, padY, geoZ));
-        remap.Add((s.OriginX, s.OriginZ,
-                   s.OriginX + s.BlocksWide * BlockSide,
-                   s.OriginZ + s.BlocksHigh * BlockSide,
-                   geoX - s.OriginX, padY, geoZ - s.OriginZ));
+        p.OriginX = geoX; p.OriginY = padY; p.OriginZ = geoZ;
+        settlements.Add((p.Name, geoX, padY, geoZ));
+
+        // Only settled POIs have agents to remap from the packed grid to geo space.
+        var s = p.Settlement;
+        if (s != null)
+            remap.Add((s.OriginX, s.OriginZ,
+                       s.OriginX + s.BlocksWide * BlockSide,
+                       s.OriginZ + s.BlocksHigh * BlockSide,
+                       geoX - s.OriginX, padY, geoZ - s.OriginZ));
     }
 }
 else
