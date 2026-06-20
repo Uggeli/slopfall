@@ -263,6 +263,12 @@ function streamRegionTerrain(dt) {
     if (m === 'loading') continue;
     const [mx, my] = key.split(',').map(Number);
     if (Math.abs(mx - cmx) > R + 2 || Math.abs(my - cmy) > R + 2) {
+      // Dispose the tile mesh AND its child nature InstancedMesh (geometry +
+      // per-instance attributes + its own ShaderMaterial). The atlas texture is
+      // shared/cached in flatSheets and must NOT be disposed here.
+      m.traverse(o => {
+        if (o.isMesh || o.isInstancedMesh) { o.geometry.dispose(); if (o !== m) o.material.dispose(); }
+      });
       terrainGroup.remove(m); m.geometry.dispose(); regionTiles.delete(key);
     }
   }

@@ -170,6 +170,7 @@ namespace Sim.AssetExport
                             foreach (var f in sub.Exterior.BlockFlatObjectRecords)
                             {
                                 if (f.FactionID != 0) continue;   // static NPC — sim owns population
+                                if (f.TextureArchive == 199) continue;   // editor markers (enemy/treasure/start) — invisible in-game, per DFU AddExteriorBlockFlats
                                 float fx = blockM[12] + sx + f.XPos * GlobalScale;
                                 float fy = blockM[13] + (-f.YPos + BlockFlatsOffsetY) * GlobalScale;
                                 float fz = blockM[14] + sz + f.ZPos * GlobalScale;
