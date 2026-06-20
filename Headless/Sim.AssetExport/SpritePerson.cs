@@ -1,11 +1,12 @@
-// Mobile civilian NPC sprites (render plane 3, the live-agent layer).
-// Packs a person texture archive's directional walk records (0-4) + idle (5)
-// and their animation frames into one transparent sheet PNG, with metadata the
-// client uses to pick a cell per (orientation, frame) and size the billboard.
+// Mobile NPC sprites (render plane 3, the live-agent layer).
+// Packs all animation records of a person/monster texture archive into one
+// transparent sheet PNG, with metadata the client uses to pick a cell per
+// (record, frame) and size the billboard.
 //
+// Universal mobile layout (20 records): 0-4 walk, 5-9 attack, 10-14 hurt, 15-19 idle.
 // Direction model (DFU MobilePersonBillboard): records 0..4 = facing
 // S/SW/W/NW/N; directions NE/E/SE reuse records 3/2/1 mirrored (client UV flip).
-// Idle = record 5. World size = (W + W*scale/256) * 0.025 m.
+// World size = (W + W*scale/256) * 0.025 m.
 
 using System;
 using System.Collections.Generic;
@@ -20,7 +21,7 @@ namespace Sim.AssetExport
     {
         public int Archive;
         public int CellW, CellH;     // sheet cell size (px)
-        public int Cols, Rows;       // Cols = max frames across records; Rows = record count (<=6)
+        public int Cols, Rows;       // Cols = max frames across records; Rows = record count (<=20)
         public int[] Frames;         // frame count per record row
         public float WorldW, WorldH; // billboard size in metres
     }
@@ -28,7 +29,7 @@ namespace Sim.AssetExport
     public static class SpritePerson
     {
         public const float GlobalScale = 0.025f;
-        const int MaxRows = 6;       // records 0..4 walk + 5 idle
+        const int MaxRows = 20;      // records 0-4 walk, 5-9 attack, 10-14 hurt, 15-19 idle (universal mobile layout)
 
         // Civilian archives (race x gender x 4 outfit variants), guard excluded.
         // The client derives a person's archive by hashing their entity id.

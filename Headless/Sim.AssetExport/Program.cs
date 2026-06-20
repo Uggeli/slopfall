@@ -8,6 +8,8 @@
 //   Sim.AssetExport dump <objectId> [--record] [--out <dir>] [--arena2 <path>]
 //     <objectId>   ARCH3D model object id (as referenced by city blocks)
 //     --record     interpret the number as a raw record index instead
+//   Sim.AssetExport sprite <archive> [--arena2 <path>]
+//     <archive>    texture archive number (e.g. 255=Rat, 399=CityWatch, 381=civilian)
 //
 // ARENA2 path resolves from --arena2, else $DAGGERFALL_ARENA2, else the default.
 
@@ -44,6 +46,21 @@ namespace Sim.AssetExport
                 string region = args.Length > 1 ? args[1] : "Daggerfall";
                 string location = args.Length > 2 ? args[2] : "Gothway Garden";
                 return TilemapDiag.Run(arena2, region, location, outDir);
+            }
+
+            if (args[0] == "sprite")
+            {
+                if (args.Length < 2 || !int.TryParse(args[1], out int spriteArchive))
+                {
+                    Console.Error.WriteLine("usage: Sim.AssetExport sprite <archive> [--arena2 <path>]");
+                    return 2;
+                }
+                var (png, meta) = SpritePerson.Build(arena2, spriteArchive);
+                Console.WriteLine($"sprite archive {meta.Archive}: rows={meta.Rows} cols(maxFrames)={meta.Cols} cell={meta.CellW}x{meta.CellH} world={meta.WorldW:0.00}x{meta.WorldH:0.00}m png={png.Length}B");
+                Console.Write("  frames/record:");
+                for (int r = 0; r < meta.Frames.Length; r++) Console.Write($" [{r}]={meta.Frames[r]}");
+                Console.WriteLine();
+                return 0;
             }
 
             string arch3dPath = Path.Combine(arena2, Arch3dFile.Filename);
