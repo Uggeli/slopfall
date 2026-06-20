@@ -106,6 +106,11 @@ scene.add(terrainGroup);
 // (819.2 m). regionTiles caches the meshes we've built/requested by "mx,my".
 let regionMeta = null;
 const regionTiles = new Map();   // "mx,my" -> mesh | 'loading'
+// Region mode also streams building/flat geometry per pixel on the SAME ring as
+// terrain, via /asset/towntile. regionStructures caches a THREE.Group per pixel.
+const regionStructures = new Map();   // "mx,my" -> THREE.Group | 'loading' | 'empty'
+let townClimate = 2, townSeason = 0;  // region texture climate (from /asset/town)
+let lastViewMx = -999, lastViewMy = -999;   // last camera pixel reported to the server
 
 // Build a per-cell textured terrain mesh: heightfield (129x129) + a 128x128
 // tilemap that picks a ground-tile per cell. The server bakes the atlas with all
@@ -223,6 +228,15 @@ function streamRegionTerrain(dt) {
   const dist = camera.position.distanceTo(t);
   const R = Math.min(6, Math.max(2, Math.ceil(dist / ts) + 1));
 
+  // Tell the server our camera pixel so it filters the agent snapshot to our ring
+  // (R+2 matches the structure/terrain eviction hysteresis, so agents don't pop at
+  // the visible edge). Only on change, to avoid spamming the socket.
+  if (cmx !== lastViewMx || cmy !== lastViewMy) {
+    lastViewMx = cmx; lastViewMy = cmy;
+    if (agentWs && agentWs.readyState === 1)
+      agentWs.send(JSON.stringify({ type: 'view', mx: cmx, my: cmy, r: R + 2 }));
+  }
+
   // Collect missing pixels in the ring, request the nearest few this tick.
   const want = [];
   for (let mx = cmx - R; mx <= cmx + R; mx++)
@@ -272,6 +286,72 @@ function streamRegionTerrain(dt) {
       terrainGroup.remove(m); m.geometry.dispose(); regionTiles.delete(key);
     }
   }
+
+  // Structures (buildings + decorative flats) stream on the SAME ring as terrain.
+  const wantS = [];
+  for (let mx = cmx - R; mx <= cmx + R; mx++)
+    for (let my = cmy - R; my <= cmy + R; my++) {
+      if (mx < regionMeta.mx0 || mx > regionMeta.mx1 ||
+          my < regionMeta.my0 || my > regionMeta.my1) continue;
+      const key = mx + ',' + my;
+      if (regionStructures.has(key)) continue;
+      wantS.push({ mx, my, key, d: (mx - cmx) * (mx - cmx) + (my - cmy) * (my - cmy) });
+    }
+  wantS.sort((a, b) => a.d - b.d);
+  for (const w of wantS.slice(0, 4)) {
+    regionStructures.set(w.key, 'loading');
+    fetch(`/asset/towntile/${w.mx}/${w.my}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => addStructureTile(w.key, d))
+      .catch(() => regionStructures.delete(w.key));
+  }
+  // Evict structure tiles beyond the ring (same 2-pixel hysteresis as terrain).
+  for (const [key, g] of regionStructures) {
+    if (g === 'loading' || g === 'empty') continue;
+    const [mx, my] = key.split(',').map(Number);
+    if (Math.abs(mx - cmx) > R + 2 || Math.abs(my - cmy) > R + 2) {
+      // Building instances are proto.clone()s that SHARE the proto's geometry +
+      // material (cached, reused by other tiles) — never dispose those. Only the
+      // per-tile flat InstancedMeshes own their geometry + ShaderMaterial; dispose
+      // those, but not the atlas texture (shared/cached in flatSheets).
+      g.traverse(o => {
+        if (o.isInstancedMesh) { o.geometry.dispose(); o.material.dispose(); }
+      });
+      town.remove(g); regionStructures.delete(key);
+    }
+  }
+}
+
+// Instantiate one pixel's render geometry: clone each unique building model (loaded
+// once, browser-cached) and apply its world matrix; instance the decorative flats per
+// archive. The group is parented to `town` so the mirror/wireframe toggles apply.
+async function addStructureTile(key, d) {
+  if (!d || (!(d.placements && d.placements.length) && !(d.flats && d.flats.length))) {
+    regionStructures.set(key, 'empty'); return;   // cache the empty pixel
+  }
+  const g = new THREE.Group();
+  const protos = {};
+  await Promise.all((d.modelIds || []).map(id =>
+    loadModel(id, townClimate, townSeason).then(m => { protos[id] = m; })));
+  for (const p of d.placements) {
+    const proto = protos[p.modelId];
+    if (!proto) continue;
+    const inst = proto.clone();
+    inst.applyMatrix4(new THREE.Matrix4().fromArray(p.matrix));
+    g.add(inst);
+  }
+  // Flats carry absolute world coords + worldW/H already (same as the town path),
+  // so pass them straight through — no tile offset, unlike terrain nature scatter.
+  const byArchive = {};
+  for (const f of (d.flats || [])) (byArchive[f.archive] ||= []).push(f);
+  for (const [archive, items] of Object.entries(byArchive)) {
+    const { meta, tex } = await getFlatSheet(Number(archive));
+    g.add(buildFlatInstances(meta, tex, items));
+  }
+  // A tile may have been evicted while its models were loading; honor that.
+  if (regionStructures.get(key) !== 'loading') return;
+  town.add(g);
+  regionStructures.set(key, g);
 }
 
 // WASD fly-cam (on top of OrbitControls): move camera + target together over the
@@ -838,6 +918,7 @@ async function init() {
   // per-asset model/texture/atlas endpoints stay cacheable (immutable).
   const data = await (await fetch('/asset/town', { cache: 'no-store' })).json();
   const climate = data.climateBase, season = data.season;
+  townClimate = climate; townSeason = season;   // used by streamed region structures
 
   // Terrain. Region mode streams per-pixel tiles around the camera (the static
   // /asset/terrain payload is empty there); town mode ships its pixel + 3x3

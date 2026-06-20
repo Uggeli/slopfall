@@ -23,6 +23,11 @@ namespace Sim.AssetExport
         readonly Dictionary<long, RegionTile> _tiles = new();
         static readonly RegionTile EmptyTile = new();
 
+        /// Region-global texture climate (taken from the first settlement, as the old
+        /// whole-region dump did). The viewer needs it to load each tile's models;
+        /// per-settlement climate is a documented follow-up.
+        public int ClimateBase { get; private set; }
+
         public static long PixelKey(int mx, int my) => ((long)mx << 32) | (uint)my;
 
         static (int mx, int my) PixelOf(float geoX, float geoZ, int mx0, int my1, float ts)
@@ -30,7 +35,7 @@ namespace Sim.AssetExport
 
         public static RegionPlacementIndex Build(TownLayout.TownData region, int mx0, int my1, float tileSize)
         {
-            var idx = new RegionPlacementIndex();
+            var idx = new RegionPlacementIndex { ClimateBase = region.ClimateBase };
             var seenModel = new Dictionary<long, HashSet<uint>>();
 
             foreach (var p in region.Placements)

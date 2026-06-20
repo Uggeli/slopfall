@@ -279,7 +279,11 @@ app.MapGet("/asset/town", (HttpContext ctx) =>
     // Region mode streams geometry per pixel via /asset/towntile instead, so the
     // aggregate is empty here (mirrors /asset/terrain).
     if (wholeRegion)
-        return Results.Json(new TownLayout.TownData { Region = region, Location = worldName }, jsonOptions);
+        return Results.Json(new TownLayout.TownData
+        {
+            Region = region, Location = worldName,
+            ClimateBase = regionIndex?.ClimateBase ?? 2, Season = 0,
+        }, jsonOptions);
     return Results.Json(assets.GetTown(region, location), jsonOptions);
 });
 
