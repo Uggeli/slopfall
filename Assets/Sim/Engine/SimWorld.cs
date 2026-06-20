@@ -22,6 +22,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         public readonly WorldMarketRegistry WorldMarket;
         public readonly SettlementRegistry Settlements;
         public readonly PoiRegistry Pois;
+        public readonly RegionGeographyRegistry Geography;
         public readonly FloraRegistry Flora;
         public readonly BuildingRegistry Buildings;
         public readonly PositionRegistry Position;
@@ -70,7 +71,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             Lighting = new LightingRegistry(e); Holiday = new HolidayRegistry(e);
             Occupancy = new OccupancyRegistry(e); TownGrid = new TownGridRegistry(e);
             Ledger = new LedgerRegistry(e); WorldMarket = new WorldMarketRegistry(e);
-            Settlements = new SettlementRegistry(e); Pois = new PoiRegistry(e); Flora = new FloraRegistry(e); Buildings = new BuildingRegistry(e);
+            Settlements = new SettlementRegistry(e); Pois = new PoiRegistry(e); Geography = new RegionGeographyRegistry(e); Flora = new FloraRegistry(e); Buildings = new BuildingRegistry(e);
             Position = new PositionRegistry(e); Behavior = new BehaviorRegistry(e);
             Intent = new IntentRegistry(e); Identity = new IdentityRegistry(e);
             Needs = new NeedsRegistry(e); Vitals = new VitalsRegistry(e); Life = new LifeRegistry(e);
@@ -92,7 +93,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             var registries = new Registry[]
             {
                 WorldClock, Weather, Lighting, Holiday, Occupancy, TownGrid, Ledger, WorldMarket,
-                Settlements, Pois, Flora, Buildings, Position, Behavior, Intent, Identity, Needs, Vitals, Life,
+                Settlements, Pois, Geography, Flora, Buildings, Position, Behavior, Intent, Identity, Needs, Vitals, Life,
                 Personality, Stats, Effects, EffectAggregate, StatusFlags, Progression, Employment,
                 Residency, Affects, Meanings, Relations, Memory, Conscience, Lineage, Subjective, Sensed,
                 Coin, Stock, Larder, Treasury, Items, ItemTake, PlaceMemory, Creatures, Path,

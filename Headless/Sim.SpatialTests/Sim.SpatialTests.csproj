@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Dedicated test project for the region spatial-index work. Deliberately does
+    NOT reference Sim.Net: that project is broken on master (the render-client
+    timestep refactor removed RenderSnapshot, which Sim.Net/Protocol.cs and the
+    stale Sim.Tests ProtocolTests/SnapshotTests still reference). Keeping these
+    tests isolated gives a real green signal without waiting on that rewrite.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Sim.Core/Sim.Core.csproj" />
+    <ProjectReference Include="../Sim.Data/Sim.Data.csproj" />
+    <ProjectReference Include="../Sim.World/Sim.World.csproj" />
+    <ProjectReference Include="../Sim.AssetExport/Sim.AssetExport.csproj" />
+  </ItemGroup>
+
+</Project>
