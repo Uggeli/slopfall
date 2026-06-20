@@ -63,7 +63,7 @@ namespace Sim.AssetExport
                 if (rgbas[i] != null)
                     for (int y = 0; y < h; y++)
                         Array.Copy(rgbas[i], y * w * 4, sheet, ((oy + y) * sheetW + ox) * 4, w * 4);
-                cells[i] = new FlatCell { U = cx, V = cy, W = cellW, H = cellH, WorldW = w * GlobalScale, WorldH = h * GlobalScale };
+                cells[i] = new FlatCell { U = ox, V = oy, W = w, H = h, WorldW = w * GlobalScale, WorldH = h * GlobalScale };
             }
 
             var meta = new FlatMeta { Archive = archive, SheetW = sheetW, SheetH = sheetH, Count = count, Cols = Cols, Cells = cells };

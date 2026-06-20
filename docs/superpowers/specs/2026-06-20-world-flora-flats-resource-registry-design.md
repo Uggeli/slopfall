@@ -71,7 +71,9 @@ Two new endpoints, reusing the existing sprite-sheet packer:
 Decorative-flat archives and nature archives both flow through these endpoints (any `TextureArchive`).
 
 ### Client (`town3d.html`)
-A new `flats` scene group. On region/town load, group `data.flats` by archive, fetch each archive's `flatsheet`+`flatmeta`, and render each flat as a **Y-axis camera-facing billboard**, bottom-anchored to its `Y`, UV fixed to its record's cell (no animation). Because a region holds **thousands** of static flats, render them **batched per archive** (instanced mesh / sprite batch with a billboard vertex step), not as thousands of per-frame `lookAt` meshes. Existing buildings/agents rendering is unchanged.
+A new `flats` scene group. On region/town load, group `data.flats` by archive, fetch each archive's `flatsheet`+`flatmeta`, and render each flat as a **Y-axis camera-facing billboard**, bottom-anchored to its `Y`, UV fixed to its record's cell (no animation). Existing buildings/agents rendering is unchanged.
+
+> **Implementation note (this pass):** the first cut renders one `Mesh` per flat with a per-frame `lookAt` (the simple, directly-verifiable approach). A region holds **thousands** of static flats, so for region-scale performance the follow-up is to render them **batched per archive** (instanced mesh / sprite batch with a billboard vertex step) rather than thousands of per-frame `lookAt` meshes. Per-mesh is acceptable for town-scale validation now; instanced batching + LOD/culling is tracked in Open follow-ups.
 
 ## 2. Catalog (authored data)
 
