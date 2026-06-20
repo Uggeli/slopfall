@@ -45,7 +45,8 @@ namespace DaggerfallWorkshop.Sim
                 { poi.Settlement = s; return; }
         }
 
-        public static RegionLoadResult LoadRegion(SimWorld world, SimRandom rng, MapsFile maps, BlocksFile blocks, string regionName, WoodsFile woods = null)
+        public static RegionLoadResult LoadRegion(SimWorld world, SimRandom rng, MapsFile maps, BlocksFile blocks, string regionName, WoodsFile woods = null,
+            System.Func<string, int, int, float> tileFloor = null, float maxTerrainHeight = 0f)
         {
             var region = maps.GetRegion(regionName);
             var result = new RegionLoadResult { RegionName = regionName };
@@ -146,7 +147,88 @@ namespace DaggerfallWorkshop.Sim
             TownLoader.SeedStock(world);     // global, per-building — same as single-town
             grid.Connectivity = BlockConnectivity.Build(grid);   // bake once at load → read phase never builds it
             world.TownGrid.Set(grid);
+
+            SeedGeography(world, regionName, tileFloor, maxTerrainHeight);
             return result;
+        }
+
+        // Pass 3: geo overworld placement as sim truth. Places every exterior POI at its
+        // TRUE map-pixel position (the packed grid above is for pathfinding only), records
+        // each origin + the packed→geo agent remap, and seeds world.Geography. Skipped when
+        // no tileFloor is injected (non-render callers: soak/probe). The XZ math is pure
+        // map-pixel geometry; only the Y pad needs the terrain floor (injected, since the
+        // sim can't reference AssetExport's TerrainTile).
+        static void SeedGeography(SimWorld world, string regionName,
+            System.Func<string, int, int, float> tileFloor, float maxTerrainHeight)
+        {
+            if (tileFloor == null) return;
+
+            const float TileSize = 32768f * TownLoader.GlobalScale;   // 819.2 m, one map pixel
+            const float BlockSide = 4096f * TownLoader.GlobalScale;   // 102.4 m (BlocksFile.RMBDimension)
+            const int TerrainPad = 3;   // pixels of wilderness/sea kept around the locations
+
+            // Each town's terrain tile flattens a footprint CENTRED in its pixel, so the
+            // buildings (and agents) must be centred to match: (128 - blocks*16)/2 tiles.
+            (float x, float z) TownCentre(int bw, int bh)
+            {
+                int tx = (128 - bw * 16) / 2, ty = (128 - bh * 16) / 2;
+                return (tx / 16f * BlockSide, ty / 16f * BlockSide);
+            }
+
+            var pAll = new List<RegionPoi>();
+            foreach (var p in world.Pois.All) if (p.HasExterior) pAll.Add(p);
+            if (pAll.Count == 0) return;
+
+            int mx0 = int.MaxValue, my0 = int.MaxValue, mx1 = int.MinValue, my1 = int.MinValue;
+            foreach (var p in pAll)
+            {
+                if (p.MapPixelX < mx0) mx0 = p.MapPixelX;
+                if (p.MapPixelX > mx1) mx1 = p.MapPixelX;
+                if (p.MapPixelY < my0) my0 = p.MapPixelY;
+                if (p.MapPixelY > my1) my1 = p.MapPixelY;
+            }
+            mx0 = System.Math.Max(0, mx0 - TerrainPad); my0 = System.Math.Max(0, my0 - TerrainPad);
+            mx1 = System.Math.Min(999, mx1 + TerrainPad); my1 = System.Math.Min(499, my1 + TerrainPad);
+
+            // Datum: the POI nearest the bbox centre supplies the floor the whole region
+            // levels to, so every streamed tile meets its neighbours at a continuous seam.
+            int cmx = (mx0 + mx1) / 2, cmy = (my0 + my1) / 2;
+            RegionPoi centre = pAll[0];
+            int bestD = int.MaxValue;
+            foreach (var p in pAll)
+            {
+                int d = (p.MapPixelX - cmx) * (p.MapPixelX - cmx) + (p.MapPixelY - cmy) * (p.MapPixelY - cmy);
+                if (d < bestD) { bestD = d; centre = p; }
+            }
+            float datum = tileFloor(centre.Name, centre.BlocksWide, centre.BlocksHigh);
+
+            var poiPixels = new List<(int, int, int)>();
+            var remap = new List<GeoRemapEntry>();
+            for (int i = 0; i < pAll.Count; i++)
+            {
+                var p = pAll[i];
+                var (cx, cz) = TownCentre(p.BlocksWide, p.BlocksHigh);
+                // +X east (MapPixelX grows east); +Z north (MapPixelY grows south, so Z
+                // counts down from the bbox south edge my1) — DFU's native terrain frame.
+                float geoX = (p.MapPixelX - mx0) * TileSize + cx;
+                float geoZ = (my1 - p.MapPixelY) * TileSize + cz;
+                float floor = tileFloor(p.Name, p.BlocksWide, p.BlocksHigh);
+                float padY = (floor - datum) * maxTerrainHeight;
+                p.OriginX = geoX; p.OriginY = padY; p.OriginZ = geoZ;
+                poiPixels.Add((p.MapPixelX, p.MapPixelY, i));
+
+                // Only settled POIs have agents to remap from the packed grid to geo space.
+                var s = p.Settlement;
+                if (s != null)
+                    remap.Add(new GeoRemapEntry
+                    {
+                        MinX = s.OriginX, MinZ = s.OriginZ,
+                        MaxX = s.OriginX + s.BlocksWide * BlockSide,
+                        MaxZ = s.OriginZ + s.BlocksHigh * BlockSide,
+                        Dx = geoX - s.OriginX, Dy = padY, Dz = geoZ - s.OriginZ,
+                    });
+            }
+            world.Geography.Seed(mx0, my0, mx1, my1, TileSize, datum, poiPixels, remap);
         }
     }
 }

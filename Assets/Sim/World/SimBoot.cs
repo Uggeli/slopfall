@@ -34,7 +34,8 @@ namespace DaggerfallWorkshop.Sim
         }
 
         public static SimWorld CreateRegion(string arena2Path, string regionName,
-            float timeScale, int seed = 12345)
+            float timeScale, int seed = 12345,
+            System.Func<string, int, int, float> tileFloor = null, float maxTerrainHeight = 0f)
         {
             var maps = new MapsFile(System.IO.Path.Combine(arena2Path, "MAPS.BSA"), FileUsage.UseMemory, true);
             var blocks = new BlocksFile(System.IO.Path.Combine(arena2Path, "BLOCKS.BSA"), FileUsage.UseMemory, true);
@@ -42,7 +43,7 @@ namespace DaggerfallWorkshop.Sim
 
             var world = new SimWorld(seed);
             var rng = new SimRandom(seed);
-            RegionLoader.LoadRegion(world, rng, maps, blocks, regionName, woods);
+            RegionLoader.LoadRegion(world, rng, maps, blocks, regionName, woods, tileFloor, maxTerrainHeight);
             SeedStart(world, timeScale);
             return world;
         }
