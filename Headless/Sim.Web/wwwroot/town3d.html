@@ -497,7 +497,7 @@ function updateAtmosphere(dt) {
 // ---- Live agents (M4a): the sim's people as animated sprite billboards ----
 const agents = new THREE.Group();
 scene.add(agents);
-let civilianArchives = null;
+let spritePools = null;   // { civilian:[], guard:[], monster:[] }
 const sheets = new Map();          // archive -> { tex, meta, mat, sheetW, sheetH } | 'loading'
 const people = new Map();          // entityId -> { mesh, archive }
 let prevSnap = new Map(), curSnap = new Map();   // id -> [x,z,yaw]
@@ -509,6 +509,20 @@ const WALK_FPS = 4;
 const ORI_RECORD = [0, 1, 2, 3, 4, 3, 2, 1];
 const ORI_FLIP   = [false, false, false, false, false, true, true, true];
 const DIR_SIGN = 1;   // verified: maps walk direction to the correct facing sprite
+
+// Render-kind (server WorldRunner): 0 civilian, 1 guard, 2 monster.
+const RK_CIVILIAN = 0, RK_GUARD = 1, RK_MONSTER = 2;
+// Animation FPS per state.
+const FPS_WALK_PEOPLE = 4, FPS_WALK_COMBAT = 6, FPS_ATTACK = 10, FPS_IDLE = 4;
+// ActivityKind.Attack ordinal (BehaviorRegistry.ActivityKind).
+const ACT_ATTACK = 19;
+
+function poolFor(kind) {
+  if (!spritePools) return null;
+  if (kind === RK_MONSTER) return spritePools.monster;
+  if (kind === RK_GUARD)   return spritePools.guard;
+  return spritePools.civilian;
+}
 
 function hash32(n) { n = (n ^ 61) ^ (n >>> 16); n = (n + (n << 3)) | 0; n ^= n >>> 4; n = Math.imul(n, 0x27d4eb2d); n ^= n >>> 15; return n >>> 0; }
 
@@ -620,7 +634,10 @@ function updateAgents(t) {
 
   for (const [id, c] of curSnap) {
     seen.add(id);
-    const archive = civilianArchives[hash32(id) % civilianArchives.length];
+    const kind = c[4] | 0;
+    const pool = poolFor(kind);
+    if (!pool || pool.length === 0) continue;
+    const archive = pool[hash32(id) % pool.length];
     const s = getSheet(archive);
     if (!s) continue;
 
@@ -647,23 +664,35 @@ function updateAgents(t) {
 
     if (id === selectedId) { selRing.position.set(x, gy + 0.05, z); selRing.visible = true; }
 
-    // Facing from actual movement (cur-prev); idle sprite when stationary.
+    // Direction index 0-7 (S,SW,W,NW,N,NE,E,SE) relative to the camera-locked
+    // billboard. Moving: derive from velocity (verified). Else: derive from yaw.
     const mvx = c[0] - pr[0], mvz = c[1] - pr[1];
     const speed = Math.hypot(mvx, mvz);
-    let record, flip;
-    if (speed < 0.05) {            // standing → idle record 5 (or last row)
-      record = Math.min(5, s.meta.rows - 1); flip = false;
-    } else {
-      const fl = 1 / speed, fx = mvx * fl, fz = mvz * fl;       // forward (walk dir)
-      let dx = camera.position.x - x, dz = camera.position.z - z;
-      const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;   // dir to camera
-      const dot = dx * fx + dz * fz, cross = dx * fz - dz * fx;
-      let ori = Math.round(DIR_SIGN * Math.atan2(cross, dot) / (Math.PI / 4));
-      ori = ((ori % 8) + 8) % 8;
-      record = ORI_RECORD[ori]; flip = ORI_FLIP[ori];
-    }
+    let fx, fz;
+    if (speed >= 0.05) { const fl = 1 / speed; fx = mvx * fl; fz = mvz * fl; }
+    else { const ry = c[2] * Math.PI / 180; fx = Math.sin(ry); fz = Math.cos(ry); }   // yaw is degrees = atan2(dx,dz)
+    let dx = camera.position.x - x, dz = camera.position.z - z;
+    const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+    const dot = dx * fx + dz * fz, cross = dx * fz - dz * fx;
+    let ori = Math.round(DIR_SIGN * Math.atan2(cross, dot) / (Math.PI / 4));
+    ori = ((ori % 8) + 8) % 8;
+
+    const combat = (kind === RK_GUARD || kind === RK_MONSTER);
+    const attacking = combat && (c[5] | 0) === ACT_ATTACK;
+
+    let base, fps, directional;
+    if (attacking)           { base = 5;  fps = FPS_ATTACK;       directional = true; }   // attack rows 5-9
+    else if (speed >= 0.05)  { base = 0;  fps = combat ? FPS_WALK_COMBAT : FPS_WALK_PEOPLE; directional = true; }  // walk rows 0-4
+    else if (combat)         { base = 15; fps = FPS_IDLE;          directional = true; }   // combat idle rows 15-19
+    else                     { base = 5;  fps = FPS_IDLE;          directional = false; }  // civilian idle row 5
+
+    let record = directional ? base + ORI_RECORD[ori] : base;
+    let flip = directional ? ORI_FLIP[ori] : false;
+    if (record >= s.meta.rows) { record = ORI_RECORD[ori]; flip = ORI_FLIP[ori]; }   // archive lacks this block → fall back to walk
+
     const fc = s.meta.frames[record] || 1;
-    setCellUV(p.geo, s, record, walkFrame % fc, flip);
+    const frame = Math.floor(t * fps) % fc;
+    setCellUV(p.geo, s, record, frame, flip);
   }
 
   for (const [id, p] of people) if (!seen.has(id)) { agents.remove(p.mesh); p.geo.dispose(); people.delete(id); }
@@ -671,9 +700,11 @@ function updateAgents(t) {
 
 function onSnap(msg) {
   prevSnap = curSnap; prevTime = curTime;
-  // id -> [x, z, yaw, groundY]. groundY is the town's terrain-pad height in region
-  // mode (0 in town mode), so agents stand on the ground instead of at y=0.
-  curSnap = new Map(msg.entities.map(e => [e[0], [e[1], e[2], e[5], e[7] || 0]]));
+  // id -> [x, z, yaw, groundY, kind, activity]. groundY is the town's terrain-pad
+  // height in region mode (0 in town mode), so agents stand on the ground instead of
+  // at y=0. kind (index 6) is the render-kind (0 civilian, 1 guard, 2 monster).
+  // activity (index 3) is the ActivityKind ordinal.
+  curSnap = new Map(msg.entities.map(e => [e[0], [e[1], e[2], e[5], e[7] || 0, e[6] || 0, e[3] || 0]]));
   curTime = performance.now() / 1000;
   world.hour = msg.hour; world.minute = msg.minute; world.night = msg.night;
   world.sun = msg.sun; world.weather = msg.weather;
@@ -766,8 +797,8 @@ async function init() {
   const climates = ['Desert', 'Mountain', 'Temperate', 'Swamp'];
   stat(`${data.region} · ${data.location}\nclimate: ${climates[climate] ?? climate}\nplacements: ${placed}/${data.placements.length}\nunique models: ${data.modelIds.length}\nconnecting agents…`);
 
-  // Live agents: the civilian sprite set, then the snapshot stream.
-  civilianArchives = await (await fetch('/asset/civilians')).json();
+  // Live agents: all sprite pools by render-kind, then the snapshot stream.
+  spritePools = await (await fetch('/asset/spritepools')).json();
   connectAgents();
 }
 init().catch(e => { stat('error: ' + (e?.message || e)); console.error(e); });
