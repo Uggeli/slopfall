@@ -410,7 +410,7 @@ function animate() {
   if (gatePairs) for (const g of gatePairs) { g.open.visible = !world.night; g.closed.visible = world.night; }
   updateAtmosphere(dt);
   streamRegionTerrain(dt);
-  if (civilianArchives && curSnap.size) updateAgents(now);
+  if (spritePools && curSnap.size) updateAgents(now);
   renderer.render(scene, camera);
 }
 
@@ -503,7 +503,6 @@ const people = new Map();          // entityId -> { mesh, archive }
 let prevSnap = new Map(), curSnap = new Map();   // id -> [x,z,yaw]
 let prevTime = 0, curTime = 0;
 const SNAP_INTERVAL = 0.2;         // fallback gap; web pump publishes ~5 Hz
-const WALK_FPS = 4;
 // 8-direction -> (record, flip): records 0-4 = facing S/SW/W/NW/N; NE/E/SE reuse
 // records 3/2/1 mirrored (DFU MobilePersonBillboard). Idle = record 5.
 const ORI_RECORD = [0, 1, 2, 3, 4, 3, 2, 1];
@@ -628,7 +627,6 @@ function updateAgents(t) {
   // not the 10 tps tick rate), so movement glides instead of teleport-then-freeze.
   const interval = (curTime - prevTime) || SNAP_INTERVAL;
   const alpha = curTime ? Math.min(1, (t - curTime) / interval) : 0;
-  const walkFrame = Math.floor(t * WALK_FPS);
   const seen = new Set();
   selRing.visible = false;   // re-shown below only if the selected agent is present
 
