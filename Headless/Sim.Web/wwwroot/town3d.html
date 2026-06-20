@@ -411,6 +411,7 @@ function animate() {
   updateAtmosphere(dt);
   streamRegionTerrain(dt);
   if (spritePools && curSnap.size) updateAgents(now);
+  if (flats) flats.children.forEach(m => m.lookAt(camera.position.x, m.position.y, camera.position.z));
   renderer.render(scene, camera);
 }
 
@@ -497,6 +498,7 @@ function updateAtmosphere(dt) {
 // ---- Live agents (M4a): the sim's people as animated sprite billboards ----
 const agents = new THREE.Group();
 scene.add(agents);
+let flats = null;   // THREE.Group of flat billboards; populated by init(), billboarded each frame
 let spritePools = null;   // { civilian:[], guard:[], monster:[] }
 const sheets = new Map();          // archive -> { tex, meta, mat, sheetW, sheetH } | 'loading'
 const people = new Map();          // entityId -> { mesh, archive }
@@ -538,6 +540,21 @@ function getSheet(archive) {
     sheets.set(archive, { tex, meta, mat, sheetW: meta.cols * meta.cellW, sheetH: meta.rows * meta.cellH });
   }).catch(() => sheets.delete(archive));
   return null;
+}
+
+// ---- World flats (nature + decorative billboards) ----
+const flatSheets = new Map();
+function getFlatSheet(archive) {
+  if (flatSheets.has(archive)) return flatSheets.get(archive);
+  const p = Promise.all([
+    fetch(`/asset/flatmeta/${archive}`).then(r => r.json()),
+    new Promise(res => texLoader.load(`/asset/flatsheet/${archive}`, res)),
+  ]).then(([meta, tex]) => {
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+    return { meta, tex };
+  });
+  flatSheets.set(archive, p);
+  return p;
 }
 
 // Set a plane's UVs to a sheet cell (record row, frame col); optional horizontal flip.
@@ -789,6 +806,33 @@ async function init() {
     }
   }
   gatePairs = gates;
+
+  // World flats: static billboards for nature + decorative sprites.
+  flats = new THREE.Group();
+  scene.add(flats);
+  // Group flats by archive so each atlas is fetched once.
+  const byArchive = new Map();
+  for (const f of (data.flats || [])) {
+    if (!byArchive.has(f.archive)) byArchive.set(f.archive, []);
+    byArchive.get(f.archive).push(f);
+  }
+  for (const [archive, list] of byArchive) {
+    getFlatSheet(archive).then(({ meta, tex }) => {
+      for (const f of list) {
+        const c = meta.cells[f.record];
+        if (!c) continue;
+        const mat = new THREE.MeshBasicMaterial({ map: tex.clone(), transparent: true, alphaTest: 0.5, side: THREE.DoubleSide });
+        mat.map.repeat.set(c.w / meta.sheetW, c.h / meta.sheetH);
+        mat.map.offset.set(c.u / meta.sheetW, 1 - (c.v + c.h) / meta.sheetH);
+        const geo = new THREE.PlaneGeometry(f.worldW, f.worldH);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(f.x, f.y + f.worldH / 2, f.z);   // base at f.y, billboard centre up half height
+        mesh.userData.billboard = true;
+        flats.add(mesh);
+      }
+    });
+  }
+
   applyToggles();
   if (regionMeta) frameRegion(); else frame(data.min, data.max);
 
