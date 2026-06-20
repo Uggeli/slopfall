@@ -48,6 +48,27 @@ raster and the ephemeral per-tick `SenseSystem` cell hash.
   server-owned.
 - Town mode (single settlement) behavior — untouched.
 
+## Delivery stages
+
+Staged so the user-facing feature lands behind tests *before* the risky
+relocation of geo computation.
+
+- **Stage 1 — land `RegionGeography` + the index + streaming.** Introduce the
+  `RegionGeography` sim registry (structure + query API) and the AssetExport
+  `RegionPlacementIndex`, wire the `/asset/towntile` endpoint, the client
+  `streamRegionStructures`, and the WS view-filter. Geo is still **computed where
+  it is today** (`Program.cs:74-146`); the web host *seeds* `RegionGeography`
+  post-boot via a `Seed`/`Set` method, the same way it already seeds the road/
+  solid-cell payload. Delivers the whole feature; the conservation tests come in
+  with this stage.
+- **Stage 2 — relocate geo into the sim (pure refactor).** Move the
+  `Program.cs:74-146` computation into `RegionLoader` Pass 3 (injecting
+  `tileFloor` + `maxTerrainHeight`), so `RegionGeography` is built at load and the
+  web-host computation is deleted. No behavior change — guarded by Stage 1's
+  conservation + coordinate-diff tests.
+
+Section 2 below is annotated with which stage each piece belongs to.
+
 ## Architecture & dependency constraints
 
 Confirmed project references:
@@ -77,8 +98,9 @@ Two pixel-keyed indices, by layer:
 ## Section 1 — Sim core spatial structures
 
 New registry **`RegionGeography`** in `Assets/Sim` (beside `SettlementRegistry`
-/ `PoiRegistry`; exposed on `SimWorld` as `world.Geography`). Built once at
-region load; empty/absent in town mode.
+/ `PoiRegistry`; exposed on `SimWorld` as `world.Geography`). Seeded once per
+region boot (by the web host in Stage 1, by `RegionLoader` in Stage 2);
+empty/absent in town mode.
 
 Holds:
 
@@ -115,7 +137,18 @@ agent's `GeoRemap`-projected position.
 
 ## Section 2 — Boot wiring
 
-### Sim (`RegionLoader.LoadRegion`)
+### `RegionGeography` (sim registry) — Stage 1
+
+- New registry on `SimWorld` as `world.Geography`, with the structure + query API
+  from Section 1 and a `Seed(bbox, tileSize, datum, poiOrigins, remapEntries)`
+  method.
+- **Stage 1:** the web host computes geo as today and calls `world.Geography.Seed(...)`
+  after boot (alongside the existing road/solid-cell payload build). The buckets
+  (`_poiByPixel`) and remap table are assembled inside `Seed` from the POI origins.
+- Consumers (`GeoRemap`/`PixelOf`/`RingPois`) read the registry from the start, so
+  Stage 2 changes only *who seeds it*, not who reads it.
+
+### Sim (`RegionLoader.LoadRegion`) — Stage 2
 
 - Add parameter `Func<string /*region*/, string /*loc*/, int /*w*/, int /*h*/,
   float> tileFloor` (the composition root passes `assets.RegionTileFloor`) **and**
@@ -127,21 +160,21 @@ agent's `GeoRemap`-projected position.
   the POI map-pixel bbox (+`TerrainPad`, clamped), the centre
   POI and shared `Datum`, each POI's `TownCentre` offset and geo origin XYZ
   (`padY = (floor - datum) * maxTerrainHeight`), the per-settlement
-  remap entries, and the `_poiByPixel` buckets. All of this is the logic
-  currently in `Program.cs:74-146`, moved verbatim into the sim. Store in
-  `RegionGeography`; set on `SimWorld`.
-- `SimBoot.CreateRegion` threads the `tileFloor` delegate through.
+  remap entries, and call `RegionGeography.Seed(...)` — the logic currently in
+  `Program.cs:74-146`, moved verbatim into the sim.
+- `SimBoot.CreateRegion` threads the `tileFloor` delegate + `maxTerrainHeight`
+  through.
 
 ### Web (`Program.cs` region block)
 
-- Collapses to: build the world (passing `assets.RegionTileFloor`), then read
-  `world.Geography` for `rMx0/rMy0/rMx1/rMy1/rTileSize/rDatum`, the `rTowns`
-  set, the `remap`/`settlements` lists, and `GeoRemap`. The inline bbox/centre/
-  datum/origin/remap computation is deleted (now in the sim).
-- Build the geometry partition once:
-  `assets.GetRegionIndex(region, settlements, mx0, my1, tileSize)`.
+- **Stage 1:** unchanged geo computation; add the `world.Geography.Seed(...)` call
+  and the `assets.GetRegionIndex(...)` build.
+- **Stage 2:** collapses — build the world (passing `assets.RegionTileFloor` +
+  `maxTerrainHeight`), then read `world.Geography` for
+  `rMx0/rMy0/rMx1/rMy1/rTileSize/rDatum`, `rTowns`, `remap`/`settlements`, and
+  `GeoRemap`. The inline bbox/centre/datum/origin/remap computation is deleted.
 
-### Geometry partition (`AssetExport`)
+### Geometry partition (`AssetExport`) — Stage 1
 
 - `GetRegionIndex(...)` builds all RMB placements once (reusing the existing
   `GetRegion` path) and buckets each placement + flat by its pixel, derived from
@@ -219,8 +252,10 @@ set the old full dump did.
 ## Risks & mitigations
 
 - **Geo logic relocation regressions.** Moving `Program.cs:74-146` into the sim
-  must preserve exact coordinates. Mitigation: move verbatim; the conservation
-  smoke + a before/after coordinate diff of a known region guard against drift.
+  must preserve exact coordinates. Mitigation: it is isolated to **Stage 2** and
+  guarded by Stage 1's conservation tests plus a before/after coordinate diff of a
+  known region — Stage 1 ships the feature without touching where geo is computed,
+  so any Stage 2 drift shows up as a pure-refactor test failure, not a feature bug.
 - **Stale test suite.** `Sim.Tests` may not run cleanly. Mitigation: verify the
   harness in planning; prefer pure unit tests that don't need a full boot.
 - **`tileFloor` injection at load.** `RegionLoader` now needs the floor per POI
