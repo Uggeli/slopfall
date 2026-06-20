@@ -46,7 +46,6 @@ SimWorld world;
 string worldRegionName, worldName;
 int worldBlocksWide, worldBlocksHigh, worldCivilians;
 List<(string name, float ox, float oy, float oz)> settlements = null;
-List<(float minX, float minZ, float maxX, float maxZ, float dx, float dy, float dz)> remap = null;
 // Asset service: shared by the region boot (for per-town pad heights) and the
 // endpoints. Created here so the boot block below can query tile floors.
 var assets = new AssetService(SimBoot.DefaultArena2Path);
@@ -54,13 +53,13 @@ var assets = new AssetService(SimBoot.DefaultArena2Path);
 int rMx0 = 0, rMy0 = 0, rMx1 = 0, rMy1 = 0;
 float rTileSize = 0f, rDatum = 0f;
 List<(int mx, int my, string name, int w, int h)> rTowns = null;
-(int mx, int my, string name, int w, int h) rCentre = default;
 // Region geometry partitioned by map pixel, served per-tile by /asset/towntile so
 // the viewer streams buildings on the same ring as terrain (null in town mode).
 Sim.AssetExport.RegionPlacementIndex regionIndex = null;
 if (wholeRegion)
 {
-    world = SimBoot.CreateRegion(SimBoot.DefaultArena2Path, region, ClockRunning);
+    world = SimBoot.CreateRegion(SimBoot.DefaultArena2Path, region, ClockRunning, 12345,
+        (loc, w, h) => assets.RegionTileFloor(region, loc, w, h), TerrainTile.MaxTerrainHeight);
     var grid0 = world.TownGrid.Current;
     worldRegionName = region;
     worldName = world.Settlements.All.Count + " settlements";
@@ -68,97 +67,18 @@ if (wholeRegion)
     worldBlocksHigh = grid0.BlocksHigh;
     worldCivilians = CountCivilians(world);
 
-    // Place settlements at their TRUE overworld positions, not the sim's packed
-    // grid. The sim packs them into a dense walkability grid for pathfinding; since
-    // no agent yet crosses between settlements, where one sits in the world is purely
-    // a render choice. So use the real map-pixel coordinates (one pixel == one
-    // 819.2 m terrain tile) and remap each settlement's agents by the same delta —
-    // the buildings get the geographic origin, the agents get (geo - packed).
-    const float TileSize = 32768f * TownLayout.GlobalScale;  // 819.2 m, one map pixel
-    const float BlockSide = 4096f * TownLayout.GlobalScale;  // 102.4 m (RMBDimension)
-    // Each town's terrain tile flattens a footprint CENTRED in its 819.2 m pixel
-    // (TerrainTile.Generate), and that tile streams grid-aligned so it meets its
-    // wilderness neighbours seamlessly. So the buildings (and their agents) must be
-    // centred in the pixel too — same offset Generate uses: (128 - w*16)/2 tiles,
-    // 16 tiles per block. This lands every town on its own flattened ground.
-    static (float x, float z) TownCentre(int blocksWide, int blocksHigh)
-    {
-        int tilePosX = (128 - blocksWide * 16) / 2, tilePosY = (128 - blocksHigh * 16) / 2;
-        return (tilePosX / 16f * BlockSide, tilePosY / 16f * BlockSide);
-    }
-    // Render every POI with an exterior — settled towns AND the non-settled POIs
-    // (dungeons, covens, graveyards, isolated homes). Each lands at its true map
-    // pixel; only settlement-owning POIs additionally remap agents (below).
+    // Geo overworld placement is now sim truth: RegionLoader Pass 3 set every POI's
+    // OriginX/Y/Z and seeded world.Geography (bbox, datum, packed→geo agent remap).
+    // The web host just reads it back and reshapes it for the asset endpoints.
+    var geo = world.Geography;
+    rMx0 = geo.Mx0; rMy0 = geo.My0; rMx1 = geo.Mx1; rMy1 = geo.My1;
+    rTileSize = geo.TileSize; rDatum = geo.Datum;
+
     var pAll = world.Pois.All.Where(p => p.HasExterior).ToList();
-    const int TerrainPad = 3;   // pixels of wilderness/sea to keep around the locations
-    int mx0 = int.MaxValue, my0 = int.MaxValue, mx1 = int.MinValue, my1 = int.MinValue;
-    foreach (var p in pAll)
-    {
-        if (p.MapPixelX < mx0) mx0 = p.MapPixelX;
-        if (p.MapPixelX > mx1) mx1 = p.MapPixelX;
-        if (p.MapPixelY < my0) my0 = p.MapPixelY;
-        if (p.MapPixelY > my1) my1 = p.MapPixelY;
-    }
-    mx0 = Math.Max(0, mx0 - TerrainPad); my0 = Math.Max(0, my0 - TerrainPad);
-    mx1 = Math.Min(999, mx1 + TerrainPad); my1 = Math.Min(499, my1 + TerrainPad);
-
-    // Terrain-streaming metadata: pixel bbox + the town pixels (so the tile endpoint
-    // knows which pixels flatten a location).
-    rTileSize = TileSize;
-    rMx0 = mx0; rMy0 = my0; rMx1 = mx1; rMy1 = my1;
+    // Town pixels (so /asset/terraintile knows which pixels flatten a location).
     rTowns = pAll.Select(p => (p.MapPixelX, p.MapPixelY, p.Name, p.BlocksWide, p.BlocksHigh)).ToList();
-    // The POI nearest the bbox centre supplies the datum the region levels to.
-    int cmx = (rMx0 + rMx1) / 2, cmy = (rMy0 + rMy1) / 2;
-    rCentre = rTowns[0];
-    int bestD = int.MaxValue;
-    foreach (var t in rTowns)
-    {
-        int d = (t.mx - cmx) * (t.mx - cmx) + (t.my - cmy) * (t.my - cmy);
-        if (d < bestD) { bestD = d; rCentre = t; }
-    }
-    // Shared region datum: the centre settlement's flattened floor. Every streamed
-    // tile levels to this value so neighbours meet at a continuous seam.
-    rDatum = assets.RegionTileFloor(region, rCentre.name, rCentre.w, rCentre.h);
-
-    // Now place each rendered POI. A location's terrain pad sits at the world height
-    // (townFloor - datum) * MaxHeight — its own elevation, not y=0 — so the
-    // buildings and agents must be lifted to that pad, or they float / bury. We
-    // query each town's own tile floor and turn the elevation gap into a Y offset.
-    settlements = new List<(string, float, float, float)>();
-    remap = new List<(float, float, float, float, float, float, float)>();
-    foreach (var p in pAll)
-    {
-        var (cx, cz) = TownCentre(p.BlocksWide, p.BlocksHigh);
-        // +X = east (MapPixelX grows east), +Z = north (MapPixelY grows south, so Z
-        // counts down from the bbox's south edge my1). This matches DFU's native
-        // terrain frame, so heights + autotiling render with no reflection.
-        float geoX = (p.MapPixelX - mx0) * TileSize + cx;
-        float geoZ = (my1 - p.MapPixelY) * TileSize + cz;
-        float floor = assets.RegionTileFloor(region, p.Name, p.BlocksWide, p.BlocksHigh);
-        float padY = (floor - rDatum) * TerrainTile.MaxTerrainHeight;
-        p.OriginX = geoX; p.OriginY = padY; p.OriginZ = geoZ;
-        settlements.Add((p.Name, geoX, padY, geoZ));
-
-        // Only settled POIs have agents to remap from the packed grid to geo space.
-        var s = p.Settlement;
-        if (s != null)
-            remap.Add((s.OriginX, s.OriginZ,
-                       s.OriginX + s.BlocksWide * BlockSide,
-                       s.OriginZ + s.BlocksHigh * BlockSide,
-                       geoX - s.OriginX, padY, geoZ - s.OriginZ));
-    }
-
-    // Seed the sim's spatial index (Stage 1: the web host computes geo above, then
-    // seeds; Stage 2 moves the computation into RegionLoader and this call with it).
-    world.Geography.Seed(rMx0, rMy0, rMx1, rMy1, rTileSize, rDatum,
-        pAll.Select((p, i) => (p.MapPixelX, p.MapPixelY, i)),
-        remap.Select(r => new GeoRemapEntry
-        {
-            MinX = r.minX, MinZ = r.minZ, MaxX = r.maxX, MaxZ = r.maxZ,
-            Dx = r.dx, Dy = r.dy, Dz = r.dz,
-        }));
-
-    // Partition the region's geometry by map pixel for per-tile streaming.
+    // Geo origins for the geometry partition (AssetExport reads plain tuples, not the registry).
+    settlements = pAll.Select(p => (p.Name, p.OriginX, p.OriginY, p.OriginZ)).ToList();
     regionIndex = assets.GetRegionIndex(region, settlements, rMx0, rMy1, rTileSize);
 }
 else
@@ -390,18 +310,6 @@ app.MapGet("/asset/texture/{archive:int}/{record:int}", (HttpContext ctx, int ar
     return Results.Bytes(png, "image/png");
 });
 
-// Project a packed agent position into geographic world space (region mode): find
-// the settlement whose packed rectangle holds it, shift by that settlement's delta
-// and lift it to that town's terrain pad height (dy) so agents stand on the ground.
-(float x, float y, float z) GeoRemap(float x, float z)
-{
-    if (remap != null)
-        foreach (var r in remap)
-            if (x >= r.minX && x < r.maxX && z >= r.minZ && z < r.maxZ)
-                return (x + r.dx, r.dy, z + r.dz);
-    return (x, 0f, z);
-}
-
 app.Map("/ws", async context =>
 {
     if (!context.WebSockets.IsWebSocketRequest)
@@ -452,7 +360,7 @@ app.Map("/ws", async context =>
                     // carries the town's pad height so agents stand on the terrain.
                     entities = snap.Agents.Select(e =>
                     {
-                        var (ex, ey, ez) = wholeRegion ? GeoRemap(e.X, e.Z) : (e.X, 0f, e.Z);
+                        var (ex, ey, ez) = wholeRegion ? world.Geography.GeoRemap(e.X, e.Z) : (e.X, 0f, e.Z);
                         return (e, ex, ey, ez);
                     })
                     .Where(t =>
