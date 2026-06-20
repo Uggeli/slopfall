@@ -550,7 +550,8 @@ function getFlatSheet(archive) {
     fetch(`/asset/flatmeta/${archive}`).then(r => r.json()),
     new Promise(res => texLoader.load(`/asset/flatsheet/${archive}`, res)),
   ]).then(([meta, tex]) => {
-    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+    tex.flipY = false;
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
     return { meta, tex };
   });
   flatSheets.set(archive, p);
