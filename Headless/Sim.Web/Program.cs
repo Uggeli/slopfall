@@ -336,6 +336,19 @@ app.MapGet("/asset/spritemeta/{archive:int}", (HttpContext ctx, int archive) =>
     return Results.Json(meta, jsonOptions);
 });
 
+app.MapGet("/asset/flatsheet/{archive:int}", (HttpContext ctx, int archive) =>
+{
+    var png = assets.GetFlatSheet(archive);
+    if (png == null) return Results.NotFound();
+    ctx.Response.Headers.CacheControl = "public, max-age=86400";
+    return Results.Bytes(png, "image/png");
+});
+app.MapGet("/asset/flatmeta/{archive:int}", (HttpContext ctx, int archive) =>
+{
+    ctx.Response.Headers.CacheControl = "public, max-age=86400";
+    return Results.Json(assets.GetFlatMeta(archive), jsonOptions);
+});
+
 app.MapGet("/asset/texture/{archive:int}/{record:int}", (HttpContext ctx, int archive, int record) =>
 {
     var png = assets.GetTexturePng(archive, record);

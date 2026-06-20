@@ -341,6 +341,19 @@ namespace Sim.AssetExport
             }
         }
 
+        private readonly Dictionary<int, (byte[] png, FlatMeta meta)> _flatCache = new();
+        public byte[] GetFlatSheet(int archive) => Flat(archive).png;
+        public FlatMeta GetFlatMeta(int archive) => Flat(archive).meta;
+        private (byte[] png, FlatMeta meta) Flat(int archive)
+        {
+            lock (_gate)
+            {
+                if (!_flatCache.TryGetValue(archive, out var built))
+                    _flatCache[archive] = built = SpriteFlat.Build(_arena2, archive);
+                return built;
+            }
+        }
+
         private TextureFile Tex(int archive)
         {
             if (!_texCache.TryGetValue(archive, out var tex))
