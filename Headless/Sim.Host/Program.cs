@@ -30,6 +30,9 @@ namespace DaggerfallWorkshop.Sim.Host
                         args.Length > 1 ? int.Parse(args[1]) : 0,
                         args.Length > 2 ? args[2] : null);
 
+                case "--floracheck":
+                    return DaggerfallWorkshop.Sim.Host.FloraCheck.Run(args.Length > 1 ? args[1] : null);
+
                 case "--poicheck":
                     return DaggerfallWorkshop.Sim.Host.PoiCheck.Run(args.Length > 1 ? args[1] : null);
 
@@ -79,6 +82,6 @@ namespace DaggerfallWorkshop.Sim.Host
         }
 
         static void Usage() => Console.WriteLine(
-            "usage: --probe | --poicheck region | --enginedemo | --enginesmoke [ticks] | --engineworld R L [ticks] | --soak R L [days] | --soakregion R [days] | --gatecheck region location | --flatsheet archive out.png");
+            "usage: --probe | --poicheck region | --floracheck region | --enginedemo | --enginesmoke [ticks] | --engineworld R L [ticks] | --soak R L [days] | --soakregion R [days] | --gatecheck region location | --flatsheet archive out.png");
     }
 }
