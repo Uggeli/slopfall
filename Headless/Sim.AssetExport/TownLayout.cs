@@ -28,6 +28,7 @@ namespace Sim.AssetExport
         {
             public uint ModelId;
             public float[] Matrix;   // column-major 4x4, ready for THREE.Matrix4.fromArray
+            public int ClimateBase;  // this building's settlement climate (0..3) for the texture swap
         }
 
         public struct Flat
@@ -72,7 +73,7 @@ namespace Sim.AssetExport
             var seen = new HashSet<uint>();
             var flatSeen = new HashSet<int>();
             var b = new Bounds();
-            AddLocation(blocks, loc, 0f, 0f, 0f, data, seen, flatSeen, b);
+            AddLocation(blocks, loc, 0f, 0f, 0f, data, seen, flatSeen, b, data.ClimateBase);
             b.WriteInto(data);
             return data;
         }
@@ -107,8 +108,12 @@ namespace Sim.AssetExport
             {
                 DFLocation loc = maps.GetLocation(region, name);
                 if (!loc.Loaded) continue;
-                if (!climateSet) { data.ClimateBase = ClimateSwap.ClimateBasesOf(maps, loc); climateSet = true; }
-                AddLocation(blocks, loc, ox, oy, oz, data, seen, flatSeen, b);
+                // Each settlement textures with ITS OWN climate (multi-zone regions span
+                // desert/mountain/etc.). data.ClimateBase keeps the first as a region-global
+                // fallback (the empty /asset/town payload); the per-placement tag is truth.
+                int locClimate = ClimateSwap.ClimateBasesOf(maps, loc);
+                if (!climateSet) { data.ClimateBase = locClimate; climateSet = true; }
+                AddLocation(blocks, loc, ox, oy, oz, data, seen, flatSeen, b, locClimate);
             }
             b.WriteInto(data);
             return data;
@@ -118,7 +123,7 @@ namespace Sim.AssetExport
         /// so a settlement lands at its combined-grid origin and its terrain pad height.
         /// Mirrors RMBLayout.AddModels.
         static void AddLocation(BlocksFile blocks, DFLocation loc, float offX, float offY, float offZ,
-            TownData data, HashSet<uint> seen, HashSet<int> flatSeen, Bounds b)
+            TownData data, HashSet<uint> seen, HashSet<int> flatSeen, Bounds b, int climate)
         {
             float blockSide = BlocksFile.RMBDimension * GlobalScale;
             float rd = BlocksFile.RotationDivisor;
@@ -154,7 +159,7 @@ namespace Sim.AssetExport
                             float[] objM = Mat.Mul(Mat.Mul(Mat.Translate(ox, oy, oz), Mat.RotateY(oAng)), ScaleOf(obj));
 
                             float[] m = Mat.Mul(Mat.Mul(blockM, subM), objM);
-                            data.Placements.Add(new Placement { ModelId = obj.ModelIdNum, Matrix = m });
+                            data.Placements.Add(new Placement { ModelId = obj.ModelIdNum, Matrix = m, ClimateBase = climate });
                             if (seen.Add(obj.ModelIdNum))
                                 data.ModelIds.Add(obj.ModelIdNum);
 
@@ -195,7 +200,7 @@ namespace Sim.AssetExport
                             float[] objM = Mat.Mul(Mat.Mul(Mat.Translate(mx, my, mz), Mat.RotateY(mAng)), ScaleOf(obj));
 
                             float[] m = Mat.Mul(blockM, objM);
-                            data.Placements.Add(new Placement { ModelId = obj.ModelIdNum, Matrix = m });
+                            data.Placements.Add(new Placement { ModelId = obj.ModelIdNum, Matrix = m, ClimateBase = climate });
                             if (seen.Add(obj.ModelIdNum))
                                 data.ModelIds.Add(obj.ModelIdNum);
 

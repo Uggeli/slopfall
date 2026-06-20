@@ -330,11 +330,20 @@ async function addStructureTile(key, d) {
     regionStructures.set(key, 'empty'); return;   // cache the empty pixel
   }
   const g = new THREE.Group();
+  // Each placement carries its settlement's climate (mixed-climate regions span
+  // desert/mountain/etc., and a large town can spill into a neighbour's pixel). So
+  // key protos by (modelId, climate) — the model URL already varies by climate, so
+  // the browser caches each variant separately.
   const protos = {};
-  await Promise.all((d.modelIds || []).map(id =>
-    loadModel(id, townClimate, townSeason).then(m => { protos[id] = m; })));
+  const need = new Map();
   for (const p of d.placements) {
-    const proto = protos[p.modelId];
+    const c = p.climateBase ?? townClimate;
+    need.set(p.modelId + '|' + c, { id: p.modelId, climate: c });
+  }
+  await Promise.all([...need.values()].map(({ id, climate }) =>
+    loadModel(id, climate, townSeason).then(m => { protos[id + '|' + climate] = m; })));
+  for (const p of d.placements) {
+    const proto = protos[p.modelId + '|' + (p.climateBase ?? townClimate)];
     if (!proto) continue;
     const inst = proto.clone();
     inst.applyMatrix4(new THREE.Matrix4().fromArray(p.matrix));
