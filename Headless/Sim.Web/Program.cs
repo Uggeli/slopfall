@@ -55,6 +55,9 @@ int rMx0 = 0, rMy0 = 0, rMx1 = 0, rMy1 = 0;
 float rTileSize = 0f, rDatum = 0f;
 List<(int mx, int my, string name, int w, int h)> rTowns = null;
 (int mx, int my, string name, int w, int h) rCentre = default;
+// Region geometry partitioned by map pixel, served per-tile by /asset/towntile so
+// the viewer streams buildings on the same ring as terrain (null in town mode).
+Sim.AssetExport.RegionPlacementIndex regionIndex = null;
 if (wholeRegion)
 {
     world = SimBoot.CreateRegion(SimBoot.DefaultArena2Path, region, ClockRunning);
@@ -144,6 +147,19 @@ if (wholeRegion)
                        s.OriginZ + s.BlocksHigh * BlockSide,
                        geoX - s.OriginX, padY, geoZ - s.OriginZ));
     }
+
+    // Seed the sim's spatial index (Stage 1: the web host computes geo above, then
+    // seeds; Stage 2 moves the computation into RegionLoader and this call with it).
+    world.Geography.Seed(rMx0, rMy0, rMx1, rMy1, rTileSize, rDatum,
+        pAll.Select((p, i) => (p.MapPixelX, p.MapPixelY, i)),
+        remap.Select(r => new GeoRemapEntry
+        {
+            MinX = r.minX, MinZ = r.minZ, MaxX = r.maxX, MaxZ = r.maxZ,
+            Dx = r.dx, Dy = r.dy, Dz = r.dz,
+        }));
+
+    // Partition the region's geometry by map pixel for per-tile streaming.
+    regionIndex = assets.GetRegionIndex(region, settlements, rMx0, rMy1, rTileSize);
 }
 else
 {
@@ -259,9 +275,12 @@ app.MapGet("/asset/model/{objectId}", (HttpContext ctx, uint objectId, int? clim
 // Resolved layout of the booted town: model placements + climate (render plane 1).
 app.MapGet("/asset/town", (HttpContext ctx) =>
 {
-    var town = wholeRegion ? assets.GetRegion(region, settlements) : assets.GetTown(region, location);
     ctx.Response.Headers.CacheControl = "no-cache";   // live aggregate; evolves during dev
-    return Results.Json(town, jsonOptions);
+    // Region mode streams geometry per pixel via /asset/towntile instead, so the
+    // aggregate is empty here (mirrors /asset/terrain).
+    if (wholeRegion)
+        return Results.Json(new TownLayout.TownData { Region = region, Location = worldName }, jsonOptions);
+    return Results.Json(assets.GetTown(region, location), jsonOptions);
 });
 
 // Terrain heightfield + tilemap (render plane 2). Town mode: the location's pixel +
@@ -297,6 +316,16 @@ app.MapGet("/asset/terraintile/{mx:int}/{my:int}", (HttpContext ctx, int mx, int
     float addX = (mx - rMx0) * rTileSize, addZ = (rMy1 - my) * rTileSize;
     var tile = assets.GetRegionTile(region, mx, my, rDatum, addX, addZ, locName, lw, lh);
     ctx.Response.Headers.CacheControl = "public, max-age=3600";
+    return Results.Json(tile, jsonOptions);
+});
+
+// One map pixel's render geometry (render plane 1, streamed). The client requests
+// the pixels its camera ring covers and caches them. Empty/out-of-bbox pixels return
+// 200 with empty arrays so the client caches "nothing here" and never re-asks.
+app.MapGet("/asset/towntile/{mx:int}/{my:int}", (HttpContext ctx, int mx, int my) =>
+{
+    ctx.Response.Headers.CacheControl = "public, max-age=86400";
+    var tile = regionIndex?.At(mx, my) ?? new Sim.AssetExport.RegionTile();
     return Results.Json(tile, jsonOptions);
 });
 
