@@ -305,6 +305,13 @@ app.MapGet("/asset/groundatlas/{archive:int}", (HttpContext ctx, int archive) =>
 // archive set the client hashes entity ids into.
 app.MapGet("/asset/civilians", () => Results.Json(assets.CivilianArchives, jsonOptions));
 
+app.MapGet("/asset/spritepools", () => Results.Json(new
+{
+    civilian = assets.CivilianArchives,
+    guard = assets.GuardArchives,
+    monster = assets.MonsterArchives,
+}, jsonOptions));
+
 app.MapGet("/asset/spritesheet/{archive:int}", (HttpContext ctx, int archive) =>
 {
     var png = assets.GetSpriteSheet(archive);

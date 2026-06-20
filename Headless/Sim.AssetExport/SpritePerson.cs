@@ -43,6 +43,28 @@ namespace Sim.AssetExport
             453, 454, 455, 456,   // Breton F
         };
 
+        // City Watch guard mobile (archive 399) — uses the combat record layout
+        // (walk 0-4, attack 5-9, idle 15-19), same as monsters.
+        public static readonly int[] GuardArchives = { 399 };
+
+        // Grounded creatures with the standard walk/attack/idle layout. Excludes
+        // flyers and special-animation mobiles (imp/bat/harpy, ghost/wraith,
+        // slaughterfish, seducer) whose motion or record layout differs. The client
+        // picks one per creature by id-hash (until the sim specifies a creature type).
+        public static readonly int[] MonsterArchives =
+        {
+            255,  // Rat
+            257,  // Spriggan
+            259,  // Grizzly Bear
+            260,  // Sabertooth Tiger
+            261,  // Giant Spider
+            262,  // Orc
+            263,  // Centaur
+            270,  // Skeletal Warrior
+            272,  // Zombie
+            274,  // Mummy
+        };
+
         /// <summary>Build the packed sheet PNG + metadata for a person archive.</summary>
         public static (byte[] png, SpriteMeta meta) Build(string arena2, int archive)
         {

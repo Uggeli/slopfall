@@ -327,6 +327,8 @@ namespace Sim.AssetExport
 
         /// <summary>The civilian archive list the client hashes entity ids into.</summary>
         public int[] CivilianArchives => SpritePerson.CivilianArchives;
+        public int[] GuardArchives => SpritePerson.GuardArchives;
+        public int[] MonsterArchives => SpritePerson.MonsterArchives;
 
         private (byte[] png, SpriteMeta meta) GetSprite(int archive)
         {
