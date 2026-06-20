@@ -41,7 +41,7 @@ namespace Sim.AssetExport
                 try
                 {
                     DFBitmap bmp = tex.GetDFBitmap(i, 0);
-                    rgbas[i] = TextureDecode.Rgba(bmp, tex, out int w, out int h);
+                    rgbas[i] = TextureDecode.Rgba(bmp, tex, out int w, out int h, transparentIndex0: true);
                     ws[i] = w; hs[i] = h;
                     if (w > cellW) cellW = w;
                     if (h > cellH) cellH = h;
@@ -60,10 +60,19 @@ namespace Sim.AssetExport
                 int w = ws[i], h = hs[i];
                 // bottom-align within the cell (feet/base on cell floor), left-align
                 int ox = cx, oy = cy + (cellH - h);
+                // World size applies the record's scale factor, same as SpritePerson /
+                // MeshReader.GetScaledBillboardSize: size + size*scale/256. DF nature
+                // sprites (esp. trees) carry large scale values; raw pixel size is too small.
+                float worldW = w * GlobalScale, worldH = h * GlobalScale;
                 if (rgbas[i] != null)
+                {
                     for (int y = 0; y < h; y++)
                         Array.Copy(rgbas[i], y * w * 4, sheet, ((oy + y) * sheetW + ox) * 4, w * 4);
-                cells[i] = new FlatCell { U = ox, V = oy, W = w, H = h, WorldW = w * GlobalScale, WorldH = h * GlobalScale };
+                    var sc = tex.GetScale(i);
+                    worldW = (w + w * sc.Width / 256f) * GlobalScale;
+                    worldH = (h + h * sc.Height / 256f) * GlobalScale;
+                }
+                cells[i] = new FlatCell { U = ox, V = oy, W = w, H = h, WorldW = worldW, WorldH = worldH };
             }
 
             var meta = new FlatMeta { Archive = archive, SheetW = sheetW, SheetH = sheetH, Count = count, Cols = Cols, Cells = cells };

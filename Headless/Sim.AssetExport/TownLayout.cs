@@ -122,6 +122,7 @@ namespace Sim.AssetExport
         {
             float blockSide = BlocksFile.RMBDimension * GlobalScale;
             float rd = BlocksFile.RotationDivisor;
+            const float BlockFlatsOffsetY = -6f;   // DFU RMBLayout blockFlatsOffsetY (decorative flats)
 
             int width = loc.Exterior.ExteriorData.Width;
             int height = loc.Exterior.ExteriorData.Height;
@@ -160,14 +161,20 @@ namespace Sim.AssetExport
                             b.Add(m[12], m[13], m[14]);
                         }
 
+                        // Exterior subrecord flats (decorative billboards). Per DFU
+                        // RMBLayout.AddExteriorBlockFlats: the flat sits at the subrecord
+                        // ORIGIN (un-rotated) + its own offset, NOT under the building's
+                        // Y-rotation; Y carries blockFlatsOffsetY (-6). sx/sz are the
+                        // un-rotated subrecord origin offsets computed above.
                         if (sub.Exterior.BlockFlatObjectRecords != null)
                             foreach (var f in sub.Exterior.BlockFlatObjectRecords)
                             {
                                 if (f.FactionID != 0) continue;   // static NPC — sim owns population
-                                float[] fm = Mat.Mul(Mat.Mul(blockM, subM),
-                                    Mat.Translate(f.XPos * GlobalScale, -f.YPos * GlobalScale, f.ZPos * GlobalScale));
+                                float fx = blockM[12] + sx + f.XPos * GlobalScale;
+                                float fy = blockM[13] + (-f.YPos + BlockFlatsOffsetY) * GlobalScale;
+                                float fz = blockM[14] + sz + f.ZPos * GlobalScale;
                                 var (fw, fh) = FlatSize(f.TextureArchive, f.TextureRecord);
-                                AddFlat(data, flatSeen, f.TextureArchive, f.TextureRecord, fm[12], fm[13], fm[14], fw, fh, b);
+                                AddFlat(data, flatSeen, f.TextureArchive, f.TextureRecord, fx, fy, fz, fw, fh, b);
                             }
                     }
 
@@ -196,13 +203,17 @@ namespace Sim.AssetExport
                     }
 
                     // Block-level misc flat objects (light flats, animals, decor). Skip NPC flats.
+                    // Per DFU RMBLayout.AddMiscBlockFlats: pos = (XPos, -YPos + blockFlatsOffsetY,
+                    // ZPos + RMBDimension) * scale, in block space (no subrecord, no rotation).
                     if (block.RmbBlock.MiscFlatObjectRecords != null)
                         foreach (var f in block.RmbBlock.MiscFlatObjectRecords)
                         {
                             if (f.FactionID != 0) continue;
-                            float[] m = Mat.Mul(blockM, Mat.Translate(f.XPos * GlobalScale, -f.YPos * GlobalScale, f.ZPos * GlobalScale));
+                            float fx = blockM[12] + f.XPos * GlobalScale;
+                            float fy = blockM[13] + (-f.YPos + BlockFlatsOffsetY) * GlobalScale;
+                            float fz = blockM[14] + (f.ZPos + BlocksFile.RMBDimension) * GlobalScale;
                             var (fw, fh) = FlatSize(f.TextureArchive, f.TextureRecord);
-                            AddFlat(data, flatSeen, f.TextureArchive, f.TextureRecord, m[12], m[13], m[14], fw, fh, b);
+                            AddFlat(data, flatSeen, f.TextureArchive, f.TextureRecord, fx, fy, fz, fw, fh, b);
                         }
 
                     // Nature ground scenery (trees/rocks/plants). One per 16x16 tile,

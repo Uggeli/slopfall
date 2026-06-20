@@ -550,7 +550,9 @@ function getFlatSheet(archive) {
     fetch(`/asset/flatmeta/${archive}`).then(r => r.json()),
     new Promise(res => texLoader.load(`/asset/flatsheet/${archive}`, res)),
   ]).then(([meta, tex]) => {
-    tex.flipY = false;
+    // flipY stays true (three.js default): the offset/repeat UV math below
+    // (offset.y = 1-(v+h)/sheetH) is the flipY=true convention, unlike the agent
+    // path which sets per-vertex UVs directly. Forcing flipY=false flips flats upside-down.
     tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
     return { meta, tex };
   });
