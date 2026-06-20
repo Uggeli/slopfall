@@ -143,8 +143,7 @@ namespace Sim.AssetExport
                         float sAng = Deg2Rad(-sub.YRotation / rd);
                         float[] subM = Mat.Mul(Mat.Translate(sx, 0f, sz), Mat.RotateY(sAng));
 
-                        if (sub.Exterior.Block3dObjectRecords == null)
-                            continue;
+                        if (sub.Exterior.Block3dObjectRecords != null)
                         foreach (var obj in sub.Exterior.Block3dObjectRecords)
                         {
                             float ox = obj.XPos * GlobalScale;
