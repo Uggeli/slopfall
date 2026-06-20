@@ -213,6 +213,32 @@ namespace DaggerfallWorkshop.Sim
 
                         result.Civilians += SpawnCivilians(world, rng, buildingIndex, building, blockName, settlement);
                     }
+
+                    // World flora: record nature ground scenery as FloraInstance (render is a
+                    // separate consumer; harvesting is future). Town-local frame, same as BuildingRow.
+                    int natureArchive = location.Climate.NatureArchive;
+                    int worldClimate = location.Climate.WorldClimate;
+                    var ground = block.RmbBlock.FldHeader.GroundData.GroundScenery;
+                    if (ground != null)
+                    {
+                        const float TileDim = 256f, NatureOffsetY = -2f;
+                        for (int sx = 0; sx < 16; sx++)
+                        for (int sy = 0; sy < 16; sy++)
+                        {
+                            int rec = ground[sx, 15 - sy].TextureRecord;
+                            if (rec < 1) continue;
+                            int sid = SpeciesCatalog.SpeciesIdOf(natureArchive, rec);
+                            var e = SpeciesCatalog.Lookup(natureArchive, rec);
+                            world.Flora.Add(new FloraInstance
+                            {
+                                Archive = natureArchive, Record = rec, Climate = worldClimate,
+                                X = gx * blockSide + sx * TileDim * GlobalScale,
+                                Y = NatureOffsetY * GlobalScale,
+                                Z = gy * blockSide + (sy * TileDim + TileDim) * GlobalScale,
+                                SpeciesId = sid, Category = e.Category, Resource = e.Resource,
+                            });
+                        }
+                    }
                 }
             }
         }

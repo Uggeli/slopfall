@@ -181,11 +181,16 @@ namespace Sim.AssetExport
                 if (_regionTileCache.TryGetValue(key, out var hit)) return hit;
 
                 EnsureMapsWoods();
-                int groundArchive = MapsFile.GetWorldClimateSettings(_maps.GetClimateIndex(mx, my)).GroundArchive;
+                var climate = MapsFile.GetWorldClimateSettings(_maps.GetClimateIndex(mx, my));
+                int groundArchive = climate.GroundArchive;
+                int natureArchive = climate.NatureArchive;   // climate nature atlas (500-511)
+                float climateScale = climate.ClimateType == DFLocation.ClimateBaseType.Desert ? 0.25f : 1.0f;
                 TerrainTileData tile = locName != null
                     ? TerrainTile.Generate(_woods, mx, my, groundArchive, locW, locH,
-                        _blocks, _maps.GetLocation(region, locName).Exterior.ExteriorData.BlockNames, datum)
-                    : TerrainTile.Generate(_woods, mx, my, groundArchive, 0, 0, null, null, datum);
+                        _blocks, _maps.GetLocation(region, locName).Exterior.ExteriorData.BlockNames, datum,
+                        natureArchive, climateScale)
+                    : TerrainTile.Generate(_woods, mx, my, groundArchive, 0, 0, null, null, datum,
+                        natureArchive, climateScale);
 
                 // Grid-align the tile to its map pixel so it meets its wilderness
                 // neighbours seamlessly. Generate centres a town's flattened footprint
@@ -337,6 +342,19 @@ namespace Sim.AssetExport
                 if (_spriteCache.TryGetValue(archive, out var c)) return c;
                 var built = SpritePerson.Build(_arena2, archive);
                 _spriteCache[archive] = built;
+                return built;
+            }
+        }
+
+        private readonly Dictionary<int, (byte[] png, FlatMeta meta)> _flatCache = new();
+        public byte[] GetFlatSheet(int archive) => Flat(archive).png;
+        public FlatMeta GetFlatMeta(int archive) => Flat(archive).meta;
+        private (byte[] png, FlatMeta meta) Flat(int archive)
+        {
+            lock (_gate)
+            {
+                if (!_flatCache.TryGetValue(archive, out var built))
+                    _flatCache[archive] = built = SpriteFlat.Build(_arena2, archive);
                 return built;
             }
         }

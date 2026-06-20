@@ -30,6 +30,14 @@ namespace Sim.AssetExport
             public float[] Matrix;   // column-major 4x4, ready for THREE.Matrix4.fromArray
         }
 
+        public struct Flat
+        {
+            public int Archive;
+            public int Record;
+            public float X, Y, Z;      // world position (billboard base)
+            public float WorldW, WorldH;
+        }
+
         public sealed class TownData
         {
             public string Region;
@@ -39,12 +47,15 @@ namespace Sim.AssetExport
             public float BlockSide;
             public List<Placement> Placements = new();
             public List<uint> ModelIds = new();   // unique model ids the client must fetch
+            public List<Flat> Flats = new();
+            public List<int> FlatArchives = new();   // unique flat archives the client must fetch
             public float[] Min = new float[3];
             public float[] Max = new float[3];
         }
 
         public static TownData Resolve(string arena2, string region, string location)
         {
+            _flatArena2 = arena2;
             var maps = new MapsFile(Path.Combine(arena2, "MAPS.BSA"), FileUsage.UseMemory, true);
             var blocks = new BlocksFile(Path.Combine(arena2, "BLOCKS.BSA"), FileUsage.UseMemory, true);
             DFLocation loc = maps.GetLocation(region, location);
@@ -59,8 +70,9 @@ namespace Sim.AssetExport
             };
 
             var seen = new HashSet<uint>();
+            var flatSeen = new HashSet<int>();
             var b = new Bounds();
-            AddLocation(blocks, loc, 0f, 0f, 0f, data, seen, b);
+            AddLocation(blocks, loc, 0f, 0f, 0f, data, seen, flatSeen, b);
             b.WriteInto(data);
             return data;
         }
@@ -75,6 +87,7 @@ namespace Sim.AssetExport
         public static TownData ResolveRegion(string arena2, string region,
             IReadOnlyList<(string name, float ox, float oy, float oz)> settlements)
         {
+            _flatArena2 = arena2;
             var maps = new MapsFile(Path.Combine(arena2, "MAPS.BSA"), FileUsage.UseMemory, true);
             var blocks = new BlocksFile(Path.Combine(arena2, "BLOCKS.BSA"), FileUsage.UseMemory, true);
 
@@ -87,6 +100,7 @@ namespace Sim.AssetExport
             };
 
             var seen = new HashSet<uint>();
+            var flatSeen = new HashSet<int>();
             var b = new Bounds();
             bool climateSet = false;
             foreach (var (name, ox, oy, oz) in settlements)
@@ -94,7 +108,7 @@ namespace Sim.AssetExport
                 DFLocation loc = maps.GetLocation(region, name);
                 if (!loc.Loaded) continue;
                 if (!climateSet) { data.ClimateBase = ClimateSwap.ClimateBasesOf(maps, loc); climateSet = true; }
-                AddLocation(blocks, loc, ox, oy, oz, data, seen, b);
+                AddLocation(blocks, loc, ox, oy, oz, data, seen, flatSeen, b);
             }
             b.WriteInto(data);
             return data;
@@ -104,10 +118,11 @@ namespace Sim.AssetExport
         /// so a settlement lands at its combined-grid origin and its terrain pad height.
         /// Mirrors RMBLayout.AddModels.
         static void AddLocation(BlocksFile blocks, DFLocation loc, float offX, float offY, float offZ,
-            TownData data, HashSet<uint> seen, Bounds b)
+            TownData data, HashSet<uint> seen, HashSet<int> flatSeen, Bounds b)
         {
             float blockSide = BlocksFile.RMBDimension * GlobalScale;
             float rd = BlocksFile.RotationDivisor;
+            const float BlockFlatsOffsetY = -6f;   // DFU RMBLayout blockFlatsOffsetY (decorative flats)
 
             int width = loc.Exterior.ExteriorData.Width;
             int height = loc.Exterior.ExteriorData.Height;
@@ -129,8 +144,7 @@ namespace Sim.AssetExport
                         float sAng = Deg2Rad(-sub.YRotation / rd);
                         float[] subM = Mat.Mul(Mat.Translate(sx, 0f, sz), Mat.RotateY(sAng));
 
-                        if (sub.Exterior.Block3dObjectRecords == null)
-                            continue;
+                        if (sub.Exterior.Block3dObjectRecords != null)
                         foreach (var obj in sub.Exterior.Block3dObjectRecords)
                         {
                             float ox = obj.XPos * GlobalScale;
@@ -146,6 +160,23 @@ namespace Sim.AssetExport
 
                             b.Add(m[12], m[13], m[14]);
                         }
+
+                        // Exterior subrecord flats (decorative billboards). Per DFU
+                        // RMBLayout.AddExteriorBlockFlats: the flat sits at the subrecord
+                        // ORIGIN (un-rotated) + its own offset, NOT under the building's
+                        // Y-rotation; Y carries blockFlatsOffsetY (-6). sx/sz are the
+                        // un-rotated subrecord origin offsets computed above.
+                        if (sub.Exterior.BlockFlatObjectRecords != null)
+                            foreach (var f in sub.Exterior.BlockFlatObjectRecords)
+                            {
+                                if (f.FactionID != 0) continue;   // static NPC — sim owns population
+                                if (f.TextureArchive == 199) continue;   // editor markers (enemy/treasure/start) — invisible in-game, per DFU AddExteriorBlockFlats
+                                float fx = blockM[12] + sx + f.XPos * GlobalScale;
+                                float fy = blockM[13] + (-f.YPos + BlockFlatsOffsetY) * GlobalScale;
+                                float fz = blockM[14] + sz + f.ZPos * GlobalScale;
+                                var (fw, fh) = FlatSize(f.TextureArchive, f.TextureRecord);
+                                AddFlat(data, flatSeen, f.TextureArchive, f.TextureRecord, fx, fy, fz, fw, fh, b);
+                            }
                     }
 
                     // Block-level misc 3D objects: wall segments, city gates,
@@ -171,8 +202,65 @@ namespace Sim.AssetExport
                             b.Add(m[12], m[13], m[14]);
                         }
                     }
+
+                    // Block-level misc flat objects (light flats, animals, decor). Skip NPC flats.
+                    // Per DFU RMBLayout.AddMiscBlockFlats: pos = (XPos, -YPos + blockFlatsOffsetY,
+                    // ZPos + RMBDimension) * scale, in block space (no subrecord, no rotation).
+                    if (block.RmbBlock.MiscFlatObjectRecords != null)
+                        foreach (var f in block.RmbBlock.MiscFlatObjectRecords)
+                        {
+                            if (f.FactionID != 0) continue;
+                            float fx = blockM[12] + f.XPos * GlobalScale;
+                            float fy = blockM[13] + (-f.YPos + BlockFlatsOffsetY) * GlobalScale;
+                            float fz = blockM[14] + (f.ZPos + BlocksFile.RMBDimension) * GlobalScale;
+                            var (fw, fh) = FlatSize(f.TextureArchive, f.TextureRecord);
+                            AddFlat(data, flatSeen, f.TextureArchive, f.TextureRecord, fx, fy, fz, fw, fh, b);
+                        }
+
+                    // Nature ground scenery (trees/rocks/plants). One per 16x16 tile,
+                    // climate archive from the location; same formula the flora registry uses.
+                    int natureArchive = loc.Climate.NatureArchive;
+                    var ground = block.RmbBlock.FldHeader.GroundData.GroundScenery;
+                    if (ground != null)
+                    {
+                        const float TileDim = 256f, NatureOffsetY = -2f;
+                        for (int gsx = 0; gsx < 16; gsx++)
+                        for (int gsy = 0; gsy < 16; gsy++)
+                        {
+                            int rec = ground[gsx, 15 - gsy].TextureRecord;
+                            if (rec < 1) continue;
+                            float wx = offX + bx * blockSide + gsx * TileDim * GlobalScale;
+                            float wy = offY + NatureOffsetY * GlobalScale;
+                            float wz = offZ + by * blockSide + (gsy * TileDim + TileDim) * GlobalScale;
+                            var (fw, fh) = FlatSize(natureArchive, rec);
+                            AddFlat(data, flatSeen, natureArchive, rec, wx, wy, wz, fw, fh, b);
+                        }
+                    }
                 }
             }
+        }
+
+        static void AddFlat(TownData data, HashSet<int> flatSeen, int archive, int record,
+            float wx, float wy, float wz, float worldW, float worldH, Bounds b)
+        {
+            data.Flats.Add(new Flat { Archive = archive, Record = record, X = wx, Y = wy, Z = wz, WorldW = worldW, WorldH = worldH });
+            if (flatSeen.Add(archive)) data.FlatArchives.Add(archive);
+            b.Add(wx, wy, wz);
+        }
+
+        // Cache of (archive -> per-record world sizes), so flat billboards match their texture.
+        static readonly Dictionary<int, (float w, float h)[]> _flatSizes = new();
+        static string _flatArena2;
+        static (float w, float h) FlatSize(int archive, int record)
+        {
+            if (!_flatSizes.TryGetValue(archive, out var sizes))
+            {
+                var meta = SpriteFlat.Build(_flatArena2, archive).meta;
+                sizes = new (float, float)[meta.Count];
+                for (int i = 0; i < meta.Count; i++) sizes[i] = (meta.Cells[i].WorldW, meta.Cells[i].WorldH);
+                _flatSizes[archive] = sizes;
+            }
+            return (record >= 0 && record < sizes.Length) ? sizes[record] : (1f, 1f);
         }
 
         /// Accumulates a world-space AABB across one or many locations.

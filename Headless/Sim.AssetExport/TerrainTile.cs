@@ -34,7 +34,17 @@ namespace Sim.AssetExport
         // Sim-world position of this tile's (x=0,y=0) corner, so the centered
         // location aligns to the sim's town origin.
         public float OriginX, OriginZ;
+
+        // Wilderness nature scatter (trees/rocks/plants on the open terrain between
+        // settlements). Positions are TILE-LOCAL (client adds OriginX/OriginZ); Y is the
+        // datum-offset world height, matching the mesh vertices. NatureArchive is the
+        // climate nature atlas (500-511); empty when no scatter (town-terrain mode).
+        public int NatureArchive;
+        public System.Collections.Generic.List<NatureFlat> Nature;
     }
+
+    /// One wilderness nature billboard: an atlas record at a tile-local position.
+    public struct NatureFlat { public int Record; public float X, Y, Z; }
 
     public static class TerrainTile
     {
@@ -55,7 +65,7 @@ namespace Sim.AssetExport
         /// block width/height to flatten the city footprint to y=0 (matching the sim).
         public static TerrainTileData Generate(WoodsFile woods, int mx, int my, int groundArchive,
             int locWidth = 0, int locHeight = 0, BlocksFile blocks = null, string[] blockNames = null,
-            float datumNorm = float.NaN)
+            float datumNorm = float.NaN, int natureArchive = 0, float climateScale = 1f)
         {
             int hDim = HDim;
             float div = (hDim - 1) / 3f;
@@ -153,7 +163,7 @@ namespace Sim.AssetExport
 
             // Per-tile texture painting (classify + marching squares) on the
             // flattened normalised heights (absolute elevation drives ocean/beach).
-            byte[] tilemap = BuildTilemap(norm, hDim, mx, my);
+            byte[] tilemap = BuildTilemap(norm, hDim, mx, my, out byte[] baseType);
 
             // Overlay the location's own ground tiles (roads/courtyards/cobble from
             // the RMB blocks) over the city footprint — DFU's SetLocationTiles. Same
@@ -168,6 +178,14 @@ namespace Sim.AssetExport
             var heights = new float[norm.Length];
             for (int i = 0; i < norm.Length; i++)
                 heights[i] = (norm[i] - datum) * MaxTerrainHeight;
+
+            // Wilderness nature scatter (only when a nature archive is supplied — region
+            // mode). Mirrors DFU DefaultTerrainNature.LayoutNature.
+            var nature = natureArchive > 0
+                ? ScatterNature(norm, baseType, heights, hDim, mx, my,
+                                woods.GetHeightMapValue(mx, my), climateScale,
+                                hasLoc, locWidth, locHeight)
+                : null;
 
             return new TerrainTileData
             {
@@ -184,6 +202,8 @@ namespace Sim.AssetExport
                 Floor = floor,
                 OriginX = originX,
                 OriginZ = originZ,
+                NatureArchive = natureArchive,
+                Nature = nature,
             };
         }
 
@@ -193,10 +213,82 @@ namespace Sim.AssetExport
         const int NoiseSeed = 417028;
         const byte Water = 0, Dirt = 1, Grass = 2, Stone = 3;
 
-        private static byte[] BuildTilemap(float[] norm, int hDim, int mx, int my)
+        // DFU DefaultTerrainNature constants.
+        const float maxSteepness = 50f, slopeSinkRatio = 70f;
+        const float baseChanceOnDirt = 0.2f, baseChanceOnGrass = 0.9f, baseChanceOnStone = 0.05f;
+        const int natureClearance = 4;
+
+        /// Port of DFU DefaultTerrainNature.LayoutNature: scatter one nature billboard
+        /// per accepted tilemap cell. Deterministic per map pixel (stable streaming).
+        /// Positions are tile-local; Y is the datum-offset world height (matches the mesh).
+        private static System.Collections.Generic.List<NatureFlat> ScatterNature(
+            float[] norm, byte[] baseType, float[] heights, int hDim, int mx, int my,
+            int worldHeight, float climateScale, bool hasLoc, int locWidth, int locHeight)
+        {
+            var list = new System.Collections.Generic.List<NatureFlat>();
+            float step = TileWorldSize / (hDim - 1);   // 6.4 m, matches the mesh
+
+            // Chance scaled by map-pixel elevation (sparse lowlands, dense highlands) and climate.
+            float elevationScale = Math.Clamp(worldHeight / 128f, 0.4f, 1.0f);
+            float chanceDirt = baseChanceOnDirt * elevationScale * climateScale;
+            float chanceGrass = baseChanceOnGrass * elevationScale * climateScale;
+            float chanceStone = baseChanceOnStone * elevationScale * climateScale;
+
+            // Location footprint (+clearance) to skip, in tilemap-cell coords (same
+            // centring the flatten uses).
+            int rx0 = 0, rx1 = 0, ry0 = 0, ry1 = 0;
+            if (hasLoc)
+            {
+                int tilePosX = (RMBTilesPerTerrain - locWidth * RMBTilesPerBlock) / 2;
+                int tilePosY = (RMBTilesPerTerrain - locHeight * RMBTilesPerBlock) / 2;
+                rx0 = tilePosX - natureClearance; rx1 = tilePosX + locWidth * RMBTilesPerBlock + natureClearance;
+                ry0 = tilePosY - natureClearance; ry1 = tilePosY + locHeight * RMBTilesPerBlock + natureClearance;
+            }
+
+            // Deterministic per-pixel PRNG (xorshift32) seeded by the map pixel.
+            uint rng = (uint)(((my & 0xFFFF) << 16) | (mx & 0xFFFF));
+            if (rng == 0) rng = 0x9E3779B9;
+            float NextF() { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return (rng & 0xFFFFFF) / (float)0x1000000; }
+
+            for (int cx = 0; cx < TDim; cx++)
+            {
+                for (int cy = 0; cy < TDim; cy++)
+                {
+                    // Reject steep ground (gradient of the heightfield → slope angle).
+                    int xm = Math.Max(0, cx - 1), xp = Math.Min(hDim - 1, cx + 1);
+                    int ym = Math.Max(0, cy - 1), yp = Math.Min(hDim - 1, cy + 1);
+                    float dhdx = (heights[xp * hDim + cy] - heights[xm * hDim + cy]) / ((xp - xm) * step);
+                    float dhdy = (heights[cx * hDim + yp] - heights[cx * hDim + ym]) / ((yp - ym) * step);
+                    float slopeDeg = (float)(Math.Atan(Math.Sqrt(dhdx * dhdx + dhdy * dhdy)) * 180.0 / Math.PI);
+                    if (slopeDeg > maxSteepness) continue;
+
+                    // Reject inside the location footprint (no RNG consumed).
+                    if (hasLoc && cx >= rx0 && cx < rx1 && cy >= ry0 && cy < ry1) continue;
+
+                    // Tile-type chance (consumes one roll on dirt/grass/stone).
+                    byte t = baseType[cx * TDim + cy];
+                    if (t == Dirt) { if (NextF() > chanceDirt) continue; }
+                    else if (t == Grass) { if (NextF() > chanceGrass) continue; }
+                    else if (t == Stone) { if (NextF() > chanceStone) continue; }
+                    else continue;   // water / unknown
+
+                    // Reject below the beach line (no RNG consumed).
+                    if (norm[cx * hDim + cy] * MaxTerrainHeight < scaledBeachElevation) continue;
+
+                    int record = 1 + (int)(NextF() * 31f);   // 1..31, like Random.Range(1,32)
+                    if (record > 31) record = 31;
+                    float y = heights[cx * hDim + cy] - slopeDeg / slopeSinkRatio;
+                    list.Add(new NatureFlat { Record = record, X = cx * step, Y = y, Z = cy * step });
+                }
+            }
+            return list;
+        }
+
+        private static byte[] BuildTilemap(float[] norm, int hDim, int mx, int my, out byte[] baseTypeOut)
         {
             // 1) Classify each cell into a base type (water/dirt/grass/stone).
             var baseType = new byte[TDim * TDim];   // index = cx*TDim + cy
+            baseTypeOut = baseType;
             for (int cx = 0; cx < TDim; cx++)
             {
                 int hx = Math.Min(hDim - 1, (int)(hDim * ((float)cx / TDim)));

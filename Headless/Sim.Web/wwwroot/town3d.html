@@ -245,6 +245,15 @@ function streamRegionTerrain(dt) {
         m.visible = ui('terr').checked;
         terrainGroup.add(m);
         regionTiles.set(w.key, m);
+        // Wilderness nature scatter: instanced billboards from the tile's climate
+        // nature atlas, positioned in world space (tile origin + tile-local scatter).
+        // Parented to the tile mesh so they unload with it.
+        if (d.nature && d.nature.length && d.natureArchive) {
+          getFlatSheet(d.natureArchive).then(({ meta, tex }) => {
+            const items = d.nature.map(n => ({ record: n.record, x: d.originX + n.x, y: n.y, z: d.originZ + n.z }));
+            m.add(buildFlatInstances(meta, tex, items));
+          });
+        }
       })
       .catch(() => regionTiles.delete(w.key));
   }
@@ -254,6 +263,12 @@ function streamRegionTerrain(dt) {
     if (m === 'loading') continue;
     const [mx, my] = key.split(',').map(Number);
     if (Math.abs(mx - cmx) > R + 2 || Math.abs(my - cmy) > R + 2) {
+      // Dispose the tile mesh AND its child nature InstancedMesh (geometry +
+      // per-instance attributes + its own ShaderMaterial). The atlas texture is
+      // shared/cached in flatSheets and must NOT be disposed here.
+      m.traverse(o => {
+        if (o.isMesh || o.isInstancedMesh) { o.geometry.dispose(); if (o !== m) o.material.dispose(); }
+      });
       terrainGroup.remove(m); m.geometry.dispose(); regionTiles.delete(key);
     }
   }
@@ -411,6 +426,7 @@ function animate() {
   updateAtmosphere(dt);
   streamRegionTerrain(dt);
   if (spritePools && curSnap.size) updateAgents(now);
+  // Flat billboards are instanced and camera-face in the vertex shader — no per-frame lookAt.
   renderer.render(scene, camera);
 }
 
@@ -497,6 +513,7 @@ function updateAtmosphere(dt) {
 // ---- Live agents (M4a): the sim's people as animated sprite billboards ----
 const agents = new THREE.Group();
 scene.add(agents);
+let flats = null;   // THREE.Group of flat billboards; populated by init(), billboarded each frame
 let spritePools = null;   // { civilian:[], guard:[], monster:[] }
 const sheets = new Map();          // archive -> { tex, meta, mat, sheetW, sheetH } | 'loading'
 const people = new Map();          // entityId -> { mesh, archive }
@@ -538,6 +555,85 @@ function getSheet(archive) {
     sheets.set(archive, { tex, meta, mat, sheetW: meta.cols * meta.cellW, sheetH: meta.rows * meta.cellH });
   }).catch(() => sheets.delete(archive));
   return null;
+}
+
+// ---- World flats (nature + decorative billboards) ----
+const flatSheets = new Map();
+function getFlatSheet(archive) {
+  if (flatSheets.has(archive)) return flatSheets.get(archive);
+  const p = Promise.all([
+    fetch(`/asset/flatmeta/${archive}`).then(r => r.json()),
+    new Promise(res => texLoader.load(`/asset/flatsheet/${archive}`, res)),
+  ]).then(([meta, tex]) => {
+    // flipY stays true (three.js default): the offset/repeat UV math below
+    // (offset.y = 1-(v+h)/sheetH) is the flipY=true convention, unlike the agent
+    // path which sets per-vertex UVs directly. Forcing flipY=false flips flats upside-down.
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
+    return { meta, tex };
+  });
+  flatSheets.set(archive, p);
+  return p;
+}
+
+// Camera-facing (Y-axis, upright) billboard shader for instanced flats. The quad
+// orients to the camera in the vertex shader (no per-frame CPU work); per-instance
+// attributes carry the atlas cell (aOffset/aRepeat) and world size (aSize). The base
+// of the billboard sits at the instance position (anchored, not centred).
+function makeFlatMaterial(tex) {
+  return new THREE.ShaderMaterial({
+    uniforms: { map: { value: tex } },
+    vertexShader: `
+      attribute vec2 aOffset;
+      attribute vec2 aRepeat;
+      attribute vec2 aSize;
+      varying vec2 vUv;
+      void main() {
+        vec3 P = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+        vec3 d = normalize(vec3(cameraPosition.x - P.x, 0.0, cameraPosition.z - P.z));
+        vec3 right = vec3(d.z, 0.0, -d.x);              // perpendicular to view in XZ
+        vec3 world = P
+          + right * (position.x * aSize.x)              // position.x in [-0.5,0.5]
+          + vec3(0.0, 1.0, 0.0) * ((position.y + 0.5) * aSize.y);  // base anchored at P.y
+        gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+        vUv = aOffset + uv * aRepeat;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D map;
+      varying vec2 vUv;
+      void main() {
+        vec4 c = texture2D(map, vUv);
+        if (c.a < 0.5) discard;
+        gl_FragColor = c;
+      }
+    `,
+    side: THREE.DoubleSide,
+  });
+}
+
+// Build one InstancedMesh for all flats of an archive. `list` items are
+// {record, x, y, z} (+ optional worldW/H override; else taken from the atlas cell).
+function buildFlatInstances(meta, tex, list) {
+  // Filter to flats whose record exists in this atlas.
+  const items = list.filter(f => meta.cells[f.record]);
+  const n = items.length;
+  const geo = new THREE.PlaneGeometry(1, 1);   // unit quad; sized + oriented in the shader
+  const off = new Float32Array(n * 2), rep = new Float32Array(n * 2), siz = new Float32Array(n * 2);
+  const mesh = new THREE.InstancedMesh(geo, makeFlatMaterial(tex), n);
+  const m = new THREE.Matrix4();
+  for (let i = 0; i < n; i++) {
+    const f = items[i], c = meta.cells[f.record];
+    off[i * 2] = c.u / meta.sheetW;        off[i * 2 + 1] = 1 - (c.v + c.h) / meta.sheetH;
+    rep[i * 2] = c.w / meta.sheetW;        rep[i * 2 + 1] = c.h / meta.sheetH;
+    siz[i * 2] = f.worldW ?? c.worldW;     siz[i * 2 + 1] = f.worldH ?? c.worldH;
+    mesh.setMatrixAt(i, m.makeTranslation(f.x, f.y, f.z));
+  }
+  geo.setAttribute('aOffset', new THREE.InstancedBufferAttribute(off, 2));
+  geo.setAttribute('aRepeat', new THREE.InstancedBufferAttribute(rep, 2));
+  geo.setAttribute('aSize', new THREE.InstancedBufferAttribute(siz, 2));
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.frustumCulled = false;   // billboards span the scene; skip whole-mesh culling
+  return mesh;
 }
 
 // Set a plane's UVs to a sheet cell (record row, frame col); optional horizontal flip.
@@ -789,6 +885,22 @@ async function init() {
     }
   }
   gatePairs = gates;
+
+  // World flats: static billboards for nature + decorative sprites.
+  flats = new THREE.Group();
+  scene.add(flats);
+  // Group flats by archive so each atlas is fetched once.
+  const byArchive = new Map();
+  for (const f of (data.flats || [])) {
+    if (!byArchive.has(f.archive)) byArchive.set(f.archive, []);
+    byArchive.get(f.archive).push(f);
+  }
+  for (const [archive, list] of byArchive) {
+    getFlatSheet(archive).then(({ meta, tex }) => {
+      flats.add(buildFlatInstances(meta, tex, list));
+    });
+  }
+
   applyToggles();
   if (regionMeta) frameRegion(); else frame(data.min, data.max);
 
