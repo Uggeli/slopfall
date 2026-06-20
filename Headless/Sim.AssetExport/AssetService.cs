@@ -105,6 +105,19 @@ namespace Sim.AssetExport
                 return TownLayout.ResolveRegion(_arena2, region, settlements);
         }
 
+        /// <summary>Region layout partitioned into per-map-pixel buckets so the viewer
+        /// streams geometry on the terrain ring instead of loading every settlement.</summary>
+        public RegionPlacementIndex GetRegionIndex(string region,
+            IReadOnlyList<(string name, float ox, float oy, float oz)> settlements,
+            int mx0, int my1, float tileSize)
+        {
+            lock (_gate)
+            {
+                var data = TownLayout.ResolveRegion(_arena2, region, settlements);
+                return RegionPlacementIndex.Build(data, mx0, my1, tileSize);
+            }
+        }
+
         /// <summary>
         /// Terrain tile for the booted town's map pixel, flattened under the city to
         /// y=0 with the climate ground texture. (M3b-1: the location's own tile only.)
