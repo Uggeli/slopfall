@@ -21,6 +21,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         public readonly LedgerRegistry Ledger;
         public readonly WorldMarketRegistry WorldMarket;
         public readonly SettlementRegistry Settlements;
+        public readonly PoiRegistry Pois;
         public readonly BuildingRegistry Buildings;
         public readonly PositionRegistry Position;
         public readonly BehaviorRegistry Behavior;
@@ -68,7 +69,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             Lighting = new LightingRegistry(e); Holiday = new HolidayRegistry(e);
             Occupancy = new OccupancyRegistry(e); TownGrid = new TownGridRegistry(e);
             Ledger = new LedgerRegistry(e); WorldMarket = new WorldMarketRegistry(e);
-            Settlements = new SettlementRegistry(e); Buildings = new BuildingRegistry(e);
+            Settlements = new SettlementRegistry(e); Pois = new PoiRegistry(e); Buildings = new BuildingRegistry(e);
             Position = new PositionRegistry(e); Behavior = new BehaviorRegistry(e);
             Intent = new IntentRegistry(e); Identity = new IdentityRegistry(e);
             Needs = new NeedsRegistry(e); Vitals = new VitalsRegistry(e); Life = new LifeRegistry(e);
@@ -90,7 +91,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             var registries = new Registry[]
             {
                 WorldClock, Weather, Lighting, Holiday, Occupancy, TownGrid, Ledger, WorldMarket,
-                Settlements, Buildings, Position, Behavior, Intent, Identity, Needs, Vitals, Life,
+                Settlements, Pois, Buildings, Position, Behavior, Intent, Identity, Needs, Vitals, Life,
                 Personality, Stats, Effects, EffectAggregate, StatusFlags, Progression, Employment,
                 Residency, Affects, Meanings, Relations, Memory, Conscience, Lineage, Subjective, Sensed,
                 Coin, Stock, Larder, Treasury, Items, ItemTake, PlaceMemory, Creatures, Path,
