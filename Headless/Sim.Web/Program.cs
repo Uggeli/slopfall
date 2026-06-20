@@ -104,7 +104,7 @@ if (wholeRegion)
     rTileSize = TileSize;
     rMx0 = mx0; rMy0 = my0; rMx1 = mx1; rMy1 = my1;
     rTowns = pAll.Select(p => (p.MapPixelX, p.MapPixelY, p.Name, p.BlocksWide, p.BlocksHigh)).ToList();
-    // The settlement nearest the bbox centre supplies the datum the region levels to.
+    // The POI nearest the bbox centre supplies the datum the region levels to.
     int cmx = (rMx0 + rMx1) / 2, cmy = (rMy0 + rMy1) / 2;
     rCentre = rTowns[0];
     int bestD = int.MaxValue;
@@ -117,7 +117,7 @@ if (wholeRegion)
     // tile levels to this value so neighbours meet at a continuous seam.
     rDatum = assets.RegionTileFloor(region, rCentre.name, rCentre.w, rCentre.h);
 
-    // Now place each settlement. A town's terrain pad sits at the world height
+    // Now place each rendered POI. A location's terrain pad sits at the world height
     // (townFloor - datum) * MaxHeight — its own elevation, not y=0 — so the
     // buildings and agents must be lifted to that pad, or they float / bury. We
     // query each town's own tile floor and turn the elevation gap into a Y offset.
