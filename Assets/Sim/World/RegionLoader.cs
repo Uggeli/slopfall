@@ -27,29 +27,57 @@ namespace DaggerfallWorkshop.Sim
         const int ShelfMaxBlocks = 32;     // wrap to a new shelf once a row passes this width
         const int BufferBlocks = 1;        // blocked gap between packed settlements
 
-        /// Location types that carry a permanent population worth simulating.
-        static bool IsSettled(DFRegion.LocationTypes t) =>
-            t == DFRegion.LocationTypes.TownCity ||
-            t == DFRegion.LocationTypes.TownHamlet ||
-            t == DFRegion.LocationTypes.TownVillage ||
-            t == DFRegion.LocationTypes.HomeFarms ||
-            t == DFRegion.LocationTypes.ReligionTemple ||
-            t == DFRegion.LocationTypes.Tavern;
+        /// Every loadable location of a region, in region order.
+        static IEnumerable<DFLocation> EnumerateLocations(MapsFile maps, DFRegion region, string regionName)
+        {
+            for (int i = 0; i < region.LocationCount; i++)
+            {
+                var loc = maps.GetLocation(regionName, region.MapNames[i]);
+                if (loc.Loaded) yield return loc;
+            }
+        }
+
+        /// Attach a freshly-built settlement to its POI (matched by name+region).
+        static void LinkSettlement(SimWorld world, SettlementData s)
+        {
+            foreach (var poi in world.Pois.All)
+                if (poi.Settlement == null && poi.Name == s.Name && poi.RegionName == s.RegionName)
+                { poi.Settlement = s; return; }
+        }
 
         public static RegionLoadResult LoadRegion(SimWorld world, SimRandom rng, MapsFile maps, BlocksFile blocks, string regionName, WoodsFile woods = null)
         {
             var region = maps.GetRegion(regionName);
             var result = new RegionLoadResult { RegionName = regionName };
 
-            // Pass 1: gather the settled, loadable locations in region order.
+            // Pass 1: build a POI for every loadable location; collect the settled,
+            // non-empty ones (in region order) for the settlement seed below.
             var locs = new List<DFLocation>();
-            for (int i = 0; i < region.LocationCount; i++)
+            foreach (var poiLoc in EnumerateLocations(maps, region, regionName))
             {
-                var loc = maps.GetLocation(regionName, region.MapNames[i]);
-                if (!loc.Loaded) continue;
-                if (!IsSettled(loc.MapTableData.LocationType)) continue;
-                if (loc.Exterior.ExteriorData.Width <= 0 || loc.Exterior.ExteriorData.Height <= 0) continue;
-                locs.Add(loc);
+                var role = PoiClassifier.PoiRoleOf(poiLoc.MapTableData.LocationType);
+                if (role == PoiRole.PlayerShip) continue;   // out of scope
+
+                bool hasExterior = poiLoc.Exterior.ExteriorData.Width > 0 &&
+                                   poiLoc.Exterior.ExteriorData.Height > 0;
+                var pixPoi = MapsFile.LongitudeLatitudeToMapPixel(
+                    poiLoc.MapTableData.Longitude, poiLoc.MapTableData.Latitude);
+
+                world.Pois.Add(new RegionPoi
+                {
+                    Name = poiLoc.Name,
+                    RegionName = regionName,
+                    RawLocationType = (int)poiLoc.MapTableData.LocationType,
+                    Role = role,
+                    MapPixelX = pixPoi.X,
+                    MapPixelY = pixPoi.Y,
+                    BlocksWide = poiLoc.Exterior.ExteriorData.Width,
+                    BlocksHigh = poiLoc.Exterior.ExteriorData.Height,
+                    HasExterior = hasExterior,
+                });
+
+                if (PoiRoles.IsSettled(role) && hasExterior)
+                    locs.Add(poiLoc);
             }
 
             // Shelf-pack in block units → each settlement's block origin + the
@@ -92,6 +120,7 @@ namespace DaggerfallWorkshop.Sim
             {
                 var loc = locs[i];
                 var s = world.Settlements.Add(loc.Name, regionName, TownLoader.KindOf(loc));
+                LinkSettlement(world, s);
                 s.BlocksWide = loc.Exterior.ExteriorData.Width;
                 s.BlocksHigh = loc.Exterior.ExteriorData.Height;
                 s.OriginX = originX[i] * blockSide;
