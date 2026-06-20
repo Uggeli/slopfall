@@ -181,11 +181,16 @@ namespace Sim.AssetExport
                 if (_regionTileCache.TryGetValue(key, out var hit)) return hit;
 
                 EnsureMapsWoods();
-                int groundArchive = MapsFile.GetWorldClimateSettings(_maps.GetClimateIndex(mx, my)).GroundArchive;
+                var climate = MapsFile.GetWorldClimateSettings(_maps.GetClimateIndex(mx, my));
+                int groundArchive = climate.GroundArchive;
+                int natureArchive = climate.NatureArchive;   // climate nature atlas (500-511)
+                float climateScale = climate.ClimateType == DFLocation.ClimateBaseType.Desert ? 0.25f : 1.0f;
                 TerrainTileData tile = locName != null
                     ? TerrainTile.Generate(_woods, mx, my, groundArchive, locW, locH,
-                        _blocks, _maps.GetLocation(region, locName).Exterior.ExteriorData.BlockNames, datum)
-                    : TerrainTile.Generate(_woods, mx, my, groundArchive, 0, 0, null, null, datum);
+                        _blocks, _maps.GetLocation(region, locName).Exterior.ExteriorData.BlockNames, datum,
+                        natureArchive, climateScale)
+                    : TerrainTile.Generate(_woods, mx, my, groundArchive, 0, 0, null, null, datum,
+                        natureArchive, climateScale);
 
                 // Grid-align the tile to its map pixel so it meets its wilderness
                 // neighbours seamlessly. Generate centres a town's flattened footprint

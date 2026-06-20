@@ -245,6 +245,15 @@ function streamRegionTerrain(dt) {
         m.visible = ui('terr').checked;
         terrainGroup.add(m);
         regionTiles.set(w.key, m);
+        // Wilderness nature scatter: instanced billboards from the tile's climate
+        // nature atlas, positioned in world space (tile origin + tile-local scatter).
+        // Parented to the tile mesh so they unload with it.
+        if (d.nature && d.nature.length && d.natureArchive) {
+          getFlatSheet(d.natureArchive).then(({ meta, tex }) => {
+            const items = d.nature.map(n => ({ record: n.record, x: d.originX + n.x, y: n.y, z: d.originZ + n.z }));
+            m.add(buildFlatInstances(meta, tex, items));
+          });
+        }
       })
       .catch(() => regionTiles.delete(w.key));
   }
