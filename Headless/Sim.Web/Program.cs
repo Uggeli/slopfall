@@ -418,6 +418,10 @@ app.Map("/ws", async context =>
 
     await Send(worldJson);
 
+    // Camera ring the client last reported (region mode). viewMx < 0 ⇒ unknown:
+    // send all agents (back-compat, and town mode never sends a view).
+    int viewMx = -1, viewMy = -1, viewR = 0;
+
     // Snapshot pump: ~5 Hz is plenty for a spectator page.
     var pump = Task.Run(async () =>
     {
@@ -445,10 +449,17 @@ app.Map("/ws", async context =>
                     entities = snap.Agents.Select(e =>
                     {
                         var (ex, ey, ez) = wholeRegion ? GeoRemap(e.X, e.Z) : (e.X, 0f, e.Z);
-                        return new object[]
-                            { e.Id, MathF.Round(ex, 1), MathF.Round(ez, 1), e.Activity, e.Phase,
-                              MathF.Round(e.Yaw, 3), e.Kind, MathF.Round(ey, 1) };
-                    }),
+                        return (e, ex, ey, ez);
+                    })
+                    .Where(t =>
+                    {
+                        if (!wholeRegion || viewMx < 0) return true;   // send-all back-compat
+                        var (pmx, pmy) = world.Geography.PixelOf(t.ex, t.ez);
+                        return Math.Abs(pmx - viewMx) <= viewR && Math.Abs(pmy - viewMy) <= viewR;
+                    })
+                    .Select(t => new object[]
+                        { t.e.Id, MathF.Round(t.ex, 1), MathF.Round(t.ez, 1), t.e.Activity, t.e.Phase,
+                          MathF.Round(t.e.Yaw, 3), t.e.Kind, MathF.Round(t.ey, 1) }),
                 }, jsonOptions);
                 await Send(payload);
             }
@@ -479,6 +490,17 @@ app.Map("/ws", async context =>
                 case "inspectBuilding" when doc.RootElement.TryGetProperty("i", out var bProp):
                     await Send(JsonSerializer.SerializeToUtf8Bytes(
                         new { type = "building", building = InspectBuilding(bProp.GetInt32()) }, jsonOptions));
+                    break;
+
+                // Camera ring (region mode): filter agent snapshots to the pixels the
+                // client's viewport covers, so a region doesn't stream every settlement's
+                // agents at once. The pump reads viewMx/viewMy/viewR on its next frame.
+                case "view"
+                    when doc.RootElement.TryGetProperty("mx", out var vmx)
+                      && doc.RootElement.TryGetProperty("my", out var vmy):
+                    viewMx = vmx.GetInt32();
+                    viewMy = vmy.GetInt32();
+                    viewR = doc.RootElement.TryGetProperty("r", out var vr) ? vr.GetInt32() : 6;
                     break;
 
                 case "speed" when doc.RootElement.TryGetProperty("scale", out var sProp):
