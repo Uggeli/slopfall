@@ -56,15 +56,5 @@ namespace Sim.MemoryTests
             Assert.False(s.TryGet(new MemoryKey(25), out _));
             Assert.False(s.TryGet(new MemoryKey(99), out _));
         }
-
-        [Fact]
-        public void Encode_IntoFullStore_NewKey_ReturnsFalse_ForNow()
-        {
-            var s = new MemoryStore(2);
-            Assert.True(s.Encode(Rec(10, 10)));
-            Assert.True(s.Encode(Rec(20, 10)));
-            Assert.False(s.Encode(Rec(30, 10)));   // full; eviction lands in Task 4
-            Assert.Equal(2, s.Count);
-        }
     }
 }

@@ -57,7 +57,76 @@ namespace DaggerfallWorkshop.Sim.Memory
             int idx = IndexOf(record.Key);
             if (idx >= 0) { _records[idx] = record; return true; }   // replace in place
             if (_count < _records.Length) { InsertSorted(record); return true; }
-            return false;                                            // full — Task 4 adds eviction
+            return TryEvictAndInsert(record);                        // full — beat the weakest or bust
+        }
+
+        /// <summary>
+        /// Reconsolidation: bump a record's strength (clamped to [0,255]) and set its LastRefresh
+        /// to the recall tick. Returns false if the key is absent.
+        /// </summary>
+        public bool Refresh(MemoryKey key, int deltaStrength, long atTick)
+        {
+            int idx = IndexOf(key);
+            if (idx < 0) return false;
+            int ns = _records[idx].Strength + deltaStrength;
+            if (ns < 0) ns = 0;
+            else if (ns > 255) ns = 255;
+            _records[idx] = _records[idx].WithStrength((byte)ns, atTick);
+            return true;
+        }
+
+        /// <summary>
+        /// Sleep decay: subtract (IsSurprise ? surpriseRate : normalRate) from each non-INNATE
+        /// record's strength, floored at 0. Records hitting 0 are dropped; key order is preserved
+        /// by in-place compaction. INNATE records are immune. LastRefresh is unchanged.
+        /// Caller passes surpriseRate &lt;= normalRate (surprising memories resist decay).
+        /// </summary>
+        public void Decay(int normalRate, int surpriseRate)
+        {
+            int w = 0;
+            for (int r = 0; r < _count; r++)
+            {
+                MemoryRecord rec = _records[r];
+                if (rec.IsInnate) { _records[w++] = rec; continue; }
+                int applicable = rec.IsSurprise ? surpriseRate : normalRate;
+                int ns = rec.Strength - applicable;
+                if (ns <= 0) continue;                                  // dropped
+                _records[w++] = rec.WithStrength((byte)ns, rec.LastRefresh);
+            }
+            for (int i = w; i < _count; i++) _records[i] = default;     // release dropped slots
+            _count = w;
+        }
+
+        /// <summary>
+        /// Full-store write: evict the weakest evictable (non-INNATE) record and insert the new
+        /// one iff the new record is more keepable than that weakest. Otherwise the write does
+        /// not take. Returns whether the record was stored.
+        /// </summary>
+        bool TryEvictAndInsert(in MemoryRecord record)
+        {
+            int weakest = -1;
+            for (int i = 0; i < _count; i++)
+            {
+                if (_records[i].IsInnate) continue;                 // INNATE is evict-immune
+                if (weakest < 0 || LessKeepable(_records[i], _records[weakest])) weakest = i;
+            }
+            if (weakest < 0) return false;                          // everything INNATE — rejected
+            if (!LessKeepable(_records[weakest], record)) return false;  // new doesn't beat the weakest
+
+            // Remove the weakest (preserve order), then insert the new record in sorted position.
+            Array.Copy(_records, weakest + 1, _records, weakest, _count - weakest - 1);
+            _count--;
+            InsertSorted(record);
+            return true;
+        }
+
+        /// <summary>True if a is less keepable than b: weaker strength, else older LastRefresh,
+        /// else lower Key. A total order, so eviction is deterministic.</summary>
+        static bool LessKeepable(in MemoryRecord a, in MemoryRecord b)
+        {
+            if (a.Strength != b.Strength) return a.Strength < b.Strength;
+            if (a.LastRefresh != b.LastRefresh) return a.LastRefresh < b.LastRefresh;
+            return a.Key.CompareTo(b.Key) < 0;
         }
 
         /// <summary>Insert into the sorted array at the lower-bound position. Caller guarantees
