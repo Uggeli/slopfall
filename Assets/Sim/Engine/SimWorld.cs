@@ -61,6 +61,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         public readonly RequestCooldownRegistry RequestCooldown;
         public readonly EarningsRegistry Earnings;
         public readonly PerceivableRegistry Perceivable;
+        public readonly AgentMemoryRegistry AgentMemory;
 
         // --- diagnostic systems (read-only; exposed for soak reporting) ---
         public MetricsSystem Metrics;
@@ -91,6 +92,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             Path = new PathRegistry(e); SocialCooldown = new SocialCooldownRegistry(e);
             RequestCooldown = new RequestCooldownRegistry(e); Earnings = new EarningsRegistry(e);
             Perceivable = new PerceivableRegistry(e);
+            AgentMemory = new AgentMemoryRegistry(e, AgentMemoryConfig.Default);
 
             var registries = new Registry[]
             {
@@ -99,7 +101,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 Personality, Stats, Effects, EffectAggregate, StatusFlags, Progression, Employment,
                 Residency, Affects, Meanings, Relations, Memory, Conscience, Lineage, Subjective, Sensed,
                 Coin, Stock, Larder, Treasury, Items, ItemTake, PlaceMemory, Creatures, Path,
-                SocialCooldown, RequestCooldown, Earnings, Perceivable,
+                SocialCooldown, RequestCooldown, Earnings, Perceivable, AgentMemory,
             };
 
             var systems = new SimSystem[]
@@ -132,6 +134,8 @@ namespace DaggerfallWorkshop.Sim.Engine
                 new SenseSystem(e, WorldClock, Behavior, Position, Creatures, TownGrid, seed),
                 new SubjectiveSystem(e, WorldClock, Sensed, Subjective, Relations, Affects, Meanings,
                     Behavior, Personality, Creatures, Residency, SocialCooldown),
+                new MemoryWriteSystem(e, Sensed, Perceivable, AgentMemoryConfig.Default),
+                new ConsolidationSystem(e, Behavior, AgentMemoryConfig.Default),
                 new AffectsSystem(e, WorldClock, Affects),
                 new MeaningsSystem(e, WorldClock, Meanings, Residency),
                 new SocialSystem(e, Behavior, Relations, Personality, Memory, WorldClock, seed),

@@ -540,6 +540,9 @@ namespace DaggerfallWorkshop.Sim
             if (race >= 0) world.Perceivable.Seed(id, PerceivableAtoms.Race(race), Fixed.One);
             world.Perceivable.Seed(id, PerceivableAtoms.Role(role), Fixed.One);
 
+            // Empty private memory — the agent learns categories from perception over time.
+            world.AgentMemory.Seed(id);
+
             world.Lineage.Seed(id, new LineageData { FamilyId = familyId, Surname = surname });
 
             int maxHealth = 40 + rng.NextInt(21);

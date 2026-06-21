@@ -64,6 +64,17 @@ namespace DaggerfallWorkshop.Sim.Engine
             string kills = m == null ? "" :
                 $" kills[gate={m.KillsAtGate} inside={m.KillsInside} day={m.KillsByDay} night={m.KillsByNight}]";
             Console.WriteLine($"           guards[posting={posting} attacking={attacking}] hungryMonsters={hungry}{kills}");
+
+            // Agent-memory learning arc: categories minted + records held, averaged over the population.
+            long cats = 0, recs = 0; int memAgents = 0, learned = 0;
+            foreach (var kv in w.AgentMemory.All)
+            {
+                int c2 = kv.Value.Meanings.Count;
+                cats += c2; recs += kv.Value.Stores.Things.Count; memAgents++;
+                if (c2 > 0) learned++;
+            }
+            if (memAgents > 0)
+                Console.WriteLine($"           mem[cat/agent={(double)cats / memAgents:F2} rec/agent={(double)recs / memAgents:F1} learned%={100.0 * learned / memAgents:F0}]");
         }
     }
 }
