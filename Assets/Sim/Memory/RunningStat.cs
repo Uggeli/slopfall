@@ -6,6 +6,12 @@ namespace DaggerfallWorkshop.Sim.Memory
     /// sum), so it is replay-exact and machine-portable (spec: Determinism). Sum is in raw Q8
     /// units; SumSq in raw Q16 units (value.Raw squared). VarianceRaw is the spread² the A3
     /// variance gate compares — no sqrt needed at this layer.
+    ///
+    /// Sum/SumSq assume bounded atom magnitudes (atom values sit near the [0,1] fixed-point
+    /// range and consolidation caps episode counts per the spec), so the long accumulators
+    /// never overflow in practice. The integer-truncated mean makes VarianceRaw approximate,
+    /// but it is provably non-negative (Cauchy-Schwarz on the integer floors) — the clamp in
+    /// VarianceRaw is defensive, not a reachable path.
     /// </summary>
     public struct RunningStat
     {

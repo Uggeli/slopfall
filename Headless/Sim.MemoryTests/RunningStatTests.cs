@@ -61,6 +61,21 @@ namespace Sim.MemoryTests
         }
 
         [Fact]
+        public void Variance_FractionalQ8Mean_IsApproximateButNonNegative()
+        {
+            // raws {0, 0, 256}: Sum=256, Count=3, meanRaw=85 (trunc), meanSq=7225,
+            // SumSq=65536, SumSq/Count=21845 (trunc) -> v = 14620. True pop-variance of
+            // {0,0,1.0} is 2/9 ≈ 0.2222 -> Q16 ≈ 14563; the integer mean truncation makes
+            // the result approximate, but it stays positive (never trips the clamp).
+            var s = new RunningStat();
+            s.Add(Fixed.FromInt(0));
+            s.Add(Fixed.FromInt(0));
+            s.Add(Fixed.FromInt(1));
+            Assert.Equal(14620, s.VarianceRaw());
+            Assert.True(s.VarianceRaw() >= 0);
+        }
+
+        [Fact]
         public void LowSpread_StreamHasSmallVariance_HighSpread_HasLarge()
         {
             var low = new RunningStat();
