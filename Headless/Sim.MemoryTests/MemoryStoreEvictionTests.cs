@@ -49,6 +49,35 @@ namespace Sim.MemoryTests
         }
 
         [Fact]
+        public void Eviction_EqualStrength_OlderIncoming_DoesNotTake()
+        {
+            // The rejection half of "beat the weakest or bust": an incoming record that ties the
+            // weakest on strength but is OLDER than it must not evict (strict-keepability boundary).
+            var s = new MemoryStore(2);
+            s.Encode(Rec(10, 50, lastRefresh: 100));   // weakest (oldest of the strength-50 pair)
+            s.Encode(Rec(20, 50, lastRefresh: 300));
+            Assert.False(s.Encode(Rec(30, 50, lastRefresh: 50)));   // strength tie, older -> rejected
+            Assert.Equal(2, s.Count);
+            Assert.False(s.TryGet(new MemoryKey(30), out _));
+            Assert.True(s.TryGet(new MemoryKey(10), out _));        // weakest survives
+        }
+
+        [Fact]
+        public void Eviction_KeyTieBreak_EvictsLowestKeyAmongFullTies()
+        {
+            // strength AND lastRefresh tie across the store -> the Key tie-break decides the
+            // weakest deterministically (lowest key), and a same-strength/same-refresh newcomer
+            // (higher key) beats it.
+            var s = new MemoryStore(2);
+            s.Encode(Rec(10, 50, lastRefresh: 100));
+            s.Encode(Rec(20, 50, lastRefresh: 100));
+            Assert.True(s.Encode(Rec(30, 50, lastRefresh: 100)));
+            Assert.False(s.TryGet(new MemoryKey(10), out _));   // lowest key evicted
+            Assert.True(s.TryGet(new MemoryKey(20), out _));
+            Assert.True(s.TryGet(new MemoryKey(30), out _));
+        }
+
+        [Fact]
         public void Eviction_SkipsInnate_EvictsWeakestNonInnate()
         {
             var s = new MemoryStore(2);

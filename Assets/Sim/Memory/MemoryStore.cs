@@ -77,8 +77,9 @@ namespace DaggerfallWorkshop.Sim.Memory
 
         /// <summary>
         /// Sleep decay: subtract (IsSurprise ? surpriseRate : normalRate) from each non-INNATE
-        /// record's strength, floored at 0. Records hitting 0 are dropped; key order is preserved
-        /// by in-place compaction. INNATE records are immune. LastRefresh is unchanged.
+        /// record's strength. A record whose strength reaches 0 (or below) is dropped, not floored
+        /// at 0; survivors keep key order via in-place compaction. INNATE records are immune.
+        /// LastRefresh is unchanged.
         /// Caller passes surpriseRate &lt;= normalRate (surprising memories resist decay).
         /// </summary>
         public void Decay(int normalRate, int surpriseRate)
