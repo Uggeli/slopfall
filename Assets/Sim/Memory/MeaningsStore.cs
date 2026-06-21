@@ -121,7 +121,7 @@ namespace DaggerfallWorkshop.Sim.Memory
                 int cmp = a[i].Type.CompareTo(b[j].Type);
                 if (cmp < 0) { d += Abs(a[i].Value.Raw); i++; }
                 else if (cmp > 0) { d += Abs(b[j].Value.Raw); j++; }
-                else { d += Abs(a[i].Value.Raw - b[j].Value.Raw); i++; j++; }
+                else { d += System.Math.Abs((long)a[i].Value.Raw - b[j].Value.Raw); i++; j++; }   // widen before subtract
             }
             while (i < a.Count) { d += Abs(a[i].Value.Raw); i++; }
             while (j < b.Count) { d += Abs(b[j].Value.Raw); j++; }

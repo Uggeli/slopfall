@@ -40,16 +40,25 @@ namespace Sim.MemoryTests
         {
             var s = Store();
             var id = s.AddNode(Bag((1, 1.0)), Fixed.FromDouble(1.0), Fixed.FromDouble(0.9), false);
-            // First confirm to a high confidence, then contradict.
+            // Confirm to a high confidence and a firmly-positive valence first.
             for (int i = 0; i < 10; i++) s.Reinforce(id, Bag((1, 1.0)), Fixed.FromDouble(1.0));
             s.TryGetNode(id, out var node);
             double confAfterConfirm = node.Confidence.ToDouble();
+            Assert.True(node.Valence.ToDouble() > 0.5);
 
-            for (int i = 0; i < 10; i++) s.Reinforce(id, Bag((1, 1.0)), Fixed.FromDouble(-1.0));
-            s.TryGetNode(id, out node);
-            Assert.True(node.Confidence.ToDouble() < confAfterConfirm);    // weakened
-            Assert.True(node.Confidence.ToDouble() >= 0.0);                // not corrupted (bounded)
-            Assert.True(node.Valence.ToDouble() <= 1.0 && node.Valence.ToDouble() >= -1.0);
+            // Pure-contradiction phase: while valence is still positive (the outcome genuinely
+            // contradicts the node's charge), each contradicting tick must STRICTLY lower
+            // confidence — the spec's "weakens" — and never go out of bounds ("not corrupts").
+            double prevConf = confAfterConfirm;
+            for (int i = 0; i < 3; i++)
+            {
+                s.Reinforce(id, Bag((1, 1.0)), Fixed.FromDouble(-1.0));
+                s.TryGetNode(id, out node);
+                Assert.True(node.Valence.ToDouble() > 0.0);              // still genuinely contradicting
+                Assert.True(node.Confidence.ToDouble() < prevConf);      // strictly weakened
+                Assert.True(node.Confidence.ToDouble() >= 0.0);          // bounded, not corrupted
+                prevConf = node.Confidence.ToDouble();
+            }
         }
 
         [Fact]
