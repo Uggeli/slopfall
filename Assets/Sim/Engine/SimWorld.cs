@@ -125,6 +125,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                     Holiday, Employment, Coin, Larder, Occupancy, Conscience, Subjective, Creatures,
                     Affects, Relations, Meanings, PlaceMemory, Stock, Items, WorldClock, seed),
                 new ExecutionSystem(e, Intent, Behavior, Position, WorldClock),
+                new PerceivableActivitySystem(e, Behavior, Perceivable),
                 new MovementSystem(e, WorldClock, Behavior, Position, TownGrid, Path, seed),
                 new CreatureSystem(e, WorldClock, Position, Creatures, Identity, Vitals, TownGrid, seed),
                 new CombatSystem(e, WorldClock, Behavior, Position, Creatures, Vitals, seed),
