@@ -54,6 +54,29 @@ namespace Sim.MemoryTests
         }
 
         [Fact]
+        public void Mint_AbsorbsOnlyExactMatches_NearMissAtomsRideInTheRecord()
+        {
+            // Honest compression boundary: the minted prototype value is an integer-truncated mean,
+            // and Diff is exact-equality. Type 1 is identical across members (exact -> absorbed);
+            // type 2 differs slightly (mean truncates to a value no member holds -> NOT absorbed,
+            // so it rides in the re-keyed record). MINT compresses less than "the shared core
+            // migrates into the fact" implies once values are noisy.
+            var meanings = new MeaningsStore(16, MeaningsConfig.Default);
+            var store = new MemoryStore(16);
+            store.Encode(Novel(10, Bag((1, 1.0), (2, 1.0))));
+            store.Encode(Novel(20, Bag((1, 1.0), (2, 0.99))));
+            store.Encode(Novel(30, Bag((1, 1.0), (2, 0.98))));
+
+            Consolidation.Mint(store, meanings, ConsolidationConfig.Default);
+
+            Assert.Equal(1, meanings.Count);                     // still minted (both types low-variance)
+            store.TryGet(new MemoryKey(10), out var r);
+            Assert.False(r.CategoryRef.IsNone);                  // recognized
+            Assert.Equal(new[] { 2 }, r.DeltaBag.Atoms.Select(a => a.Type.Value).ToArray());
+            // type 1 (exact) absorbed into the fact; type 2 (near-miss) still rides in the record.
+        }
+
+        [Fact]
         public void Mint_TooFewMembers_DoesNotMint()
         {
             var meanings = new MeaningsStore(16, MeaningsConfig.Default);
