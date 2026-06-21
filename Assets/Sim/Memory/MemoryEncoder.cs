@@ -26,6 +26,10 @@ namespace DaggerfallWorkshop.Sim.Memory
     /// builds a MemoryRecord whose deltaBag is only the divergence (the full percept when novel) at
     /// a strength set by max(encode-surprise, arousal). It does NOT insert the record (Phase B routes
     /// it to a store); keeping it a pure function makes the dynamics testable in isolation.
+    ///
+    /// Novelty is maximal surprise, so a novel record always trips the surprise arm and is written
+    /// SURPRISE-flagged (decay-resistant) — novel-and-verbatim things resist decay until a later
+    /// MINT pass (A5) compresses them into a category.
     /// </summary>
     public static class MemoryEncoder
     {

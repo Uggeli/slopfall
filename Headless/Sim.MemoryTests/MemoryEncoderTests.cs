@@ -95,6 +95,7 @@ namespace Sim.MemoryTests
             Assert.Equal(Surprise.Maximal.Encode, r.Surprise.Encode);
             Assert.True(r.Written);
             Assert.True(r.Record.IsNovel);                   // categoryRef None
+            Assert.True(r.Record.IsSurprise);                // novelty is maximal surprise -> decay-resistant until MINT
             Assert.Equal(new[] { 50, 51 }, r.Record.DeltaBag.Atoms.Select(a => a.Type.Value).ToArray());   // full percept verbatim
             Assert.Equal((byte)255, r.Record.Strength);
         }
