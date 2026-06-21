@@ -16,7 +16,7 @@
   #gfx input[type=range] { flex: 1; min-width: 0; accent-color: #9fd0ff; }
   #gfx .gval { color: #ffd479; min-width: 42px; text-align: right; }
   #stat { margin-top: 6px; color: #8893a7; white-space: pre-wrap; }
-  #detail { position: absolute; top: 10px; right: 10px; width: 220px; z-index: 10; display: none;
+  #detail { position: absolute; top: 10px; right: 10px; width: 260px; max-height: 82vh; overflow: auto; z-index: 10; display: none;
             background: rgba(20,24,32,.9); border: 1px solid #2c3444; border-radius: 6px; padding: 10px 12px; }
   #detail .dh { color: #9fd0ff; font-weight: bold; margin-bottom: 3px; }
   #detail .dx { float: right; color: #6b768a; cursor: pointer; font-weight: normal; }
@@ -27,6 +27,15 @@
   #detail .nbar { flex: 1; height: 8px; background: #20262f; border-radius: 3px; overflow: hidden; }
   #detail .nbar > i { display: block; height: 100%; }
   #detail .dlink { color: #9fd0ff; cursor: pointer; text-decoration: underline; }
+  #detail .tabs { display: flex; gap: 4px; margin: 4px 0 6px; }
+  #detail .tab { padding: 1px 8px; border: 1px solid #2c3444; border-radius: 4px; color: #8893a7; cursor: pointer; }
+  #detail .tab.active { color: #0e1117; background: #9fd0ff; border-color: #9fd0ff; }
+  #detail .odd { font-size: 12px; }
+  #detail .tnode { white-space: nowrap; display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+  #detail .tnode.chosen { color: #ffd479; }
+  #detail .tnode .sc { color: #6b768a; }
+  #detail .tcaret { cursor: pointer; color: #9fd0ff; }
+  #detail .role { color: #6b768a; }
 </style>
 </head>
 <body>
@@ -747,7 +756,8 @@ scene.add(selRing);
 
 const raycaster = new THREE.Raycaster();
 const ptr = new THREE.Vector2();
-let selectedId = -1, inspectTimer = null, downX = 0, downY = 0;
+let selectedId = -1, selectedBuildingI = -1, inspectTimer = null, downX = 0, downY = 0;
+let agentTab = 'status', lastAgentDetail = null, oddCollapsed = new Set();
 
 // Distinguish a click from an orbit-drag: only pick if the pointer barely moved.
 renderer.domElement.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY; });
@@ -756,24 +766,44 @@ renderer.domElement.addEventListener('pointerup', e => {
   ptr.x = (e.clientX / innerWidth) * 2 - 1;
   ptr.y = -(e.clientY / innerHeight) * 2 + 1;
   raycaster.setFromCamera(ptr, camera);
-  const hit = raycaster.intersectObjects(agents.children, false)[0];
-  if (hit && hit.object.userData.id != null) selectAgent(hit.object.userData.id);
-  else deselect();
+  const hitA = raycaster.intersectObjects(agents.children, false)[0];
+  if (hitA && hitA.object.userData.id != null) { selectAgent(hitA.object.userData.id); return; }
+  // No agent under the cursor: try a building. Recurse — region tiles are nested groups.
+  const hitB = raycaster.intersectObjects(town.children, true)[0];
+  if (hitB) { pickBuilding(hitB.point.x, hitB.point.z); return; }
+  deselect();
 });
 addEventListener('keydown', e => { if (e.code === 'Escape') deselect(); });
 
+function send(o) { if (agentWs && agentWs.readyState === 1) agentWs.send(JSON.stringify(o)); }
+
+// Drop whatever is currently selected (agent or building) and stop watching.
+function clearSelection() {
+  if (selectedId >= 0) send({ type: 'watch', id: null });
+  selectedId = -1; selectedBuildingI = -1; lastAgentDetail = null; oddCollapsed.clear();
+  clearInterval(inspectTimer); inspectTimer = null;
+  selRing.visible = false;
+}
+function deselect() { clearSelection(); ui('detail').style.display = 'none'; }
+
 function selectAgent(id) {
-  selectedId = id;
+  if (selectedId === id) return;
+  clearSelection();
+  selectedId = id; agentTab = 'status';
   ui('detail').style.display = 'block';
   ui('detail').innerHTML = `<div class="dh">#${id}…</div>`;
-  const ask = () => { if (agentWs && agentWs.readyState === 1) agentWs.send(JSON.stringify({ type: 'inspect', id })); };
+  send({ type: 'watch', id });                       // start ODD snapshotting this agent
+  const ask = () => send({ type: 'inspect', id });
   ask();
-  clearInterval(inspectTimer);
-  inspectTimer = setInterval(ask, 1000);   // keep the panel live while selected
+  inspectTimer = setInterval(ask, 1000);             // keep the panel live while selected
 }
-function deselect() {
-  selectedId = -1; clearInterval(inspectTimer); inspectTimer = null;
-  ui('detail').style.display = 'none'; selRing.visible = false;
+
+function pickBuilding(x, z) {
+  clearSelection();
+  selectedBuildingI = -2;                            // pending (any non -1 marks "building mode")
+  ui('detail').style.display = 'block';
+  ui('detail').innerHTML = `<div class="dh">building…</div>`;
+  send({ type: 'pickBuilding', x, z });
 }
 
 // Server needs.V axes, in order (NeedsRegistry.NeedAxis); each is a deficit 0..1.
@@ -781,24 +811,103 @@ const NEED_LABELS = ['hunger', 'tiredness', 'loneliness', 'poverty', 'goods', 'f
 function renderDetail(d) {
   if (!d || d.id !== selectedId) return;   // stale (deselected or reselected since the ask)
   if (d.busy) return;                      // transient registry contention — keep last render
-  if (d.missing) { ui('detail').innerHTML = `<div class="dh"><span class="dx">×</span>#${d.id}</div><div class="dim">no longer here</div>`; wireClose(); return; }
+  lastAgentDetail = d;
+  renderAgentPanel();
+}
+
+function renderAgentPanel() {
+  const d = lastAgentDetail; if (!d) return;
+  if (d.missing) {
+    ui('detail').innerHTML = `<div class="dh"><span class="dx">×</span>#${d.id}</div><div class="dim">no longer here</div>`;
+    wireAgent(); return;
+  }
   let h = `<div class="dh"><span class="dx">×</span>#${d.id} ${d.name ?? ''}</div>`
-    + `<div class="dim">${d.kind} · ${d.race} · lvl ${d.level}</div>`
-    + `<div class="dim">activity: ${d.activity} (${d.phase})</div>`
-    + `<div class="dim">coin: ${(d.coin ?? 0).toFixed(2)}</div>`
-    + (d.spouse >= 0 ? `<div class="dim">spouse: <span class="dlink" data-id="${d.spouse}">#${d.spouse}</span></div>` : '');
-  if (Array.isArray(d.needs)) {
-    h += `<div class="ndh">needs</div>`;
-    for (let i = 0; i < NEED_LABELS.length; i++) h += needBar(NEED_LABELS[i], d.needs[i]);
+    + `<div class="tabs"><span class="tab ${agentTab === 'status' ? 'active' : ''}" data-tab="status">status</span>`
+    + `<span class="tab ${agentTab === 'odd' ? 'active' : ''}" data-tab="odd">ODD</span></div>`;
+  if (agentTab === 'status') {
+    h += `<div class="dim">${d.kind} · ${d.race} · lvl ${d.level}</div>`
+      + `<div class="dim">activity: ${d.activity} (${d.phase})</div>`
+      + `<div class="dim">coin: ${(d.coin ?? 0).toFixed(2)}</div>`
+      + (d.spouse >= 0 ? `<div class="dim">spouse: <span class="dlink" data-id="${d.spouse}">#${d.spouse}</span></div>` : '');
+    if (Array.isArray(d.needs)) {
+      h += `<div class="ndh">needs</div>`;
+      for (let i = 0; i < NEED_LABELS.length; i++) h += needBar(NEED_LABELS[i], d.needs[i]);
+    }
+  } else {
+    h += renderOdd(d.odd);
   }
   ui('detail').innerHTML = h;
-  wireClose();
+  wireAgent();
 }
-function wireClose() {
-  const x = ui('detail').querySelector('.dx');
-  if (x) x.onclick = deselect;
-  const sp = ui('detail').querySelector('.dlink');   // jump to the spouse
-  if (sp) sp.onclick = () => selectAgent(Number(sp.dataset.id));
+
+// Reconstruct the tree from the flat nodes[] via parent links. Node 0 is the root
+// sentinel; its children are the root-level actions. Children sort by Total desc.
+function renderOdd(odd) {
+  if (!odd || !Array.isArray(odd.nodes) || odd.nodes.length < 2)
+    return `<div class="dim">no decision captured yet…</div>`;
+  const kids = {};
+  odd.nodes.forEach((n, i) => { if (i === 0) return; (kids[n.parent] ||= []).push(i); });
+  let out = `<div class="dim">decided ${odd.ts ?? '—'}</div><div class="odd">`;
+  const walk = (idx, depth) => {
+    const cs = (kids[idx] || []).slice().sort((a, b) => odd.nodes[b].total - odd.nodes[a].total);
+    for (const ci of cs) {
+      const n = odd.nodes[ci];
+      const hasKids = !!kids[ci];
+      const collapsed = oddCollapsed.has(ci);
+      const caret = hasKids ? `<span class="tcaret" data-idx="${ci}">${collapsed ? '▸' : '▾'}</span> ` : '• ';
+      const mark = ci === odd.chosen ? ' ◄' : '';
+      out += `<div class="tnode${ci === odd.chosen ? ' chosen' : ''}" style="padding-left:${depth * 12}px">`
+        + `<span>${caret}${n.verb}${mark}</span>`
+        + `<span class="sc">${n.direct.toFixed(2)} / ${n.prop.toFixed(2)} / <b>${n.total.toFixed(2)}</b></span>`
+        + `</div>`;
+      if (hasKids && !collapsed) walk(ci, depth + 1);
+    }
+  };
+  walk(0, 0);
+  return out + `</div>`;
+}
+
+function renderBuilding(b) {
+  if (selectedBuildingI === -1) return;   // deselected since the request
+  if (b.busy) return;
+  selectedBuildingI = b.i ?? -2;
+  if (b.missing) {
+    ui('detail').innerHTML = `<div class="dh"><span class="dx">×</span>building</div><div class="dim">none here</div>`;
+    wireBuilding(); return;
+  }
+  let h = `<div class="dh"><span class="dx">×</span>${b.name ?? b.kind}</div>`
+    + `<div class="dim">${b.kind}${b.production ? ' · ' + b.production : ''} · q${b.quality}</div>`;
+  if (b.settlement)
+    h += `<div class="dim">${b.settlement.name} (${b.settlement.kind}) · pop ${b.settlement.residents} · treasury ${Math.round(b.settlement.treasury)}</div>`;
+  if (Array.isArray(b.residents) && b.residents.length) {
+    h += `<div class="ndh">residents</div>`;
+    for (const r of b.residents)
+      h += `<div class="dim">• <span class="dlink" data-id="${r.id}">${r.name ?? '#' + r.id}</span> <span class="role">${r.role}</span></div>`;
+  }
+  if (Array.isArray(b.workers) && b.workers.length) {
+    h += `<div class="ndh">workers</div>`;
+    for (const w of b.workers)
+      h += `<div class="dim">• <span class="dlink" data-id="${w.id}">${w.name ?? '#' + w.id}</span></div>`;
+  }
+  ui('detail').innerHTML = h;
+  wireBuilding();
+}
+
+function wireAgent() {
+  const p = ui('detail');
+  const x = p.querySelector('.dx'); if (x) x.onclick = deselect;
+  p.querySelectorAll('.tab').forEach(t => t.onclick = () => { agentTab = t.dataset.tab; renderAgentPanel(); });
+  p.querySelectorAll('.dlink').forEach(el => el.onclick = () => selectAgent(Number(el.dataset.id)));
+  p.querySelectorAll('.tcaret').forEach(el => el.onclick = () => {
+    const i = Number(el.dataset.idx);
+    if (oddCollapsed.has(i)) oddCollapsed.delete(i); else oddCollapsed.add(i);
+    renderAgentPanel();
+  });
+}
+function wireBuilding() {
+  const p = ui('detail');
+  const x = p.querySelector('.dx'); if (x) x.onclick = deselect;
+  p.querySelectorAll('.dlink').forEach(el => el.onclick = () => selectAgent(Number(el.dataset.id)));
 }
 function needBar(label, v) {
   v = Math.max(0, Math.min(1, v || 0));   // deficit 0..1 (drift can exceed 1; clamp the bar)
@@ -904,6 +1013,7 @@ function connectAgents() {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'snap') onSnap(msg);        // ignore the 'world' frame; we have /asset/town
     else if (msg.type === 'detail') renderDetail(msg.detail);
+    else if (msg.type === 'building') renderBuilding(msg.building);
   };
   agentWs.onclose = () => { stat('agents: stream closed, retrying…'); setTimeout(connectAgents, 1000); };
 }
