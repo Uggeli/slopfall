@@ -92,6 +92,19 @@ namespace DaggerfallWorkshop.Sim.Memory
             }
         }
 
+        /// <summary>
+        /// One full consolidation pass over an agent's record store: RE-DIFF (shed what the facts
+        /// now cover) → MINT (compress clustered novelty into new facts) → DECAY (erode by strength,
+        /// surprising records resisting). The composition is why confirming episodes dissolve
+        /// fastest (their bags re-diff empty, then decay) while a surprising memory stays vivid.
+        /// </summary>
+        public static void Pass(MemoryStore store, MeaningsStore meanings, in ConsolidationConfig cfg)
+        {
+            ReDiff(store, meanings);
+            Mint(store, meanings, cfg);
+            store.Decay(cfg.DecayNormalRate, cfg.DecaySurpriseRate);
+        }
+
         static List<MemoryRecord> Snapshot(MemoryStore store)
         {
             List<MemoryRecord> list = new List<MemoryRecord>(store.Count);
