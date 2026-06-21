@@ -46,6 +46,17 @@ namespace DaggerfallWorkshop.Sim.Memory
             return true;
         }
 
+        /// <summary>Remove the record with this key (preserving key order). Returns false if absent.</summary>
+        public bool Remove(MemoryKey key)
+        {
+            int idx = IndexOf(key);
+            if (idx < 0) return false;
+            System.Array.Copy(_records, idx + 1, _records, idx, _count - idx - 1);
+            _count--;
+            _records[_count] = default(MemoryRecord);
+            return true;
+        }
+
         /// <summary>
         /// Insert or replace a record. If the key already exists it is replaced in place
         /// (absolute insert — Encode wins). A new key inserts in sorted position while there is
