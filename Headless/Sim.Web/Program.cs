@@ -407,6 +407,13 @@ app.Map("/ws", async context =>
                         new { type = "building", building = InspectBuilding(bProp.GetInt32()) }, jsonOptions));
                     break;
 
+                case "pickBuilding"
+                    when doc.RootElement.TryGetProperty("x", out var pbx)
+                      && doc.RootElement.TryGetProperty("z", out var pbz):
+                    await Send(JsonSerializer.SerializeToUtf8Bytes(
+                        new { type = "building", building = PickBuilding(pbx.GetDouble(), pbz.GetDouble()) }, jsonOptions));
+                    break;
+
                 // Camera ring (region mode): filter agent snapshots to the pixels the
                 // client's viewport covers, so a region doesn't stream every settlement's
                 // agents at once. The pump reads viewMx/viewMy/viewR on its next frame.
@@ -594,17 +601,100 @@ object InspectBuilding(int i)
         try
         {
             if (!world.Buildings.TryGet(i, out var b)) return new { i, missing = true };
+
+            // Residents (and surnames for the building's display name) in one scan.
+            var residents = new List<object>();
+            string keeperSurname = null, anySurname = null;
+            foreach (var kv in world.Residency.All)
+            {
+                if (kv.Value == null || kv.Value.BuildingIndex != i) continue;
+                string rname = world.Identity.TryGet(kv.Key, out var rid) ? rid.Name : null;
+                residents.Add(new { id = kv.Key.Value, name = rname, role = kv.Value.Role.ToString() });
+                if (world.Lineage.TryGet(kv.Key, out var lin) && lin != null && !string.IsNullOrEmpty(lin.Surname))
+                {
+                    if (kv.Value.Role == ResidentRole.Keeper && keeperSurname == null) keeperSurname = lin.Surname;
+                    if (anySurname == null) anySurname = lin.Surname;
+                }
+            }
+
+            // Workers: employees whose employer's residency points at this building.
+            var workers = new List<object>();
+            foreach (var kv in world.Employment.All)
+            {
+                var emp = kv.Value;
+                if (emp == null || emp.Employer.IsNone) continue;
+                if (world.Residency.TryGet(emp.Employer, out var er) && er != null && er.BuildingIndex == i)
+                    workers.Add(new { id = kv.Key.Value, name = world.Identity.TryGet(kv.Key, out var wid) ? wid.Name : null });
+            }
+
+            // Settlement membership (the loader tags each building to one settlement).
+            object settlement = null;
+            foreach (var s in world.Settlements.All)
+                if (s.Buildings.Contains(i))
+                {
+                    settlement = new
+                    {
+                        name = s.Name,
+                        kind = s.Kind.ToString(),
+                        residents = s.Residents.Count,
+                        treasury = world.Treasury.Get(s.Treasury),
+                    };
+                    break;
+                }
+
+            string kindLabel = b.Kind.ToString();
+            bool isHome = (b.Kind >= BuildingKind.House1 && b.Kind <= BuildingKind.House6)
+                          || b.Kind == BuildingKind.HouseForSale;
+            string name = keeperSurname != null ? $"{keeperSurname}'s {kindLabel}"
+                        : (isHome && anySurname != null) ? $"{anySurname} residence"
+                        : kindLabel;
+            string production = b.Kind switch
+            {
+                BuildingKind.Farm => "provisions",
+                BuildingKind.Fishery => "fish",
+                BuildingKind.Mine => "ore",
+                BuildingKind.Pasture => "wool",
+                BuildingKind.Weaver => "cloth",
+                BuildingKind.ClothingStore => "attire",
+                _ => null,
+            };
+
             return new
             {
-                i,
-                kind = b.Kind.ToString(),
-                quality = b.Quality,
-                faction = b.FactionId,
-                x = b.X,
-                z = b.Z,
+                i, kind = kindLabel, quality = b.Quality, faction = b.FactionId,
+                x = b.X, z = b.Z, name, production, residents, workers, settlement,
             };
         }
         catch (InvalidOperationException) { Thread.Sleep(2); }
     }
     return new { i, busy = true };
+}
+
+// Resolve a clicked world point to the nearest building, then return its detail.
+// Region mode places building meshes (and agents) in geo-remapped world space, so
+// remap each building's town-local origin before comparing; town mode compares raw.
+object PickBuilding(double x, double z)
+{
+    for (int attempt = 0; attempt < 3; attempt++)
+    {
+        try
+        {
+            int bestI = -1; double best = double.MaxValue;
+            foreach (var kv in world.Buildings.All)
+            {
+                double bx = kv.Value.X, bz = kv.Value.Z;
+                if (wholeRegion)
+                {
+                    var (gx, _, gz) = world.Geography.GeoRemap(kv.Value.X, kv.Value.Z);
+                    bx = gx; bz = gz;
+                }
+                double dx = bx - x, dz = bz - z, d2 = dx * dx + dz * dz;
+                if (d2 < best) { best = d2; bestI = kv.Key; }
+            }
+            if (bestI < 0) return new { missing = true };
+            return InspectBuilding(bestI);
+        }
+        catch (InvalidOperationException) { Thread.Sleep(2); }
+    }
+    return new { busy = true };
 }
