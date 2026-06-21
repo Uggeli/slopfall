@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <Compile Include="../../Assets/Sim/Core/**/*.cs" />
+    <Compile Include="../../Assets/Sim/Memory/**/*.cs" />
     <Compile Include="../../Assets/Sim/Engine/**/*.cs" />
     <Compile Include="../../Assets/Sim/Events/**/*.cs" />
     <Compile Include="../../Assets/Sim/Registries/**/*.cs" />
