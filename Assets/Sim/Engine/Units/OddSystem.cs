@@ -220,6 +220,9 @@ namespace DaggerfallWorkshop.Sim.Engine
             int winner = OddTree.Traverse(buffer, n);
             if (SnapshotEnabled && (n > roots.Count + 1 || !Snapshots.ContainsKey(id)))
                 Snapshots[id] = FormatTree(buffer, n, verbs);
+            if (SnapshotWatch.ContainsKey(id))
+                StructuredSnapshots[id] = BuildSnapshot(
+                    buffer, n, verbs, _worldClock.Current.Hour, _worldClock.Current.Minute);
 
             bool any = winner >= 0;
             Ad best = any ? verbAd[winner] : default;
@@ -483,6 +486,43 @@ namespace DaggerfallWorkshop.Sim.Engine
         public static readonly System.Collections.Concurrent.ConcurrentDictionary<EntityId, string> Snapshots
             = new System.Collections.Concurrent.ConcurrentDictionary<EntityId, string>();
 
+        // --- Structured decision snapshot for the live viewer (observability). ---
+        // Watched ids are set by the web layer; only watched agents pay the capture cost.
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<EntityId, byte> SnapshotWatch
+            = new System.Collections.Concurrent.ConcurrentDictionary<EntityId, byte>();
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<EntityId, OddSnapshotData> StructuredSnapshots
+            = new System.Collections.Concurrent.ConcurrentDictionary<EntityId, OddSnapshotData>();
+
+        /// Project the BFS OddNode buffer into a flat, serializable snapshot. Node 0 is
+        /// the root sentinel (Verb=null). Chosen mirrors Traverse: the highest-Total
+        /// root child (first one wins ties), as a node index; -1 if the root has none.
+        public static OddSnapshotData BuildSnapshot(
+            OddNode[] buf, int n, IReadOnlyList<ActivityKind> verbs, int hour, int minute)
+        {
+            var nodes = new OddSnapNode[n];
+            for (int i = 0; i < n; i++)
+            {
+                var node = buf[i];
+                nodes[i] = new OddSnapNode
+                {
+                    Parent = node.ParentIndex,
+                    Verb = node.Action >= 0 ? verbs[node.Action].ToString() : null,
+                    Direct = node.DirectScore,
+                    Prop = node.PropagatedScore,
+                    Total = node.Total,
+                    Terminal = node.IsTerminal,
+                };
+            }
+            int chosen = -1;
+            if (n > 1 && buf[0].ChildStart <= buf[0].ChildEnd)
+            {
+                chosen = buf[0].ChildStart;
+                for (int c = buf[0].ChildStart + 1; c <= buf[0].ChildEnd; c++)
+                    if (buf[c].Total > buf[chosen].Total) chosen = c;
+            }
+            return new OddSnapshotData { Hour = hour, Minute = minute, Chosen = chosen, Nodes = nodes };
+        }
+
         static string FormatTree(OddNode[] buf, int n, List<ActivityKind> verbs)
         {
             var sb = new System.Text.StringBuilder();
@@ -727,5 +767,25 @@ namespace DaggerfallWorkshop.Sim.Engine
         }
 
         static double Hash01(int idValue, long tick) => Hash(idValue, tick) / (double)uint.MaxValue;
+    }
+
+    /// One node of a serialized ODD decision tree (see OddSystem.BuildSnapshot).
+    public struct OddSnapNode
+    {
+        public int Parent;     // index into the snapshot's Nodes array; -1 only for node 0
+        public string Verb;    // ActivityKind name; null for the root sentinel
+        public double Direct;
+        public double Prop;
+        public double Total;
+        public bool Terminal;
+    }
+
+    /// A captured ODD decision tree for one agent at one decision instant.
+    public sealed class OddSnapshotData
+    {
+        public int Hour;
+        public int Minute;
+        public int Chosen;        // index into Nodes of the chosen root action; -1 = none
+        public OddSnapNode[] Nodes;
     }
 }
