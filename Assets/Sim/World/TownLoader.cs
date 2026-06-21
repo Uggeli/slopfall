@@ -2,6 +2,7 @@ using System;
 using DaggerfallConnect;
 using DaggerfallConnect.Arena2;
 using DaggerfallWorkshop.Sim.Engine;
+using DaggerfallWorkshop.Sim.Memory;
 
 namespace DaggerfallWorkshop.Sim
 {
@@ -533,6 +534,11 @@ namespace DaggerfallWorkshop.Sim
                 FactionId = row.FactionId,
                 Team = 0,
             });
+
+            // Perceivable surface (identity atoms): kind, race, role — stamped once at spawn.
+            world.Perceivable.Seed(id, PerceivableAtoms.Kind(EntityKind.CivilianNPC), Fixed.One);
+            if (race >= 0) world.Perceivable.Seed(id, PerceivableAtoms.Race(race), Fixed.One);
+            world.Perceivable.Seed(id, PerceivableAtoms.Role(role), Fixed.One);
 
             world.Lineage.Seed(id, new LineageData { FamilyId = familyId, Surname = surname });
 

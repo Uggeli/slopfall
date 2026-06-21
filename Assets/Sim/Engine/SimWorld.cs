@@ -60,6 +60,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         public readonly SocialCooldownRegistry SocialCooldown;
         public readonly RequestCooldownRegistry RequestCooldown;
         public readonly EarningsRegistry Earnings;
+        public readonly PerceivableRegistry Perceivable;
 
         // --- diagnostic systems (read-only; exposed for soak reporting) ---
         public MetricsSystem Metrics;
@@ -89,6 +90,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             PlaceMemory = new PlaceMemoryRegistry(e); Creatures = new CreatureRegistry(e);
             Path = new PathRegistry(e); SocialCooldown = new SocialCooldownRegistry(e);
             RequestCooldown = new RequestCooldownRegistry(e); Earnings = new EarningsRegistry(e);
+            Perceivable = new PerceivableRegistry(e);
 
             var registries = new Registry[]
             {
@@ -97,7 +99,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 Personality, Stats, Effects, EffectAggregate, StatusFlags, Progression, Employment,
                 Residency, Affects, Meanings, Relations, Memory, Conscience, Lineage, Subjective, Sensed,
                 Coin, Stock, Larder, Treasury, Items, ItemTake, PlaceMemory, Creatures, Path,
-                SocialCooldown, RequestCooldown, Earnings,
+                SocialCooldown, RequestCooldown, Earnings, Perceivable,
             };
 
             var systems = new SimSystem[]
