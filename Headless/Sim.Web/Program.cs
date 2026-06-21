@@ -334,6 +334,9 @@ app.Map("/ws", async context =>
     // send all agents (back-compat, and town mode never sends a view).
     int viewMx = -1, viewMy = -1, viewR = 0;
 
+    // ODD snapshot: the single agent this connection is watching (-1 = none).
+    int watchedId = -1;
+
     // Snapshot pump: ~5 Hz is plenty for a spectator page.
     var pump = Task.Run(async () =>
     {
@@ -418,10 +421,32 @@ app.Map("/ws", async context =>
                 case "speed" when doc.RootElement.TryGetProperty("scale", out var sProp):
                     runner.SetTickRate((int)sProp.GetDouble());   // ticks/sec; -1 = unlimited
                     break;
+
+                case "watch":
+                    // Stop watching whatever this connection watched before.
+                    if (watchedId >= 0)
+                    {
+                        OddSystem.SnapshotWatch.TryRemove(new EntityId(watchedId), out _);
+                        OddSystem.StructuredSnapshots.TryRemove(new EntityId(watchedId), out _);
+                        watchedId = -1;
+                    }
+                    if (doc.RootElement.TryGetProperty("id", out var widProp)
+                        && widProp.ValueKind == JsonValueKind.Number)
+                    {
+                        watchedId = widProp.GetInt32();
+                        OddSystem.SnapshotWatch[new EntityId(watchedId)] = 1;
+                    }
+                    break;
             }
         }
     }
     catch (WebSocketException) { /* client went away mid-frame */ }
+
+    if (watchedId >= 0)
+    {
+        OddSystem.SnapshotWatch.TryRemove(new EntityId(watchedId), out _);
+        OddSystem.StructuredSnapshots.TryRemove(new EntityId(watchedId), out _);
+    }
 
     try { await pump; } catch { /* pump dies with the socket */ }
 });
@@ -522,6 +547,18 @@ object InspectEntity(EntityId id)
             world.Coin.TryGet(id, out var coin);
             world.Position.TryGet(id, out var pos);
             world.Lineage.TryGet(id, out var lin);
+            object odd = null;
+            if (OddSystem.StructuredSnapshots.TryGetValue(id, out var snap) && snap.Nodes != null)
+                odd = new
+                {
+                    ts = $"{snap.Hour:00}:{snap.Minute:00}",
+                    chosen = snap.Chosen,
+                    nodes = snap.Nodes.Select(nd => new
+                    {
+                        parent = nd.Parent, verb = nd.Verb, direct = nd.Direct,
+                        prop = nd.Prop, total = nd.Total, terminal = nd.Terminal,
+                    }),
+                };
             return new
             {
                 id = id.Value,
@@ -542,6 +579,7 @@ object InspectEntity(EntityId id)
                 spouse = lin != null && lin.Spouse != EntityId.None ? lin.Spouse.Value : -1,
                 x = pos != null ? pos.X : 0f,
                 z = pos != null ? pos.Z : 0f,
+                odd = odd,
             };
         }
         catch (InvalidOperationException) { Thread.Sleep(2); }
