@@ -39,6 +39,59 @@ namespace DaggerfallWorkshop.Sim.Memory
             }
         }
 
+        /// <summary>
+        /// MINT: cluster the store's novel records by deltaBag proximity; a cluster with enough
+        /// support mints a new category from the members' variance-gated intersection (their shared
+        /// stable atoms) and re-keys each member to it, re-diffing away the now-predicted shared
+        /// atoms. Novelty stops being verbatim. Clusters too small, or with no stable intersection,
+        /// are left novel.
+        /// </summary>
+        public static void Mint(MemoryStore store, MeaningsStore meanings, in ConsolidationConfig cfg)
+        {
+            List<MemoryRecord> novel = new List<MemoryRecord>();
+            for (int i = 0; i < store.Count; i++)
+                if (store[i].IsNovel) novel.Add(store[i]);
+            if (novel.Count == 0) return;
+
+            // Greedy clustering: each record joins the first cluster whose seed is within threshold.
+            List<List<MemoryRecord>> clusters = new List<List<MemoryRecord>>();
+            for (int i = 0; i < novel.Count; i++)
+            {
+                bool placed = false;
+                for (int c = 0; c < clusters.Count; c++)
+                {
+                    if (MeaningsStore.SignatureDistance(novel[i].DeltaBag, clusters[c][0].DeltaBag) <= cfg.ClusterThresholdRaw)
+                    {
+                        clusters[c].Add(novel[i]); placed = true; break;
+                    }
+                }
+                if (!placed) { List<MemoryRecord> nc = new List<MemoryRecord>(); nc.Add(novel[i]); clusters.Add(nc); }
+            }
+
+            for (int c = 0; c < clusters.Count; c++)
+            {
+                List<MemoryRecord> members = clusters[c];
+                if (members.Count < cfg.MinClusterSupport) continue;
+
+                // Prototype = the cluster's variance-gated intersection (its shared stable atoms).
+                PredictedStats stats = new PredictedStats();
+                for (int k = 0; k < members.Count; k++) stats.Fold(members[k].DeltaBag);
+                AtomBag prototype = stats.Prediction(meanings.Config.VarianceThresholdRaw, meanings.Config.MinPredictCount);
+                if (prototype.Count == 0) continue;                 // no stable shared core — leave novel
+                if (meanings.Count >= meanings.Capacity) continue;  // no room to mint
+
+                CategoryId catId = meanings.AddNode(prototype, Fixed.Zero, new Fixed(cfg.MintConfidenceRaw), false);
+                for (int k = 0; k < members.Count; k++) meanings.Fold(catId, members[k].DeltaBag);
+
+                for (int k = 0; k < members.Count; k++)
+                {
+                    MemoryRecord m = members[k];
+                    AtomBag newDelta = AtomBag.Diff(m.DeltaBag, prototype);
+                    store.Encode(new MemoryRecord(m.Key, catId, newDelta, m.Strength, m.WrittenAt, m.LastRefresh, m.Flags));
+                }
+            }
+        }
+
         static List<MemoryRecord> Snapshot(MemoryStore store)
         {
             List<MemoryRecord> list = new List<MemoryRecord>(store.Count);
