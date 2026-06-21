@@ -77,6 +77,20 @@ namespace DaggerfallWorkshop.Sim.Memory
         }
 
         /// <summary>
+        /// The ungated StatFold: fold a recognized percept into the node's running statistics
+        /// only — no valence/confidence change. Emitted on every recognition (consolidation step
+        /// 0), so the predictions converge to the typical even though the encode gate stores only
+        /// the exceptions. Returns false if the id is absent.
+        /// </summary>
+        public bool Fold(CategoryId id, AtomBag percept)
+        {
+            CategoryNode node;
+            if (!TryGetNode(id, out node)) return false;
+            node.Predicted.Fold(percept);
+            return true;
+        }
+
+        /// <summary>
         /// StatFold + valence/confidence update for one category. Folds the percept into the
         /// node's running stats, nudges valence toward the outcome (with a ±1 raw floor so it
         /// converges), and raises confidence on a confirming outcome / lowers it on a
