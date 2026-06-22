@@ -27,13 +27,19 @@ namespace DaggerfallWorkshop.Sim.Engine
 
     /// A live serviced-affordance instance. The ServiceQueue protocol: ordered
     /// Waiters, up to Capacity in Served at once.
+    /// External assemblies (e.g. Sim.Web) see only the read-only views below;
+    /// the registry mutates the internal lists in Update.
     public sealed class SharedActivityInstance
     {
         public QueueAnchor Anchor;
         public int Capacity;
         public float AnchorX, AnchorZ;
-        public readonly List<EntityId> Waiters = new List<EntityId>();
-        public readonly List<EntityId> Served = new List<EntityId>();
+        // Internal so only the registry (same assembly) can mutate them.
+        internal readonly List<EntityId> Waiters = new List<EntityId>();
+        internal readonly List<EntityId> Served = new List<EntityId>();
+        // Public read-only views for consumers outside this assembly.
+        public IReadOnlyList<EntityId> WaitingAgents => Waiters;
+        public IReadOnlyList<EntityId> ServedAgents => Served;
     }
 
     /// Holds live shared-activity instances keyed by anchor. Apply order each tick:
@@ -46,8 +52,6 @@ namespace DaggerfallWorkshop.Sim.Engine
             new Dictionary<QueueAnchor, SharedActivityInstance>();
         readonly Dictionary<EntityId, QueueAnchor> _ofAgent =
             new Dictionary<EntityId, QueueAnchor>();
-        static readonly List<EntityId> NoAgents = new List<EntityId>();
-
         public SharedActivityRegistry(EventBus events) : base(events) { }
 
         public override void Update(long tick)
@@ -119,7 +123,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         {
             var all = new List<EntityId>();
             foreach (var inst in _byAnchor.Values) all.AddRange(inst.Served);
-            return all.Count == 0 ? NoAgents : all;
+            return all.Count == 0 ? System.Array.Empty<EntityId>() : all;
         }
     }
 }
