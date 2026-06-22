@@ -288,7 +288,33 @@ namespace DaggerfallWorkshop.Sim.Engine
             if (_shared.AnchorOf(id, out var heldAnchor))
             {
                 if (ShouldStayInQueue(true, heldAnchor.Building, bestKind, bestBuilding))
-                    return;                                  // keep your place; no new intent
+                {
+                    // Same shop + Buy still wins: stay in line. Re-commit the CURRENT
+                    // behaviour directly (BehaviorSetIntent, not IntentSetIntent, because
+                    // IntentSetIntent routes through ExecutionSystem which always produces
+                    // Phase=Doing/Moving — it cannot preserve Phase=Queued). The only change
+                    // is SinceDecisionGameMinutes = 0, resetting the decision clock so the
+                    // per-agent cap staggering is restored and this agent won't re-decide
+                    // again until the next cap (~48+ game-minutes from now).
+                    // Queue slot (TargetX/TargetZ) and all other state are copied from
+                    // `current`, which holds the slot as set by SharedActivitySystem.
+                    Events.Publish(new BehaviorSetIntent
+                    {
+                        Id = id,
+                        Data = new BehaviorData
+                        {
+                            Activity = current.Activity,
+                            Phase = ActivityPhase.Queued,
+                            TargetBuilding = current.TargetBuilding,
+                            TargetX = current.TargetX,
+                            TargetZ = current.TargetZ,
+                            RemainingGameMinutes = current.RemainingGameMinutes,
+                            SinceDecisionGameMinutes = 0,
+                            TargetItem = current.TargetItem,
+                        }
+                    });
+                    return;
+                }
                 Events.Publish(new QueueLeaveIntent { Agent = id });   // leave the line, fall through
             }
 
