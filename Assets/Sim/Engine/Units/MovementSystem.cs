@@ -28,6 +28,14 @@ namespace DaggerfallWorkshop.Sim.Engine
         const float ArriveDistance = 1.0f;          // meters
         const float ReplanDistance = 2.0f;          // target moved → new path
 
+        /// Moving and Queued agents both walk toward TargetX/Z (a waiter walks up its line).
+        public static bool PhaseMoves(ActivityPhase p)
+            => p == ActivityPhase.Moving || p == ActivityPhase.Queued;
+
+        /// Only a Moving agent's arrival flips into the activity / joins a queue; a waiter
+        /// reaching its slot must not re-trigger that.
+        public static bool PhaseArrives(ActivityPhase p) => p == ActivityPhase.Moving;
+
         readonly WorldClockRegistry _clock;
         readonly BehaviorRegistry _behavior;
         readonly PositionRegistry _position;
@@ -56,7 +64,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             foreach (var kv in _behavior.All)
             {
                 var behavior = kv.Value;
-                if (behavior.Phase != ActivityPhase.Moving) continue;
+                if (!PhaseMoves(behavior.Phase)) continue;
                 if (!_position.TryGet(kv.Key, out var pos)) continue;
 
                 var plan = EnsurePlan(kv.Key, grid, pos, behavior, scratch);
@@ -94,7 +102,8 @@ namespace DaggerfallWorkshop.Sim.Engine
                     || gx * gx + gz * gz <= ArriveDistance * ArriveDistance)
                 {
                     Events.Publish(new PathClearIntent { Id = kv.Key });
-                    Events.Publish(new ArrivedAtTargetEvent { Entity = kv.Key });
+                    if (PhaseArrives(behavior.Phase))
+                        Events.Publish(new ArrivedAtTargetEvent { Entity = kv.Key });
                 }
                 else
                 {
