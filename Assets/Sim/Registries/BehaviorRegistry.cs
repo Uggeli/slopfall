@@ -38,6 +38,7 @@ namespace DaggerfallWorkshop.Sim
     {
         Moving,      // walking toward TargetX/Z; MovementSystem drives Position
         Doing,       // at the spot; NeedsSystem applies the activity's deltas
+        Queued,      // arrived at a serviced affordance; holding for a turn. Appended for wire stability.
     }
 
     public sealed class BehaviorData
