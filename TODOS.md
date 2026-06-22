@@ -12,12 +12,7 @@ between that region's own towns) stay in scope. Items below tagged `[deferred: m
 out of the current single-region target.
 
 ## Build & infra
-- [bug] Build is broken: `Sim.Net/Protocol.cs` missing `RenderSnapshot` type. Blocks most of the
-  test suite (only 1 of 218 tests runs).
-- [partial] Tests: the suite is actually substantive (determinism, ODD scoring, industry chains,
-  subsistence, social) — not "meaningless happy cases". Real work is (a) fix the build break above,
-  then (b) audit for stale assumptions left by the render-client timestep refactor. Sim.SpatialTests
-  runs; Sim.Tests is gated by the build break.
+- [infra] Sim.Tests deleted (2026-06-22): stale since the CQRS rewrite (f385dd848 removed the old serial core). Sources remain in git history; a CQRS test-port is a future option when the new execution path stabilises. Live coverage: Sim.MemoryTests (184) + Sim.SpatialTests (13).
 
 ## Spatial layer (root of several listed bugs)
 - [absent] Work-spot / location-resolution registry. Jobs target the *employer building center*, so
