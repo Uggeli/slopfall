@@ -2,7 +2,7 @@
 // Owns: WebSocket connect/reconnect, Frame decode, the snapshot double-buffer, and
 // interpolation timing (alpha). It must NOT reference OrbitControls, the observer
 // camera, the inspector, or any HUD DOM — app-side reactions come back via callbacks.
-// Browser globals (WebSocket, location) are used ONLY inside connect(), so this module
+// Browser globals (WebSocket, location, performance) are used ONLY inside connect(), so this module
 // imports cleanly in Node for unit tests.
 
 const SNAP_INTERVAL = 0.2; // fallback gap (s); the web pump publishes ~5 Hz
@@ -41,6 +41,7 @@ export function createNet({ onSnapshot, onDetail, onBuilding, onStatus, onOpen }
       if (msg.type === 'snap') { ingest(msg, performance.now() / 1000); onSnapshot && onSnapshot(msg); }
       else if (msg.type === 'detail') onDetail && onDetail(msg.detail);
       else if (msg.type === 'building') onBuilding && onBuilding(msg.building);
+      // other frame types (e.g. the initial 'world' frame) are intentionally ignored — town geometry comes from /asset/town
     };
     ws.onclose = () => { onStatus && onStatus('agents: stream closed, retrying…'); setTimeout(connect, 1000); };
   }
