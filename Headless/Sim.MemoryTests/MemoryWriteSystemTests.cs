@@ -50,9 +50,11 @@ namespace Sim.MemoryTests
             var p = emitted[0];
             Assert.Equal(agent, p.Perceiver);
             Assert.Equal(seen, p.Perceived);
-            // signature = identity atoms only (no activity); percept = full bag
+            // v1 THINGS = identity dossiers: BOTH signature and percept are identity-only (no
+            // activity) so categories form on identity and recognition matches. Activity -> EVENTS (deferred).
             Assert.DoesNotContain(p.Signature.Atoms, a => a.Type.Value >= PerceivableAtoms.ActivityBase);
-            Assert.Contains(p.Percept.Atoms, a => a.Type.Value >= PerceivableAtoms.ActivityBase);
+            Assert.DoesNotContain(p.Percept.Atoms, a => a.Type.Value >= PerceivableAtoms.ActivityBase);
+            Assert.Contains(p.Signature.Atoms, a => a.Type.Value == PerceivableAtoms.Kind(EntityKind.CivilianNPC).Value);
         }
 
         [Fact]

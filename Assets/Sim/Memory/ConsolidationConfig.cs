@@ -24,7 +24,8 @@ namespace DaggerfallWorkshop.Sim.Memory
         }
 
         // Scaffolding: decay 20/pass (5 for surprising); cluster within ~0.25 L1; 3-member support;
-        // minted nodes start at confidence ~0.25 (64/256).
-        public static readonly ConsolidationConfig Default = new ConsolidationConfig(20, 5, 64, 3, 64);
+        // minted nodes start at confidence 0 — confidence tracks LEARNED FEELING (raised only by
+        // Reinforce), so recognizing a kind alone never leans the Interpret valence-blend.
+        public static readonly ConsolidationConfig Default = new ConsolidationConfig(20, 5, 64, 3, 0);
     }
 }

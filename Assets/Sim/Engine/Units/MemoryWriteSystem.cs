@@ -33,12 +33,16 @@ namespace DaggerfallWorkshop.Sim.Engine
                 for (int i = 0; i < k; i++)
                 {
                     EntityId other = seen[i];
-                    AtomBag percept = _perceivable.Bag(other);
-                    if (percept.Count == 0) continue;          // not atomized (e.g. a monster in v1)
+                    // THINGS = entity dossiers, keyed on IDENTITY: categories must form on the
+                    // signature (kind/race/role), not identity+activity, or minted prototypes carry
+                    // the transient activity atom and recognition (by identity) never matches. The
+                    // activity (what they're DOING) belongs in EVENTS — deferred.
+                    AtomBag signature = _perceivable.Signature(other);
+                    if (signature.Count == 0) continue;        // no identity atoms (e.g. a monster in v1)
                     Events.Publish(new MemoryPerceiveIntent
                     {
                         Perceiver = agent, Perceived = other,
-                        Signature = _perceivable.Signature(other), Percept = percept, Arousal = Fixed.Zero,
+                        Signature = signature, Percept = signature, Arousal = Fixed.Zero,
                     });
                 }
             }
