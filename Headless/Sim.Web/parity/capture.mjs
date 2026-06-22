@@ -20,7 +20,7 @@ const outPath = outIdx >= 0 ? process.argv[outIdx + 1] : 'current.png';
 
 // 1. Boot Sim.Web; resolve when it prints its ready line.
 const server = spawn('dotnet',
-  ['run', '--project', 'Headless/Sim.Web', '--', REGION, LOCATION,
+  ['run', '--project', 'Headless/Sim.Web', '--', '--town', REGION, LOCATION,
    '--port', String(PORT), '--starthour', String(STARTHOUR)],
   { cwd: REPO_ROOT, env: { ...process.env, DAGGERFALL_ARENA2: ARENA2 } });
 

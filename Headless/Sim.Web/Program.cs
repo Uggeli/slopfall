@@ -8,14 +8,14 @@ using DaggerfallWorkshop.Sim.Web;
 using Sim.AssetExport;
 
 // Web spectator: pan over the living town/region in a browser (town3d.html) on the
-// parallel CQRS engine. Usage: dotnet run <region> <location> [--port 8080]
-//   [--tps 30] [--region] [--starthour H]
+// parallel CQRS engine. Usage: dotnet run [--port 8080] [--tps 30] [--starthour H]
+//   region-wide by default; --town <region> <location> for a single town (default Daggerfall/Gothway Garden)
 
 string region = null, location = null;
 int port = 8080;
 int tickRate = 10;          // engine ticks per real-second at startup; viewer overrides live
 const float ClockRunning = 1f;   // clock seed: any value >0 means "advancing" (no longer a rate)
-bool wholeRegion = false;   // --region: spectate every settlement at once, not one town
+bool wholeRegion = true;    // region-wide by default; --town opts into a single location
 int startHour = -1;         // --starthour H: boot the clock at hour H (else dawn)
 
 for (int i = 0; i < args.Length; i++)
@@ -25,6 +25,7 @@ for (int i = 0; i < args.Length; i++)
         case "--port": port = int.Parse(args[++i]); break;
         case "--tps": tickRate = int.Parse(args[++i]); break;
         case "--region": wholeRegion = true; break;
+        case "--town": wholeRegion = false; break;
         case "--starthour": startHour = int.Parse(args[++i]); break;
         default:
             if (region == null) region = args[i];
