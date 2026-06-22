@@ -1,0 +1,16 @@
+{
+  "name": "town3d-parity",
+  "private": true,
+  "type": "module",
+  "description": "Screenshot parity gate for the town3d web client (The Renderer milestone)",
+  "scripts": {
+    "spike": "node spike.mjs",
+    "baseline": "node capture.mjs --out baseline/gothway.png",
+    "parity": "node capture.mjs --out current.png && node compare.mjs baseline/gothway.png current.png"
+  },
+  "devDependencies": {
+    "playwright": "1.61.0",
+    "pngjs": "^7.0.0",
+    "pixelmatch": "^6.0.0"
+  }
+}
