@@ -30,6 +30,8 @@ namespace DaggerfallWorkshop.Sim
         Weave,       // textile-sector primary work (shear/weave) for an employer; serves Attire in-kind (the looms' self-reward) + earns a wage. Appended (not grouped with Farm/Fish/Mine) to keep enum ordinals wire-stable.
         Patrol,      // guard duty: hold/patrol the town gate by day (Object-Zero injected, Δ=0)
         StandWatch,  // guard duty: hold the town gate by night (Object-Zero injected, Δ=0)
+        Gossip,      // conversation activity (P3): bound social agents trade Inform turns from memory; spreads place facts by word of mouth. Appended to keep enum ordinals wire-stable.
+        Negotiate,   // RESERVED (P3): the Offer-act conversation (trade/haggle). No spec yet — placed so the ordinal is reserved.
     }
 
     public enum ActivityPhase

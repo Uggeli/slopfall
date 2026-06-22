@@ -18,6 +18,12 @@ namespace DaggerfallWorkshop.Sim
             /// the agent never has literally nothing worth doing.
             public double BaseUtility;
 
+            /// Loudness of the action ∈[0,1] — the single audibility knob the
+            /// hearing sense reads (P3). Whisper/Talk/Shout are the speech noise
+            /// tiers; ~0.4 is "talk-ish". Non-speech audibility (combat/forge loud,
+            /// sleep silent) is scaffolded here but DEFERRED — only speech reads it today.
+            public double NoiseLevel = 0.4;
+
             // --- Preconditions (hard yes/no; gate Collect in ActionDiscovery) ---
             public int OpenHour = 0, CloseHour = 24;    // active window [open, close)
             public bool KeeperOnly = false;
@@ -247,6 +253,25 @@ namespace DaggerfallWorkshop.Sim
             SaleUnits = 1, SalePrice = 0.8,   // ×20 (money-arc scale)
         };
 
+        /// Gossip (P3): a short social conversation in which bound co-located agents
+        /// trade known facts. Modelled on Socialize (Social-gated, relieves SocialDef)
+        /// but lighter — a quicker exchange with a tiny base so it competes with, never
+        /// dominates, the tavern gathering. While Doing, GossipSpeakSystem emits Inform
+        /// turns drawn from the speaker's place memory, so danger AND provisions knowledge
+        /// spread by word of mouth (mid NoiseLevel ≈ Talk → bystanders overhear).
+        public static readonly Spec Gossip = new Spec
+        {
+            Kind = ActivityKind.Gossip,
+            DurationMinutes = 20,
+            Delta = Deltas(socialDef: -0.2),
+            BaseUtility = 0.003,
+            OpenHour = 6, CloseHour = 23,
+            DistanceScale = 150,
+            NoiseLevel = 0.4,                 // talk-tier loudness — the eavesdrop window
+            Social = true, RelationSensitive = true,
+            Trait = TraitIndex.Sociability, TraitBias = 0.7, TraitScale = 0.6, TraitExp = 1.0,   // on the gate, like Socialize
+        };
+
         /// Growth drive (Atoms B-need): no setpoint, engaging is the reward, so
         /// the base carries the score and is scaled by the gate.
         public static readonly Spec Visit = new Spec
@@ -437,6 +462,7 @@ namespace DaggerfallWorkshop.Sim
                 case ActivityKind.EatHome:   return EatHome;
                 case ActivityKind.EatTavern: return EatTavern;
                 case ActivityKind.Socialize: return Socialize;
+                case ActivityKind.Gossip:    return Gossip;
                 case ActivityKind.Visit:     return Visit;
                 case ActivityKind.Buy:       return Buy;
                 case ActivityKind.Steal:     return Steal;

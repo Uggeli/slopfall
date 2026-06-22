@@ -22,7 +22,11 @@ namespace DaggerfallWorkshop.Sim
     public static class AffordanceCatalog
     {
         static readonly ActivityKind[] None = new ActivityKind[0];
-        static readonly ActivityKind[] TavernVerbs = { ActivityKind.EatTavern, ActivityKind.Socialize };
+        // Gossip rides beside Socialize at the tavern (P3): the same gathering place,
+        // generated the same way, so an agent who picks the social hall may instead
+        // choose the lighter chatting — and its Liveliness/RelationSensitive gates reward
+        // others being present (gossip wants an audience).
+        static readonly ActivityKind[] TavernVerbs = { ActivityKind.EatTavern, ActivityKind.Socialize, ActivityKind.Gossip };
         // Beg is offered at shops and temples — the alms-giving venues, where a
         // keeper with coin is present (L4). Taverns stay social halls. A poor
         // agent picks Beg only when poverty is loud; the comfortable score it ~0

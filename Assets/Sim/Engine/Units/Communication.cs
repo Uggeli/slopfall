@@ -9,6 +9,25 @@ namespace DaggerfallWorkshop.Sim.Engine
     /// <summary>The speech-act family — determines how reception routes the content (Searle).</summary>
     public enum SpeechAct { Inform, Request, Offer, Express }
 
+    /// <summary>Shared communication helpers — the channel↔noise unification (P3). A channel is just a
+    /// speech NOISE TIER; the hearing sense derives its audible radius from that noise level, so speech
+    /// and (later) any noisy action share one audibility model (spec decision 13).</summary>
+    public static class Communication
+    {
+        /// <summary>Loudness ∈[0,1] of a speech channel — the speech tiers of the general noise model.
+        /// Whisper barely carries; Shout fills the square. The tier values are chosen so HearingSystem's
+        /// NoiseToRadius reproduces the P1 effective radii (~3 / 8 / 25) — the danger soak isn't perturbed.</summary>
+        public static double NoiseOf(CommChannel ch)
+        {
+            switch (ch)
+            {
+                case CommChannel.Whisper: return 0.15;
+                case CommChannel.Shout:   return 0.85;
+                default:                  return 0.45;   // Talk — "talk-ish"
+            }
+        }
+    }
+
     /// <summary>One thing an agent says: a typed speech-act carrying an atom-bag payload on a channel.
     /// <see cref="Audience"/> is who the speaker AIMS at (None = undirected) — NOT a reach gate;
     /// reception is the hearing radius, so any agent in range overhears (eavesdrops).</summary>
@@ -36,8 +55,10 @@ namespace DaggerfallWorkshop.Sim.Engine
         readonly BehaviorRegistry _behavior;
         readonly PositionRegistry _position;
 
-        // Audible radii by channel (world units). Config — tuned later; P3 sources this from NoiseLevel.
-        const float WhisperRadius = 3f, TalkRadius = 8f, ShoutRadius = 25f;
+        // Noise→radius calibration (P3): radius = MinRadius·e^(Steepness·noise). Tuned so the speech
+        // tiers (Whisper 0.15, Talk 0.45, Shout 0.85; Communication.NoiseOf) reproduce the P1 effective
+        // radii ~3 / 8 / 25 — keeping P2's danger soak unperturbed while unifying audibility on NoiseLevel.
+        const float MinRadius = 1.905f, Steepness = 3.03f;
 
         public HearingSystem(EventBus events, BehaviorRegistry behavior, PositionRegistry position) : base(events)
         { _behavior = behavior; _position = position; }
@@ -62,14 +83,16 @@ namespace DaggerfallWorkshop.Sim.Engine
             }
         }
 
-        static float Radius(CommChannel ch)
+        /// <summary>An utterance's audible radius now derives from its channel's noise level — the
+        /// channel↔noise unification (P3). Non-speech noisy actions can later feed the same helper.</summary>
+        static float Radius(CommChannel ch) => NoiseToRadius(Communication.NoiseOf(ch));
+
+        /// <summary>Map a loudness ∈[0,1] to an audible radius (world units). Monotone in noise —
+        /// a louder source reaches farther. The single audibility curve for speech and (later) any sound.</summary>
+        public static float NoiseToRadius(double noise)
         {
-            switch (ch)
-            {
-                case CommChannel.Whisper: return WhisperRadius;
-                case CommChannel.Shout: return ShoutRadius;
-                default: return TalkRadius;
-            }
+            if (noise < 0) noise = 0; else if (noise > 1) noise = 1;
+            return (float)(MinRadius * System.Math.Exp(Steepness * noise));
         }
     }
 
