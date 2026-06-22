@@ -47,6 +47,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         readonly StockRegistry _stock;
         readonly ItemRegistry _items;
         readonly WorldClockRegistry _worldClock;
+        readonly SharedActivityRegistry _shared;
         readonly int _seed;
 
         public OddSystem(
@@ -74,6 +75,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             StockRegistry stock,
             ItemRegistry items,
             WorldClockRegistry worldClock,
+            SharedActivityRegistry shared,
             int seed) : base(events)
         {
             _residency = residency;
@@ -99,6 +101,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             _stock = stock;
             _items = items;
             _worldClock = worldClock;
+            _shared = shared;
             _seed = seed;
         }
 
@@ -129,6 +132,13 @@ namespace DaggerfallWorkshop.Sim.Engine
                         double since = behavior.SinceDecisionGameMinutes + gameMinutes;
                         double cap = 48 + (Hash(id.Value, 0) & 0x1F);
                         if (currentRemaining <= 0 || since >= cap)
+                            decide = true;
+                    }
+                    else if (behavior.Phase == ActivityPhase.Queued)
+                    {
+                        double since = behavior.SinceDecisionGameMinutes + gameMinutes;
+                        double cap = 48 + (Hash(id.Value, 0) & 0x1F);
+                        if (since >= cap)            // dawn/dusk already sets decide via reDecideAll
                             decide = true;
                     }
                     // Moving entities keep walking unless dawn/dusk re-decides.
@@ -274,6 +284,13 @@ namespace DaggerfallWorkshop.Sim.Engine
                 && current.TargetBuilding == bestBuilding;
 
             double duration = bestSpec.DurationMinutes * (0.85 + 0.3 * Hash01(id.Value, tick));
+
+            if (_shared.AnchorOf(id, out var heldAnchor))
+            {
+                if (ShouldStayInQueue(true, heldAnchor.Building, bestKind, bestBuilding))
+                    return;                                  // keep your place; no new intent
+                Events.Publish(new QueueLeaveIntent { Agent = id });   // leave the line, fall through
+            }
 
             Events.Publish(new IntentSetIntent
             {
@@ -634,6 +651,12 @@ namespace DaggerfallWorkshop.Sim.Engine
         // PLACES scoring — the dense coupling: every decision consults the agent's rich place memory.
         const double DangerAversion = 0.9, DangerFloor = 0.1;   // remembered danger lowers the gate, never to zero
         const double ProvisionPenalty = 0.4;                    // remembered-empty provisioning: a gentle deprioritise
+
+        /// A queued agent keeps its place only if the same shop+Buy still wins; any
+        /// other winner means it leaves the line. Pure — unit-tested in isolation.
+        public static bool ShouldStayInQueue(bool inQueue, int heldBuilding,
+            ActivityKind winnerKind, int winnerBuilding)
+            => inQueue && winnerKind == ActivityKind.Buy && winnerBuilding == heldBuilding;
 
         /// <summary>Remembered danger d∈[0,1] → a clamped aversion factor: a fully-deadly place is
         /// avoided hard (DangerFloor) but never zeroed, so a desperate need still overrides it.</summary>

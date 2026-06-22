@@ -133,7 +133,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                     Buildings, Stock, Subjective, Position, WorldClock),
                 new OddSystem(e, Residency, Behavior, Needs, Buildings, Position, Personality, Weather,
                     Holiday, Employment, Coin, Larder, Occupancy, Conscience, Subjective, Creatures,
-                    Affects, Relations, Meanings, PlaceMemory, AgentMemory, Stock, Items, WorldClock, seed),
+                    Affects, Relations, Meanings, PlaceMemory, AgentMemory, Stock, Items, WorldClock, SharedActivity, seed),
                 new ExecutionSystem(e, Intent, Behavior, Position, WorldClock),
                 new SharedActivitySystem(e, SharedActivity, Behavior),
                 new PerceivableActivitySystem(e, Behavior, Perceivable),
