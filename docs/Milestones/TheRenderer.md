@@ -71,7 +71,7 @@ main           pick a mode; wire engine + net + ui
   TODOS.md line 15 cleared. This is the safety net for the client carves below — a green
   server-side build to refactor against (the client itself is gated by R0.5's parity gate,
   not the deleted Sim.Tests).
-- [infra] **R0.5 — Parity harness (the mechanical "looks identical" gate).** The whole
+- [infra] **R0.5 — Parity harness (the mechanical "looks identical" gate).** DONE. The whole
   milestone's acceptance is per-stage visual parity, but there is no JS test harness and
   no browser here. Build one: a Playwright + bundled-Chromium (SwiftShader software-WebGL)
   setup that boots `Sim.Web` at a fixed seed, loads town3d in a deterministic **capture
@@ -87,8 +87,12 @@ main           pick a mode; wire engine + net + ui
     This is test infrastructure, not a rendering change, and it stays in as the regression
     gate. It also adds the repo's first `package.json` + a Playwright dev-dependency.
   - **Baseline** is captured here, from the known-good *current* town3d, before any
-    carving. Done = `npm run parity` (or equiv) green against baseline on unmodified
-    town3d; this command is then re-run after each of R1–R4.
+    carving. Done = `npm run parity` green against baseline on unmodified town3d.
+  - **Per-stage parity check (run from `Headless/Sim.Web/parity`):** `npm run parity`
+    (boots Sim.Web at Gothway Garden + captures tick 50 + diffs vs `baseline/gothway.png`).
+    A pure move must report PASS (<=0.1% pixels differ). Re-run after each of R1–R4.
+  - Verified reproducible run-to-run (7/921600 px = 0.001%); gate proven to bite on a
+    sky-colour change (735001/921600 px = 79.753% FAIL → revert → 3/921600 px = 0.000% PASS).
 - [client] **R1 — Carve `net/`.** Lift the WebSocket / `Frame` decode / `onSnap` /
   interpolation / `send` out of `town3d.html` into `net/client.js`; town3d imports it.
   Smallest seam, zero visual change. Done = the town renders identically, all transport

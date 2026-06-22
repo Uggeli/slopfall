@@ -106,7 +106,7 @@ const CAP_TICK = Number(_capQ.get('tick') ?? 50);
 const CAP_CAM = (_capQ.get('cam') ?? '600,900,600,600,0,600').split(',').map(Number);
 let _capState = CAPTURE ? 'ff' : 'off';   // ff -> waiting for CAP_TICK; settle -> counting down; done
 let _capSettle = 90;                       // render frames to let interpolation converge after pause
-window.__captureReady = false;
+if (CAPTURE) window.__captureReady = false;
 controls.maxPolarAngle = Math.PI * 0.495;    // keep the camera above the ground plane
 
 const ambient = new THREE.AmbientLight(0xffffff, 0.6);

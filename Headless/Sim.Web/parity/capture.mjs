@@ -21,14 +21,15 @@ const server = spawn('dotnet',
   { cwd: '/home/sakkivi/omat/daggerfall-unity', env: { ...process.env, DAGGERFALL_ARENA2: ARENA2 } });
 
 const ready = new Promise((resolve, reject) => {
+  let resolved = false;
   const timer = setTimeout(() => reject(new Error('server did not become ready in 180s')), 180_000);
   const onData = (b) => {
     const s = b.toString(); process.stdout.write(s);
-    if (s.includes(`http://localhost:${PORT}`)) { clearTimeout(timer); resolve(); }
+    if (s.includes(`http://localhost:${PORT}`)) { clearTimeout(timer); resolved = true; resolve(); }
   };
   server.stdout.on('data', onData);
   server.stderr.on('data', (b) => process.stderr.write(b.toString()));
-  server.on('exit', (c) => reject(new Error('server exited early, code ' + c)));
+  server.on('exit', (c) => { if (!resolved) reject(new Error('server exited early, code ' + c)); });
 });
 
 function shutdown() { try { server.kill('SIGINT'); } catch {} }
