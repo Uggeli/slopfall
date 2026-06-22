@@ -35,27 +35,13 @@ namespace DaggerfallWorkshop.Sim.Engine
                     EntityId other = seen[i];
                     AtomBag percept = _perceivable.Bag(other);
                     if (percept.Count == 0) continue;          // not atomized (e.g. a monster in v1)
-                    AtomBag signature = IdentityOnly(percept);
                     Events.Publish(new MemoryPerceiveIntent
                     {
                         Perceiver = agent, Perceived = other,
-                        Signature = signature, Percept = percept, Arousal = Fixed.Zero,
+                        Signature = _perceivable.Signature(other), Percept = percept, Arousal = Fixed.Zero,
                     });
                 }
             }
-        }
-
-        /// <summary>Identity atoms only (type below the activity range) — the stable recognition key.</summary>
-        static AtomBag IdentityOnly(AtomBag full)
-        {
-            List<Atom> ids = null;
-            for (int i = 0; i < full.Count; i++)
-            {
-                if (full[i].Type.Value >= PerceivableAtoms.ActivityBase) continue;
-                if (ids == null) ids = new List<Atom>(full.Count);
-                ids.Add(full[i]);
-            }
-            return ids == null ? AtomBag.Empty : AtomBag.Create(ids);
         }
     }
 }

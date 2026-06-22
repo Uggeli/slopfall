@@ -45,6 +45,9 @@ namespace DaggerfallWorkshop.Sim.Engine
     /// <summary>Run a sleep consolidation pass over an agent's memory.</summary>
     public struct MemoryConsolidateIntent : IEvent { public EntityId Agent; }
 
+    /// <summary>Reinforce the perceiver's recognized category (of the signature) toward an outcome.</summary>
+    public struct MemoryReinforceIntent : IEvent { public EntityId Perceiver; public AtomBag Signature; public Fixed Outcome; }
+
     /// <summary>
     /// Sole writer of per-agent memory. Systems read percepts and emit intents; this registry
     /// applies them by calling the memory core (Perceive folds + builds a record routed to THINGS;
@@ -70,6 +73,14 @@ namespace DaggerfallWorkshop.Sim.Engine
                     mem.Meanings, perceives[i].Signature, perceives[i].Percept, perceives[i].Arousal,
                     new MemoryKey(perceives[i].Perceived.Value), tick, _cfg.Encode);
                 if (res.Written) mem.Stores.Things.Encode(res.Record);
+            }
+
+            var reinforce = Events.GetEvents<MemoryReinforceIntent>();
+            for (int i = 0; i < reinforce.Length; i++)
+            {
+                if (!_d.TryGetValue(reinforce[i].Perceiver, out var rm)) continue;
+                CategoryId cat = rm.Meanings.Recognize(reinforce[i].Signature);
+                if (!cat.IsNone) rm.Meanings.Reinforce(cat, reinforce[i].Signature, reinforce[i].Outcome);
             }
 
             var cons = Events.GetEvents<MemoryConsolidateIntent>();

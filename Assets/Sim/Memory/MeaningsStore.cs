@@ -90,6 +90,19 @@ namespace DaggerfallWorkshop.Sim.Memory
             return true;
         }
 
+        /// <summary>Recognize a signature and return the matched category's valence + confidence.
+        /// False with zeros when nothing is recognized.</summary>
+        public bool RecognizedValence(AtomBag signature, out Fixed valence, out Fixed confidence)
+        {
+            CategoryId id = Recognize(signature);
+            CategoryNode node;
+            if (!id.IsNone && TryGetNode(id, out node))
+            {
+                valence = node.Valence; confidence = node.Confidence; return true;
+            }
+            valence = Fixed.Zero; confidence = Fixed.Zero; return false;
+        }
+
         /// <summary>
         /// StatFold + valence/confidence update for one category. Folds the percept into the
         /// node's running stats, nudges valence toward the outcome (with a ±1 raw floor so it
