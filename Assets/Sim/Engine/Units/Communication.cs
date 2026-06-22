@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DaggerfallWorkshop.Sim.Memory;
 
 namespace DaggerfallWorkshop.Sim.Engine
@@ -143,6 +144,90 @@ namespace DaggerfallWorkshop.Sim.Engine
             double conf = confidence.ToDouble();
             if (conf < 0) conf = 0; else if (conf > 1) conf = 1;
             return Fixed.FromDouble(t * conf);
+        }
+    }
+
+    /// <summary>
+    /// READ-ONLY diagnostic accumulator (like MetricsSystem) that bridges the sim's tick rate to the
+    /// slower snapshot pump. The pump publishes at ~5 Hz but the sim ticks far faster and the EventBus
+    /// flips every tick (each tick's GetEvents&lt;Utterance&gt;() holds ONLY that tick's emissions), so
+    /// reading the bus once per publish would drop almost everything. This registry appends EVERY tick's
+    /// utterances to a bounded buffer; WorldRunner.Build drains+clears it into each frame. It NEVER
+    /// publishes intents or mutates sim state, so the determinism fingerprint is unchanged.
+    ///
+    /// <para>Thread-safety: in the web host, Build() (which calls Drain) and Step() (which runs this
+    /// registry's Update) both run on the SOLE sim thread (WorldRunner.Loop), so they never overlap.
+    /// We still lock the buffer — it is shared mutable state, the no-overlap guarantee is subtle, and a
+    /// future caller draining from another thread (or the run-flat-out path publishing between steps)
+    /// must stay safe. The lock is uncontended on the hot path, so it costs nothing.</para>
+    /// </summary>
+    public sealed class UtteranceLogRegistry : Registry
+    {
+        /// Default cap: a few hundred utterances is far more than one ~5 Hz frame's worth even when the
+        /// town is chatty; oldest fall off if the pump ever stalls. Overflow is logged once-ish below.
+        const int DefaultCapacity = 512;
+
+        readonly object _lock = new object();
+        readonly Queue<Utterance> _buffer;
+        readonly int _capacity;
+        bool _warnedOverflow;
+
+        public UtteranceLogRegistry(EventBus events, int capacity = DefaultCapacity) : base(events)
+        {
+            _capacity = capacity < 1 ? 1 : capacity;
+            _buffer = new Queue<Utterance>(_capacity);
+        }
+
+        public override void Update(long tick)
+        {
+            var said = Events.GetEvents<Utterance>();
+            if (said.Length == 0) return;
+            lock (_lock)
+            {
+                for (int i = 0; i < said.Length; i++)
+                {
+                    if (_buffer.Count >= _capacity)
+                    {
+                        _buffer.Dequeue();   // drop oldest
+                        if (!_warnedOverflow)
+                        {
+                            _warnedOverflow = true;
+                            System.Console.WriteLine(
+                                $"[UtteranceLog] buffer overflow at tick {tick} (cap {_capacity}) — dropping oldest; the pump may be stalled.");
+                        }
+                    }
+                    _buffer.Enqueue(said[i]);
+                }
+            }
+        }
+
+        /// <summary>Return + CLEAR every buffered utterance (oldest → newest). Called once per published
+        /// frame by WorldRunner.Build, so a frame carries exactly what was spoken since the last drain.</summary>
+        public List<Utterance> Drain()
+        {
+            lock (_lock)
+            {
+                if (_buffer.Count == 0) return EmptyDrain;
+                var outList = new List<Utterance>(_buffer.Count);
+                outList.AddRange(_buffer);
+                _buffer.Clear();
+                return outList;
+            }
+        }
+
+        static readonly List<Utterance> EmptyDrain = new List<Utterance>();
+
+        /// <summary>An utterance's atom-bag content as a flat list of (atom-type-id, value) pairs — the
+        /// wire shape for the snapshot frame. Sorted ascending by atom type (AtomBag's invariant); a
+        /// null/empty bag yields an empty list. Pure helper so the wire shape is unit-testable.</summary>
+        public static List<(int atom, double value)> ToFlatContent(AtomBag bag)
+        {
+            if (bag == null || bag.Count == 0) return new List<(int, double)>();
+            var flat = new List<(int, double)>(bag.Count);
+            var atoms = bag.Atoms;
+            for (int i = 0; i < atoms.Count; i++)
+                flat.Add((atoms[i].Type.Value, atoms[i].Value.ToDouble()));
+            return flat;
         }
     }
 }

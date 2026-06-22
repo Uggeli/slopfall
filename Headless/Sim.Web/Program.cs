@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using DaggerfallWorkshop.Sim;
 using DaggerfallWorkshop.Sim.Engine;
+using DaggerfallWorkshop.Sim.Memory;
 using DaggerfallWorkshop.Sim.Web;
 using Sim.AssetExport;
 
@@ -170,6 +171,12 @@ var worldJson = JsonSerializer.SerializeToUtf8Bytes(new
         }),
 }, jsonOptions);
 
+// Atom name table (built once): atomType:int -> concept name. Source the catalogs the
+// utterance content draws from — PlaceAtoms (Danger/Provisions + the BuildingKind range)
+// and PerceivableAtoms (entity Kind/Role/Race/Activity) — so the client can read content
+// atoms as words. Keys are stringified ints (a JSON object is {string:value}).
+var AtomNames = BuildAtomNames();
+
 // Pin WebRoot to the wwwroot copied beside the assembly, so the viewer's static
 // files resolve no matter what directory the host is launched from.
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -260,6 +267,15 @@ app.MapGet("/asset/groundatlas/{archive:int}", (HttpContext ctx, int archive) =>
     if (png == null) return Results.NotFound();
     ctx.Response.Headers.CacheControl = "public, max-age=86400";
     return Results.Bytes(png, "image/png");
+});
+
+// Atom name table: atomType:int -> concept name, so the client (and a later LLM) can
+// verbalise utterance content ("Danger @b7" instead of "6001"). Sourced from the atom
+// catalogs (PlaceAtoms + PerceivableAtoms); cached (the table is static for a boot).
+app.MapGet("/asset/atoms", (HttpContext ctx) =>
+{
+    ctx.Response.Headers.CacheControl = "public, max-age=86400";
+    return Results.Json(AtomNames, jsonOptions);
 });
 
 // Live agents (render plane 3): person sprite sheet + metadata, and the civilian
@@ -375,6 +391,19 @@ app.Map("/ws", async context =>
                     .Select(t => new object[]
                         { t.e.Id, MathF.Round(t.ex, 1), MathF.Round(t.ez, 1), t.e.Activity, t.e.Phase,
                           MathF.Round(t.e.Yaw, 3), t.e.Kind, MathF.Round(t.ey, 1) }),
+                    // Communications spoken since the previous frame (drained sim-side buffer —
+                    // structure only, no prose; the client resolves atom ids via /asset/atoms).
+                    utterances = (snap.Utterances ?? System.Array.Empty<WorldRunner.UtteranceRow>())
+                        .Select(u => new
+                        {
+                            speaker = u.Speaker,
+                            audience = u.Audience,
+                            channel = u.Channel,
+                            act = u.Act,
+                            subject = u.Subject,
+                            confidence = System.Math.Round(u.Confidence, 3),
+                            content = u.Content.Select(c => new { atom = c.atom, value = System.Math.Round(c.value, 3) }),
+                        }),
                 }, jsonOptions);
                 await Send(payload);
             }
@@ -463,6 +492,37 @@ Console.WriteLine($"spectating {worldRegionName} / {worldName} "
 app.Run();
 
 // --- local helpers (read the new registries) ---
+
+// atomType:int -> concept name, from the catalogs utterance content uses. PlaceAtoms:
+// Danger/Provisions (graded place facts) + the BuildingKind presence range (Kind:Tavern…).
+// PerceivableAtoms: entity Kind/Role/Race/Activity ranges. Keys are stringified ints so the
+// result serialises as a plain { "6001": "Danger", ... } object.
+static Dictionary<string, string> BuildAtomNames()
+{
+    var t = new Dictionary<string, string>();
+    void Add(int id, string name) => t[id.ToString()] = name;
+
+    // PLACES — graded facts and the per-BuildingKind presence atoms.
+    Add(PlaceAtoms.Danger.Value, "Danger");
+    Add(PlaceAtoms.Provisions.Value, "Provisions");
+    foreach (BuildingKind k in System.Enum.GetValues(typeof(BuildingKind)))
+    {
+        if (k == BuildingKind.None) continue;
+        Add(PlaceAtoms.Kind(k).Value, "Kind:" + k);
+    }
+
+    // PERCEIVABLES — entity attributes (cheap; the same ranges utterance content may carry).
+    foreach (EntityKind k in System.Enum.GetValues(typeof(EntityKind)))
+        Add(PerceivableAtoms.Kind(k).Value, "Entity:" + k);
+    foreach (ResidentRole r in System.Enum.GetValues(typeof(ResidentRole)))
+        Add(PerceivableAtoms.Role(r).Value, "Role:" + r);
+    foreach (ActivityKind a in System.Enum.GetValues(typeof(ActivityKind)))
+    {
+        if (a == ActivityKind.None) continue;
+        Add(PerceivableAtoms.Activity(a).Value, "Doing:" + a);
+    }
+    return t;
+}
 
 int CountCivilians(SimWorld w)
 {

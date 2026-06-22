@@ -29,6 +29,23 @@ namespace DaggerfallWorkshop.Sim.Web
             { Id = id; X = x; Z = z; Yaw = yaw; Activity = activity; Phase = phase; Kind = kind; }
         }
 
+        // One communication on the wire: a structured utterance record (no prose — text rendering is a
+        // render-edge concern). Content is the atom-bag flattened to (atom-id, value) pairs; the client
+        // resolves atom ids to concept names via /asset/atoms.
+        public readonly struct UtteranceRow
+        {
+            public readonly int Speaker, Audience, Subject;
+            public readonly string Channel, Act;
+            public readonly double Confidence;
+            public readonly (int atom, double value)[] Content;
+            public UtteranceRow(int speaker, int audience, int subject, string channel, string act,
+                double confidence, (int atom, double value)[] content)
+            {
+                Speaker = speaker; Audience = audience; Subject = subject;
+                Channel = channel; Act = act; Confidence = confidence; Content = content;
+            }
+        }
+
         public sealed class Frame
         {
             public long Tick;
@@ -37,6 +54,9 @@ namespace DaggerfallWorkshop.Sim.Web
             public float Sun;
             public WeatherKind Weather;
             public AgentRow[] Agents;
+            // Communications spoken since the previous published frame (the sim-side buffer drained at
+            // Build time — accumulate-don't-sample: the bus only holds one tick, the pump is slower).
+            public UtteranceRow[] Utterances;
         }
 
         const double PublishHz = 30.0;   // snapshot refresh rate, independent of tick rate
@@ -74,7 +94,7 @@ namespace DaggerfallWorkshop.Sim.Web
         void Loop()
         {
             var sw = Stopwatch.StartNew();
-            long tick = 0;
+            long tick = 0, lastBuiltTick = -1;
             double prev = sw.Elapsed.TotalSeconds, tickAcc = 0, nextPublish = 0;
             while (_running)
             {
@@ -96,7 +116,19 @@ namespace DaggerfallWorkshop.Sim.Web
 
                 // Refresh the published Frame on a fixed cadence, not per tick — so an
                 // unlimited run doesn't rebuild the snapshot thousands of times a second.
-                if (now >= nextPublish) { _latest = Build(tick); nextPublish = now + 1.0 / PublishHz; }
+                // Build DRAINS the utterance buffer, so only rebuild when the tick actually
+                // ADVANCED: a same-tick rebuild (sim slower than the 30 Hz publish cadence, or
+                // paused) would drain utterances into a frame the pump dedups away by tick and
+                // discards — losing them. Gating on tick advance keeps every drained frame a
+                // distinct tick the pump delivers, and the buffer accumulates across ticks in
+                // between. (Utterances are sparse and the buffer holds hundreds, so the
+                // residual 30 Hz-build / 5 Hz-pump gap drops nothing in practice.)
+                if (now >= nextPublish && tick != lastBuiltTick)
+                {
+                    _latest = Build(tick);
+                    lastBuiltTick = tick;
+                    nextPublish = now + 1.0 / PublishHz;
+                }
 
                 if (tps != UnlimitedTps) Thread.Sleep(1);   // yield unless running flat out
             }
@@ -141,6 +173,21 @@ namespace DaggerfallWorkshop.Sim.Web
                 rows.Add(new AgentRow(kv.Key.Value, p.X, p.Z, p.Yaw, act, phase, RenderKindOf(kv.Key, isCreature)));
             }
 
+            // Drain the tick-accumulated utterances into this frame (sim thread = sole drainer, since
+            // Build runs in the same Loop as Step). Every tick's utterances since the last publish are
+            // here — none dropped to the bus flip.
+            var said = _world.UtteranceLog.Drain();
+            var utter = new UtteranceRow[said.Count];
+            for (int i = 0; i < said.Count; i++)
+            {
+                var u = said[i];
+                var content = UtteranceLogRegistry.ToFlatContent(u.Content);
+                utter[i] = new UtteranceRow(
+                    u.Speaker.Value, u.Audience.Value, u.SubjectBuilding,
+                    u.Channel.ToString(), u.Act.ToString(), u.Confidence.ToDouble(),
+                    content.ToArray());
+            }
+
             return new Frame
             {
                 Tick = tick,
@@ -148,6 +195,7 @@ namespace DaggerfallWorkshop.Sim.Web
                 Night = light.IsNight, Sun = light.SunIntensity,
                 Weather = wx.Kind,
                 Agents = rows.ToArray(),
+                Utterances = utter,
             };
         }
     }

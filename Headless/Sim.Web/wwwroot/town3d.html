@@ -63,6 +63,14 @@
   <div id="stat">loading…</div>
 </div>
 <div id="detail"></div>
+<!-- Communication log: a minimal scrolling feed of agent utterances from the snapshot
+     stream (P4). Structure only — atom ids resolved to names via /asset/atoms. -->
+<div id="commlog" style="position:fixed;right:8px;bottom:8px;width:330px;max-height:34vh;
+  overflow-y:auto;background:rgba(12,16,24,.82);color:#cdd6e6;font:11px/1.45 monospace;
+  padding:6px 8px;border:1px solid #2a3344;border-radius:4px;z-index:5">
+  <div style="color:#7f8aa0;margin-bottom:3px">comms</div>
+  <div id="commlines"></div>
+</div>
 
 <script type="importmap">
 { "imports": {
@@ -990,8 +998,47 @@ function updateAgents(t) {
   for (const [id, p] of people) if (!seen.has(id)) { agents.remove(p.mesh); p.geo.dispose(); people.delete(id); }
 }
 
+// --- comms log (P4): structured utterances off the snapshot stream, rendered as a
+// minimal scrolling feed. Atom ids -> concept names via a one-time /asset/atoms fetch.
+let atomNames = {};   // "6001" -> "Danger"
+fetch('/asset/atoms').then(r => r.json()).then(t => { atomNames = t || {}; })
+  .catch(() => { /* names optional — fall back to raw ids */ });
+
+const CHANNEL_GLYPH = { Whisper: '·', Talk: '–', Shout: '⟶' };
+const commLines = [];               // recent rendered lines (newest last)
+const COMM_MAX = 10;                // keep the panel small
+
+function atomName(id) { return atomNames[String(id)] || ('#' + id); }
+
+function utterText(u) {
+  // "#42 ⟶ shout: Danger,Provisions @b7" — speaker, channel glyph, act, content, subject.
+  const glyph = CHANNEL_GLYPH[u.channel] || '–';
+  const body = (u.content && u.content.length)
+    ? u.content.map(c => atomName(c.atom)).join(', ')
+    : (u.act || '');
+  const subj = (u.subject != null && u.subject >= 0) ? ` @b${u.subject}` : '';
+  return `#${u.speaker} ${glyph} ${(u.channel || '').toLowerCase()}: ${body}${subj}`;
+}
+
+function pushUtterances(list) {
+  if (!list || !list.length) return;
+  for (const u of list) commLines.push(utterText(u));
+  while (commLines.length > COMM_MAX) commLines.shift();
+  const el = document.getElementById('commlines');
+  if (el) {
+    el.textContent = '';
+    for (const line of commLines) {
+      const div = document.createElement('div');
+      div.textContent = line;
+      el.appendChild(div);
+    }
+    el.parentElement.scrollTop = el.parentElement.scrollHeight;   // follow the tail
+  }
+}
+
 function onSnap(msg) {
   prevSnap = curSnap; prevTime = curTime;
+  if (msg.utterances) pushUtterances(msg.utterances);
   // id -> [x, z, yaw, groundY, kind, activity]. groundY is the town's terrain-pad
   // height in region mode (0 in town mode), so agents stand on the ground instead of
   // at y=0. kind (index 6) is the render-kind (0 civilian, 1 guard, 2 monster).
