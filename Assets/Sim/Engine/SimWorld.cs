@@ -131,6 +131,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 new ItemSystem(e, Items, Behavior, Conscience, ItemTake, WorldClock),
                 new NeedsSystem(e, Needs, Behavior, Personality, Coin, Larder, Residency, Occupancy,
                     Buildings, Stock, Subjective, Position, WorldClock),
+                new SomaticPerceptSystem(e, Needs),
                 new OddSystem(e, Residency, Behavior, Needs, Buildings, Position, Personality, Weather,
                     Holiday, Employment, Coin, Larder, Occupancy, Conscience, Subjective, Creatures,
                     Affects, Relations, Meanings, PlaceMemory, AgentMemory, Stock, Items, WorldClock, SharedActivity, seed),
