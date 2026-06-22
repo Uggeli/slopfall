@@ -16,19 +16,23 @@ namespace DaggerfallWorkshop.Sim.Engine
     public sealed class ExecutionSystem : SimSystem
     {
         const float ArriveImmediatelyDistance = 3f;     // meters
+        const int ShopCapacity = 1;                     // one counter; tunable per the spec's open questions
 
         readonly IntentRegistry _intent;
         readonly BehaviorRegistry _behavior;
         readonly PositionRegistry _position;
         readonly WorldClockRegistry _clock;
+        readonly SharedActivityRegistry _shared;
 
         public ExecutionSystem(EventBus events, IntentRegistry intent, BehaviorRegistry behavior,
-                               PositionRegistry position, WorldClockRegistry clock) : base(events)
+                               PositionRegistry position, WorldClockRegistry clock,
+                               SharedActivityRegistry shared) : base(events)
         {
             _intent = intent;
             _behavior = behavior;
             _position = position;
             _clock = clock;
+            _shared = shared;
         }
 
         public override void Update(long tick)
@@ -37,10 +41,39 @@ namespace DaggerfallWorkshop.Sim.Engine
             if (clock.Year == 0) return;
             double gameMinutes = clock.DeltaGameSeconds / 60.0;
 
-            // --- arrivals: the walk is done — settle into the activity. ---
+            // --- arrivals: the walk is done. A serviced affordance (Buy) joins the
+            //     queue and waits for a turn; everything else settles straight in. ---
             foreach (ref readonly var a in Events.GetEvents<ArrivedAtTargetEvent>())
             {
-                if (_behavior.TryGet(a.Entity, out var b) && b.Phase == ActivityPhase.Moving)
+                if (!_behavior.TryGet(a.Entity, out var b) || b.Phase != ActivityPhase.Moving)
+                    continue;
+
+                if (b.Activity == ActivityKind.Buy)
+                {
+                    Events.Publish(new BehaviorSetIntent
+                    {
+                        Id = a.Entity,
+                        Data = new BehaviorData
+                        {
+                            Activity = b.Activity,
+                            Phase = ActivityPhase.Queued,
+                            TargetBuilding = b.TargetBuilding,
+                            TargetX = b.TargetX,
+                            TargetZ = b.TargetZ,
+                            RemainingGameMinutes = b.RemainingGameMinutes,
+                            TargetItem = b.TargetItem,
+                        }
+                    });
+                    Events.Publish(new QueueJoinIntent
+                    {
+                        Agent = a.Entity,
+                        Anchor = new QueueAnchor(b.TargetBuilding, ActivityKind.Buy),
+                        Capacity = ShopCapacity,
+                        AnchorX = b.TargetX,
+                        AnchorZ = b.TargetZ,
+                    });
+                }
+                else
                 {
                     Events.Publish(new BehaviorSetIntent
                     {
