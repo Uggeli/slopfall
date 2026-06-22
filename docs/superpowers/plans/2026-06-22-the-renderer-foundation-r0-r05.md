@@ -22,54 +22,56 @@
 
 ### Task 1: R0 — Green build by deletion
 
-Delete the orphaned `Sim.Net` project (binary-TCP path) and its two dead tests; the build break lives entirely in `Sim.Net/Protocol.cs` (uses the removed `RenderSnapshot`). Nothing else references Sim.Net's types — `Sim.Web` mentions it only in comments and defines neither `WorldStatic` nor `RenderSnapshot`.
+> **SCOPE CORRECTION (2026-06-22, mid-execution).** The original premise — "only Sim.Net is broken; delete it and 2 dead tests" — was wrong. Sim.Net's failed build was *masking* `Sim.Tests`, which has been stale and non-building since the CQRS rewrite (commit `f385dd848` deleted the old serial core: `SimulationContext`/`TickLoop`/`EventLog`/`ISimEvent`/`ApplyEffectEvent`). 13 of 44 `Sim.Tests` files reference those deleted types — including the shared `SimHarness.cs`/`BehavioralHarness.cs` that 25 of the remaining files depend on. The last commit touching it (`e350786e8`) literally says "Sim.Tests is stale, won't build." Reviving it is a CQRS test-port effort unrelated to this client-side milestone. **Decision (user, 2026-06-22): delete the entire `Sim.Tests` project.** The sources remain in git history if a CQRS port is ever wanted. Live coverage after R0: `Sim.MemoryTests` + `Sim.SpatialTests`.
+
+Delete the orphaned `Sim.Net` project (binary-TCP path) AND the stale `Sim.Tests` project. Nothing else references Sim.Net's types — `Sim.Web` mentions it only in comments and defines neither `WorldStatic` nor `RenderSnapshot`.
 
 **Files:**
-- Delete: `Headless/Sim.Net/` (whole project: `Protocol.cs`, `Sim.Net.csproj`, `bin/`, `obj/`)
-- Delete: `Headless/Sim.Tests/SnapshotTests.cs`, `Headless/Sim.Tests/ProtocolTests.cs`
-- Modify: `Headless/Sim.Tests/Sim.Tests.csproj` (remove line 20: `<ProjectReference Include="..\Sim.Net\Sim.Net.csproj" />`)
-- Modify: `Headless/Sim.slnx` (remove `<Project Path="Sim.Net/Sim.Net.csproj" />`)
+- Delete: `Headless/Sim.Net/` (whole project)
+- Delete: `Headless/Sim.Tests/` (whole project — stale since the CQRS rewrite; see Scope Correction)
+- Modify: `Headless/Sim.slnx` (remove BOTH the `Sim.Net` and `Sim.Tests` `<Project>` entries)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: a solution that builds green and a fully-running test suite. No code symbols.
+- Produces: a solution that builds green; the live suites (`Sim.MemoryTests`, `Sim.SpatialTests`) pass. No code symbols.
 
 - [ ] **Step 1: Confirm the red baseline**
 
 Run: `cd /home/sakkivi/omat/daggerfall-unity && dotnet build Headless/Sim.slnx -clp:ErrorsOnly 2>&1 | grep -iE "error|Build FAILED"`
-Expected: FAIL — `Sim.Net/Protocol.cs(114,52)` and `(142,23)`: `CS0246 ... 'RenderSnapshot' could not be found`, then `Build FAILED.`
+Expected: FAIL — `Sim.Net/Protocol.cs(114,52)` and `(142,23)`: `CS0246 ... 'RenderSnapshot' could not be found`, then `Build FAILED.` (And, once Sim.Net's mask is gone, ~13 further `CS0246` errors in `Sim.Tests` against the deleted old-core types.)
 
-- [ ] **Step 2: Delete Sim.Net and the two dead tests**
+- [ ] **Step 2: Delete both projects**
 
 ```bash
 cd /home/sakkivi/omat/daggerfall-unity
-git rm -r Headless/Sim.Net
-git rm Headless/Sim.Tests/SnapshotTests.cs Headless/Sim.Tests/ProtocolTests.cs
+git rm -r Headless/Sim.Net Headless/Sim.Tests
+rm -rf Headless/Sim.Net Headless/Sim.Tests   # clear any untracked bin/obj remnants
 ```
 
-- [ ] **Step 3: Remove the dangling references**
+- [ ] **Step 3: Remove both from the solution**
 
-In `Headless/Sim.Tests/Sim.Tests.csproj`, delete this line (line 20):
-```xml
-    <ProjectReference Include="..\Sim.Net\Sim.Net.csproj" />
-```
-
-In `Headless/Sim.slnx`, delete this line:
+In `Headless/Sim.slnx`, delete these two lines:
 ```xml
   <Project Path="Sim.Net/Sim.Net.csproj" />
+  <Project Path="Sim.Tests/Sim.Tests.csproj" />
 ```
 
-(Leave the `Sim.Net` comments in `Sim.Web/Sim.Web.csproj` and `Sim.SpatialTests/Sim.SpatialTests.csproj` as-is — they are historical notes, not references. `Sim.SpatialTests` not being in `Sim.slnx` is a pre-existing condition, out of scope here.)
+(Leave the `Sim.Net` comments in `Sim.Web/Sim.Web.csproj` and `Sim.SpatialTests/Sim.SpatialTests.csproj` as-is — they are historical notes, not references.)
 
 - [ ] **Step 4: Verify the build is green**
 
 Run: `cd /home/sakkivi/omat/daggerfall-unity && dotnet build Headless/Sim.slnx -clp:ErrorsOnly 2>&1 | tail -5`
 Expected: `Build succeeded.` with `0 Error(s)`.
 
-- [ ] **Step 5: Verify the full suite now runs**
+- [ ] **Step 5: Verify the live suites pass**
 
-Run: `cd /home/sakkivi/omat/daggerfall-unity && dotnet test Headless/Sim.slnx 2>&1 | grep -iE "Passed!|Failed!|Passed:|Failed:|total"`
-Expected: the suite discovers and runs hundreds of tests across `Sim.Tests` + `Sim.MemoryTests` (previously only 1 of 218 ran). All tests pass. Record the actual passed/total count in the commit body.
+Run:
+```bash
+cd /home/sakkivi/omat/daggerfall-unity
+dotnet test Headless/Sim.slnx 2>&1 | grep -iE "Passed!|Failed!|Passed:|Failed:|total"
+dotnet test Headless/Sim.SpatialTests/Sim.SpatialTests.csproj 2>&1 | grep -iE "Passed!|Failed!|Passed:|Failed:|total"
+```
+Expected: `Sim.MemoryTests` runs via the solution (≈184 passing) and `Sim.SpatialTests` passes (≈13). All green. Record the actual counts in the commit body. (`Sim.SpatialTests` is run separately because it is intentionally not in `Sim.slnx` — pre-existing.)
 
 - [ ] **Step 6: Commit**
 
@@ -77,19 +79,21 @@ Expected: the suite discovers and runs hundreds of tests across `Sim.Tests` + `S
 cd /home/sakkivi/omat/daggerfall-unity
 git add -A
 git commit -m "$(cat <<'EOF'
-feat(infra): R0 — delete orphaned Sim.Net, restore green build + full suite
+feat(infra): R0 — delete orphaned Sim.Net + stale Sim.Tests, restore green build
 
-The binary-TCP Sim.Net path held the only build break (Protocol.cs used the
-removed RenderSnapshot). Delete the project, its two dead tests, the
-Sim.Tests->Sim.Net reference, and the slnx entry. Solution builds green; the
-full test suite runs again (was 1 of 218). TODOS line 15 cleared.
+Sim.Net (binary-TCP) held the surfaced break (Protocol.cs used the removed
+RenderSnapshot); deleting it exposed that Sim.Tests has been stale and
+non-building since the CQRS rewrite (f385dd848 deleted the old serial core).
+Delete both projects and their slnx entries. Solution builds green; live
+suites pass (Sim.MemoryTests <N>, Sim.SpatialTests <M>). TODOS line 15
+cleared. Sim.Tests sources remain in git history for a future CQRS port.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
 
-Also remove the now-stale "Build is broken" item from `TODOS.md` (the bullet under `## Build & infra` referencing `Sim.Net/Protocol.cs` / `RenderSnapshot`) in this same commit.
+Also remove the now-stale "Build is broken" item from `TODOS.md` (the bullet under `## Build & infra` referencing `Sim.Net/Protocol.cs` / `RenderSnapshot`) in this same commit, and add a one-line `[infra]` note that `Sim.Tests` was deleted and a CQRS test-port is a future option (sources in git history).
 
 ---
 

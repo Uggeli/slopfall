@@ -63,10 +63,14 @@ main           pick a mode; wire engine + net + ui
 ## Stages
 
 - [infra] **R0 — Build green by deletion.** Delete `Sim.Net` (binary-TCP, the orphaned
-  remote path) and its tests `Sim.Tests/SnapshotTests.cs` + `Sim.Tests/ProtocolTests.cs`;
-  remove the `Sim.Net` project from `Sim.slnx`. Done = whole solution builds; the full
-  test suite runs (TODOS.md line 15 cleared — was "1 of 218 tests runs"). This is the
-  safety net for everything below: a green server-side suite to refactor against.
+  remote path). Deleting it exposed that `Sim.Tests` has been stale and non-building since
+  the CQRS rewrite (`f385dd848` deleted the old serial core; the Sim.Net dep was masking
+  ~13 further errors) — so delete the whole stale `Sim.Tests` project too (sources stay in
+  git history for a future CQRS test-port). Remove both from `Sim.slnx`. Done = whole
+  solution builds green; the live suites pass (`Sim.MemoryTests`, `Sim.SpatialTests`).
+  TODOS.md line 15 cleared. This is the safety net for the client carves below — a green
+  server-side build to refactor against (the client itself is gated by R0.5's parity gate,
+  not the deleted Sim.Tests).
 - [infra] **R0.5 — Parity harness (the mechanical "looks identical" gate).** The whole
   milestone's acceptance is per-stage visual parity, but there is no JS test harness and
   no browser here. Build one: a Playwright + bundled-Chromium (SwiftShader software-WebGL)
