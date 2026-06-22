@@ -75,8 +75,12 @@ main           pick a mode; wire engine + net + ui
   milestone's acceptance is per-stage visual parity, but there is no JS test harness and
   no browser here. Build one: a Playwright + bundled-Chromium (SwiftShader software-WebGL)
   setup that boots `Sim.Web` at a fixed seed, loads town3d in a deterministic **capture
-  mode** (fixed camera pose, fixed time-of-day, paused at a known sim tick), screenshots,
-  and diffs against a committed baseline within a small tolerance (sub-pixel AA noise).
+  mode** (fixed camera pose, fixed time-of-day, captures the first published frame
+  at-or-past `CAP_TICK` then pauses — the exact captured tick is timing-dependent,
+  deterministic on a fixed machine but the baseline is single-machine-scoped; a different
+  machine could land on a different tick → false FAIL; server-side "run to tick N then
+  pause" is the clean portability upgrade if ever needed), screenshots, and diffs against
+  a committed baseline within a small tolerance (sub-pixel AA noise).
   - **De-risk first:** the opening task is a spike. Playwright 1.61 + its Chromium are
     already cached (`~/.cache/ms-playwright/chromium-1228`), so no install — just render a
     WebGL page headlessly and confirm a non-blank PNG of the expected scene. If SwiftShader

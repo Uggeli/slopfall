@@ -8,7 +8,7 @@ export const SWIFTSHADER_ARGS = [
   '--use-gl=angle', '--ignore-gpu-blocklist', '--disable-gpu-sandbox',
 ];
 
-// A render is "blank" if every pixel is identical (nothing was drawn).
+// A render is "blank" if every pixel has identical RGB values (alpha intentionally excluded).
 export function isBlank(buf) {
   const png = PNG.sync.read(buf);
   const d = png.data;

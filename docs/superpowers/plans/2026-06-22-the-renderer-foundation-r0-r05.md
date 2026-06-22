@@ -4,7 +4,7 @@
 
 **Goal:** Establish the two foundations the rest of *The Renderer* milestone (R1–R5) depends on: a green build with the full test suite running (R0), and a proven, deterministic screenshot **parity gate** for the web client (R0.5).
 
-**Architecture:** R0 is a pure deletion of the orphaned `Sim.Net` binary-TCP path that holds the only build break. R0.5 adds a tiny Node/Playwright harness that boots `Sim.Web`, loads `town3d.html` in a deterministic **capture mode** (fast-forward to a fixed tick, pause, fixed camera), screenshots via headless-Chromium SwiftShader software-WebGL, and diffs against a committed baseline. Capture mode is the one place we touch `town3d.html` outside a pure move; it stays in as the regression gate for R1–R4.
+**Architecture:** R0 is a pure deletion of the orphaned `Sim.Net` binary-TCP path that holds the only build break. R0.5 adds a tiny Node/Playwright harness that boots `Sim.Web`, loads `town3d.html` in a deterministic **capture mode** (fast-forward at unlimited speed, capture the first published frame at-or-past `CAP_TICK`, pause, fixed camera), screenshots via headless-Chromium SwiftShader software-WebGL, and diffs against a committed baseline. The captured tick is timing-dependent (same timing → same tick on a fixed machine), so the committed baseline is single-machine-scoped — not portable across machines, as a different machine could capture a different tick and produce a false FAIL. True portability would need a server-side "run to tick N then pause" mode (a future option, not built here). Capture mode is the one place we touch `town3d.html` outside a pure move; it stays in as the regression gate for R1–R4.
 
 **Tech Stack:** .NET 10 (`dotnet build`/`test`), Node 22 + Playwright 1.61 (Chromium 1228, already cached at `~/.cache/ms-playwright`), `pngjs` + `pixelmatch` for image diffing, Three.js (existing, in `town3d.html`).
 
@@ -12,7 +12,7 @@
 
 - **ARENA2 data path (this machine):** `DAGGERFALL_ARENA2=/home/sakkivi/omat/daggerfall-gamedata/arena2` — required env var for every `dotnet run --project Headless/Sim.Web` invocation.
 - **Canonical scene:** region `"Daggerfall"`, location `"Gothway Garden"` (also the Program.cs default), `--starthour 12`. This is the milestone's reference town.
-- **Determinism is structural, not seeded:** there is no `--seed`. Identical frames come from identical (region, location, starthour, tick). Capture at a fixed tick N.
+- **Determinism is structural, not seeded:** there is no `--seed`. The harness fast-forwards at unlimited speed (`setSpeed(-1)`) and captures the **first published frame at-or-past `CAP_TICK`** — not exactly tick N. This is deterministic on a fixed machine (same timing → same tick), but the exact captured tick is timing-dependent, so the committed baseline is single-machine-scoped (a different machine could land on a different tick → agents in different positions → false FAIL; it does NOT cause false PASS). True portability would need a server-side "run to tick N then pause" mode (a future option, not built here).
 - **Server bakes everything; client renders raw.** No client-side coordinate flips/rotations/transposes may be introduced (`docs/render_client_dataflow.md`). Capture mode only sets camera/speed/settle — never transforms geometry.
 - **No new rendering features.** This plan adds test infrastructure only. No water/interiors/post-processing/seasons/animation; no "improve while refactoring."
 - **Playwright browsers are already installed** — never run `playwright install` (it would re-download). Install npm packages with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`.
@@ -245,7 +245,7 @@ Add a deterministic `?capture=` mode to `town3d.html` and a Node harness that bo
 
 **Capture-mode contract (`?capture=1`):**
 - Query params: `tick` (target tick to capture at; default `50`), `cam` (`"x,y,z,tx,ty,tz"`; default an overhead pose), `hour` is controlled server-side via `--starthour`.
-- Behaviour: on socket open, fast-forward (`setSpeed(-1)`, max rate) instead of the normal `setSpeed(10)`. On the first frame whose `tick >= target`, call `setSpeed(0)` (pause), move `camera` + `controls.target` to the fixed pose, then count down `SETTLE_FRAMES` render frames (lets interpolation converge to the static paused frame). When the countdown hits zero, set `window.__captureReady = true`.
+- Behaviour: on socket open, fast-forward (`setSpeed(-1)`, max rate) instead of the normal `setSpeed(10)`. On the **first published frame whose `tick >= target`** (timing-dependent — deterministic per machine, but not portable across machines), call `setSpeed(0)` (pause), move `camera` + `controls.target` to the fixed pose, then count down `SETTLE_FRAMES` render frames (lets interpolation converge to the static paused frame). When the countdown hits zero, set `window.__captureReady = true`.
 - The harness additionally waits for network idle, so async asset loads (models via the LoadingManager, textures, raw `fetch` tiles) finish before the screenshot.
 
 **Files:**
@@ -375,8 +375,10 @@ git add Headless/Sim.Web/wwwroot/town3d.html Headless/Sim.Web/parity/capture.mjs
 git commit -m "$(cat <<'EOF'
 feat(parity): R0.5b — town3d capture mode + Sim.Web capture harness
 
-?capture=1 fast-forwards to a fixed tick, pauses, frames a fixed camera, and
-sets window.__captureReady after interpolation settles. capture.mjs boots
+?capture=1 fast-forwards and captures the first frame at-or-past CAP_TICK,
+pauses, frames a fixed camera, and sets window.__captureReady after
+interpolation settles (timing-dependent tick, deterministic per machine).
+capture.mjs boots
 Sim.Web (Gothway Garden, --starthour 12), waits for ready, screenshots via
 headless SwiftShader Chromium. The one non-pure-move town3d touch; stays in
 as the parity gate.

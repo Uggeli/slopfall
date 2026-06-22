@@ -1,10 +1,14 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { SWIFTSHADER_ARGS, isBlank } from './spike.mjs';
 
-const ARENA2 = '/home/sakkivi/omat/daggerfall-gamedata/arena2';
+const ARENA2 = process.env.DAGGERFALL_ARENA2 || '/home/sakkivi/omat/daggerfall-gamedata/arena2';
+// Derive repo root from this script's location: <repo>/Headless/Sim.Web/parity/capture.mjs
+const _here = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = join(_here, '..', '..', '..');
 const PORT = 8137;
 const REGION = 'Daggerfall', LOCATION = 'Gothway Garden';
 const STARTHOUR = 12, CAP_TICK = 50;
@@ -18,7 +22,7 @@ const outPath = outIdx >= 0 ? process.argv[outIdx + 1] : 'current.png';
 const server = spawn('dotnet',
   ['run', '--project', 'Headless/Sim.Web', '--', REGION, LOCATION,
    '--port', String(PORT), '--starthour', String(STARTHOUR)],
-  { cwd: '/home/sakkivi/omat/daggerfall-unity', env: { ...process.env, DAGGERFALL_ARENA2: ARENA2 } });
+  { cwd: REPO_ROOT, env: { ...process.env, DAGGERFALL_ARENA2: ARENA2 } });
 
 const ready = new Promise((resolve, reject) => {
   let resolved = false;
