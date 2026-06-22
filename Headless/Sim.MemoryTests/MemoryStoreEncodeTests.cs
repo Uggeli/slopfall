@@ -6,8 +6,10 @@ namespace Sim.MemoryTests
 {
     public class MemoryStoreEncodeTests
     {
+        static readonly AtomTypeId A = new AtomTypeId(1);
         static MemoryRecord Rec(long key, byte strength, long tick = 100, MemoryFlags flags = MemoryFlags.None)
-            => new MemoryRecord(new MemoryKey(key), CategoryId.None, AtomBag.Empty, strength, tick, tick, flags);
+            => new MemoryRecord(new MemoryKey(key), CategoryId.None, AtomBag.Create(new[] { new Atom(A, Fixed.One) }),
+                                strength, tick, tick, flags);
 
         [Fact]
         public void NewStore_IsEmpty_WithCapacity()

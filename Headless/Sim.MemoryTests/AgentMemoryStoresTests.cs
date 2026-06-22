@@ -34,10 +34,11 @@ namespace Sim.MemoryTests
         {
             // Fill a small store; an INNATE record must never be evicted no matter how many
             // stronger writes pour in (the home-burrow guarantee).
+            var bag = AtomBag.Create(new[] { new Atom(new AtomTypeId(1), Fixed.One) });
             var store = new MemoryStore(4);
-            store.Encode(new MemoryRecord(new MemoryKey(0), CategoryId.None, AtomBag.Empty, 10, 0, 0, MemoryFlags.Innate));
+            store.Encode(new MemoryRecord(new MemoryKey(0), CategoryId.None, bag, 10, 0, 0, MemoryFlags.Innate));
             for (long k = 1; k <= 50; k++)
-                store.Encode(new MemoryRecord(new MemoryKey(k), CategoryId.None, AtomBag.Empty, 200, k, k, MemoryFlags.None));
+                store.Encode(new MemoryRecord(new MemoryKey(k), CategoryId.None, bag, 200, k, k, MemoryFlags.None));
 
             Assert.Equal(4, store.Count);
             Assert.True(store.TryGet(new MemoryKey(0), out var innate));   // still there

@@ -31,7 +31,8 @@ namespace Sim.MemoryTests
 
             Assert.False(s.TryGet(new MemoryKey(10), out _));     // confirming dissolved
             Assert.True(s.TryGet(new MemoryKey(20), out var surviving));
-            Assert.Equal((byte)95, surviving.Strength);           // 100 - surprise-rate 5
+            // strength-scaled per-atom decay: surprise base 5 at S=100 -> dec max(1,5*155/255)=3 -> 97
+            Assert.Equal((byte)97, surviving.Strength);
         }
 
         [Fact]

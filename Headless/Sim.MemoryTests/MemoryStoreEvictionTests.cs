@@ -6,8 +6,10 @@ namespace Sim.MemoryTests
 {
     public class MemoryStoreEvictionTests
     {
+        static readonly AtomTypeId A = new AtomTypeId(1);
         static MemoryRecord Rec(long key, byte strength, long lastRefresh = 100, MemoryFlags flags = MemoryFlags.None)
-            => new MemoryRecord(new MemoryKey(key), CategoryId.None, AtomBag.Empty, strength, lastRefresh, lastRefresh, flags);
+            => new MemoryRecord(new MemoryKey(key), CategoryId.None, AtomBag.Create(new[] { new Atom(A, Fixed.One) }),
+                                strength, lastRefresh, lastRefresh, flags);
 
         [Fact]
         public void Encode_Full_StrongerNewRecord_EvictsWeakest()

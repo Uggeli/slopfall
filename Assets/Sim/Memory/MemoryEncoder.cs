@@ -63,7 +63,12 @@ namespace DaggerfallWorkshop.Sim.Memory
             int peak = surprise.Encode.Raw > arousal.Raw ? surprise.Encode.Raw : arousal.Raw;
             byte strength = Scale(peak);
             MemoryFlags flags = surpriseFired ? MemoryFlags.Surprise : MemoryFlags.None;
-            MemoryRecord record = new MemoryRecord(key, cat, deltaBag, strength, tick, tick, flags);
+            // Per-atom strength lives on the bag's atoms, so a write needs at least one atom to carry
+            // it. A recognized-and-fully-matched percept has an empty delta — but if AROUSAL drove the
+            // write (it mattered though nothing diverged), etch the whole episode (flashbulb), not a
+            // strengthless empty record. (T2 refines each atom's strength from its own surprise.)
+            AtomBag bag = deltaBag.Count > 0 ? deltaBag : percept;
+            MemoryRecord record = new MemoryRecord(key, cat, bag, strength, tick, tick, flags);
             return new EncodeResult(true, record, surprise, cat);
         }
 

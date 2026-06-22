@@ -79,18 +79,15 @@ namespace DaggerfallWorkshop.Sim.Memory
         {
             int idx = IndexOf(key);
             if (idx < 0) return false;
-            int ns = _records[idx].Strength + deltaStrength;
-            if (ns < 0) ns = 0;
-            else if (ns > 255) ns = 255;
-            _records[idx] = _records[idx].WithStrength((byte)ns, atTick);
+            _records[idx] = _records[idx].Refreshed(deltaStrength, atTick);   // bumps every non-INNATE atom
             return true;
         }
 
         /// <summary>
-        /// Sleep decay: subtract (IsSurprise ? surpriseRate : normalRate) from each non-INNATE
-        /// record's strength. A record whose strength reaches 0 (or below) is dropped, not floored
-        /// at 0; survivors keep key order via in-place compaction. INNATE records are immune.
-        /// LastRefresh is unchanged.
+        /// Sleep decay, delegated per-atom to each record (strength-scaled: important atoms barely
+        /// erode, trivial ones fade fast; INNATE atoms immune, SURPRISE atoms use the smaller rate).
+        /// A record whose every atom is forgotten (empty bag) is dropped; survivors keep key order
+        /// via in-place compaction. LastRefresh is unchanged.
         /// Caller passes surpriseRate &lt;= normalRate (surprising memories resist decay).
         /// </summary>
         public void Decay(int normalRate, int surpriseRate)
@@ -98,12 +95,9 @@ namespace DaggerfallWorkshop.Sim.Memory
             int w = 0;
             for (int r = 0; r < _count; r++)
             {
-                MemoryRecord rec = _records[r];
-                if (rec.IsInnate) { _records[w++] = rec; continue; }
-                int applicable = rec.IsSurprise ? surpriseRate : normalRate;
-                int ns = rec.Strength - applicable;
-                if (ns <= 0) continue;                                  // dropped
-                _records[w++] = rec.WithStrength((byte)ns, rec.LastRefresh);
+                MemoryRecord rec = _records[r].Decay(normalRate, surpriseRate);   // per-atom
+                if (rec.DeltaBag.Count == 0) continue;                            // every atom forgotten → record dies
+                _records[w++] = rec;
             }
             for (int i = w; i < _count; i++) _records[i] = default;     // release dropped slots
             _count = w;
@@ -136,7 +130,8 @@ namespace DaggerfallWorkshop.Sim.Memory
         /// else lower Key. A total order, so eviction is deterministic.</summary>
         static bool LessKeepable(in MemoryRecord a, in MemoryRecord b)
         {
-            if (a.Strength != b.Strength) return a.Strength < b.Strength;
+            int sa = a.EvictionStrength, sb = b.EvictionStrength;
+            if (sa != sb) return sa < sb;
             if (a.LastRefresh != b.LastRefresh) return a.LastRefresh < b.LastRefresh;
             return a.Key.CompareTo(b.Key) < 0;
         }
