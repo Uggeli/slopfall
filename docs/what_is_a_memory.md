@@ -69,16 +69,27 @@ MemoryRecord {
     key          : store-specific (position | signature | event tuple)
     categoryRef  : MEANINGS node this diffs against (nullable — see novelty)
     deltaBag     : sorted Atom[] — ONLY the atoms that diverge from the category's prediction
-    strength     : byte (0–255) — the etch depth; written by arousal, decayed by sleep, refreshed by recall
+    meta[]       : PER-ATOM, index-aligned to deltaBag — each fact carries its own
+                   { strength: byte (0–255) — etch depth; flags: INNATE (decay/evict-immune)
+                     · SURPRISE (decay-resistant) }
     writtenAt    : tick
     lastRefresh  : tick
-    flags        : INNATE (decay/evict-immune) · SURPRISE (decay-resistant)
 }
 ```
 
+> **Strength is per-atom (evolution).** Originally one `strength` byte + `flags` per *record*. That is
+> right for a coherent dossier (THINGS/EVENTS: one entity, one importance) but wrong for a *bundle of
+> heterogeneous facts*: a PLACES record holds `{BuildingKind, ProvisionsHere, DangerHere}` whose
+> importances differ by orders of magnitude. One record-strength cannot decay them at three rates, so
+> coarse decay erodes a whole building's knowledge overnight. The fix moves strength + flags onto the
+> atom (the `meta[]` above) — `Atom` itself stays the clean `{type,value}` substrate. Importance is
+> still *strength* (no second scoring system); the record's eviction strength is the max over its
+> atoms, and a record dies when its last atom is forgotten. Grounded in "Surprise = per-atom
+> prediction error" below — per-atom etch is the natural consumer of per-atom surprise.
+
 - **`deltaBag` reuses the stored-atom-bag machinery** (sorted `Atom[]`, binary-searchable by `AtomTypeId`) from the world doc's atom backings. No new container; a memory's content is literally atoms, which is what lets recall replay it into the percept pipeline unchanged.
 - **The inert affect tag is just an atom in the bag** — `(affectTag, 0.9)` is *content*: "I was terrified here," read at recall as one more piece of evidence that can raise threat-interpretation, never injected into the `Affects` register. The no-stored-feeling rule holds by construction: the register is a pipeline register, and nothing in a `MemoryRecord` writes it.
-- **`strength` is the one scalar doing three jobs**: write-depth at encoding (arousal-scaled), decay target during sleep, eviction order when the store is full. Keeping it a byte keeps the whole record fixed-point — see *Determinism*.
+- **`strength` is the one scalar doing three jobs** (now *per atom*): write-depth at encoding (each atom etched by `scale(max(its own prediction-error, arousal))`), decay target during sleep, eviction order when the store is full. Keeping it a byte keeps the whole record fixed-point — see *Determinism*.
 - **Novelty stores verbatim.** A percept with *no* category match (`categoryRef = null`) stores its full atom set — there is no prediction to diff against, so nothing is droppable. Correct and self-limiting: novel things are exactly the things worth keeping whole, and the first consolidation pass starts compressing them (mint a node, re-diff).
 - **Recall = reconstruct.** `recall(record) = category.predictedAtoms ⊕ record.deltaBag` (delta wins where both speak). The reconstruction reads the **current** node — if the category has drifted since encoding, the recalled "specifics" are the *new* prediction wearing the old episode's costume. Confident false memory is this one line, not a separate mechanism.
 
@@ -160,13 +171,15 @@ Row 7, in `Sleeping` state, over the agent's own stores (private, embarrassingly
 2  MINT      cluster unmatched novel records by signature proximity; a cluster with
              enough support mints a CategoryNode = its variance-gated intersection;
              members re-key to it and re-diff (novelty stops being verbatim)
-3  DECAY     strength -= rate · (SURPRISE-flagged ? r_resist : 1); INNATE immune;
-             strength == 0 → record dropped
+3  DECAY     per atom: strength -= max(1, base · (255 − strength)/255),
+             base = SURPRISE-flagged ? r_resist : r_normal; INNATE immune;
+             an atom at 0 is forgotten; a record whose last atom is gone is dropped
 4  SETTLE    contradiction stats: confidence down where contradicted; past the
              split threshold, split the node (under-pinned — see Open knobs)
 ```
 
 - **"Confirming episodes dissolve fastest" is steps 1+3 composing**: a confirming record's bag re-diffs to nearly empty (the fact absorbed it), and an empty-bag record is pure redundancy — it carries no delta, so decay takes it first. A *surprising* record's bag can't be absorbed (the category refuses its atoms — high spread or contradiction), so it survives re-diff *and* decays slower. The calm fox stays vivid while a thousand ordinary chases blur into the fact — as ordered (p6: median lifetime 585 vs 1155 ticks).
+- **Decay is strength-scaled, not flat (evolution; the ordering is unchanged).** The rate now falls as strength rises — `max(1, base·(255−s)/255)` — so an important atom barely erodes while a trivial one fades fast, *continuously*, rather than every non-SURPRISE atom losing a fixed amount per pass. The flag tiers (INNATE immune, SURPRISE `r_resist`) still hold; this adds graded persistence *within* a tier by the atom's own strength. Validated empirically in the DFU wedge: under flat decay a moderately-held fact (provisions, strength 160) collapses overnight when re-observation pauses (~232 → 26 over one sleep); strength-scaled retains it (~233), so an agent doesn't forget where food is every night. "Confirming dissolves faster than surprising" is preserved (a confirming atom starts low / re-diffs away; a SURPRISE atom uses the smaller base *and* starts high → plateaus). Rates remain config; this is a change to the operator's *shape*.
 - **The Oak and the Tuesday** erode by the same composition: spot/day are high-spread across episodes, so they never enter the prediction (the fact stays clean — p6 confirms no fact ever inherits them), and they sit in each record's bag until step 3 takes the whole record. The fact keeps "fox + chase"; no fact ever keeps "the Tuesday."
 - **Two-stage compression, located**: stage one at write (delta vs category, row 5), stage two here (re-diff against the stats the awake folds have been updating). An episode survives verbatim only while informative *as a specific*.
 - **Sleep gains its second job**, as the bunny doc promised: recovery for the body, consolidation for the store. A bunny prevented from sleeping accumulates raw episodes and stops minting facts — a testable prediction, not a bug.
