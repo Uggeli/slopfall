@@ -138,7 +138,9 @@ namespace DaggerfallWorkshop.Sim.Engine
                     {
                         double since = behavior.SinceDecisionGameMinutes + gameMinutes;
                         double cap = 48 + (Hash(id.Value, 0) & 0x1F);
-                        if (since >= cap)            // dawn/dusk already sets decide via reDecideAll
+                        int stagger = (int)(Hash(id.Value, 1) % PreemptEveryTicks);
+                        bool preemptTick = (tick % PreemptEveryTicks) == stagger;
+                        if (since >= cap || preemptTick) // dawn/dusk already sets decide via reDecideAll
                             decide = true;
                     }
                     // Moving entities keep walking unless dawn/dusk re-decides.
@@ -287,15 +289,24 @@ namespace DaggerfallWorkshop.Sim.Engine
 
             if (_shared.AnchorOf(id, out var heldAnchor))
             {
-                if (ShouldStayInQueue(true, heldAnchor.Building, bestKind, bestBuilding))
+                // Same shop+Buy always keeps its place; otherwise stay unless the winner is
+                // meaningfully better than continuing to wait (hysteresis = balking gate).
+                bool stay = ShouldStayInQueue(true, heldAnchor.Building, bestKind, bestBuilding);
+                if (!stay)
                 {
-                    // Same shop + Buy still wins: stay in line. Re-commit the CURRENT
-                    // behaviour directly (BehaviorSetIntent, not IntentSetIntent, because
-                    // IntentSetIntent routes through ExecutionSystem which always produces
-                    // Phase=Doing/Moving — it cannot preserve Phase=Queued). The only change
-                    // is SinceDecisionGameMinutes = 0, resetting the decision clock so the
-                    // per-agent cap staggering is restored and this agent won't re-decide
-                    // again until the next cap (~48+ game-minutes from now).
+                    double currentScore = verbIndex.TryGetValue(current.Activity, out var ci) ? verbScore[ci] : 0.0;
+                    double winnerScore = verbScore[winner];
+                    stay = !ShouldSwitchCommitment(true, currentScore, winnerScore, Hysteresis);
+                }
+                if (stay)
+                {
+                    // Same shop + Buy still wins, or winner doesn't clear the hysteresis bar:
+                    // stay in line. Re-commit the CURRENT behaviour directly (BehaviorSetIntent,
+                    // not IntentSetIntent, because IntentSetIntent routes through ExecutionSystem
+                    // which always produces Phase=Doing/Moving — it cannot preserve Phase=Queued).
+                    // The only change is SinceDecisionGameMinutes = 0, resetting the decision
+                    // clock so the per-agent cap staggering is restored and this agent won't
+                    // re-decide again until the next cap (~48+ game-minutes from now).
                     // Queue slot (TargetX/TargetZ) and all other state are copied from
                     // `current`, which holds the slot as set by SharedActivitySystem.
                     Events.Publish(new BehaviorSetIntent
@@ -413,6 +424,9 @@ namespace DaggerfallWorkshop.Sim.Engine
         const double GuardAttackFloor  = 0.02;  // below duty: guard holds post; only engages when creature is within ~3m (at the gate)
         const double GuardAttackGain   = 0.06;  // proximity bonus adds urgency; nearest creature preferred
         const float  GuardSenseRange   = 12f;   // matches SenseSystem sight radius
+
+        const int    PreemptEveryTicks = 5;     // re-value queued commitments ~every 5 ticks (tunable)
+        const double Hysteresis        = 0.15;  // winner must beat current by 15% to balk (anti-thrash)
 
         void InjectGuardAds(EntityId id, ScoreContext sc, List<Ad> ads, int hour)
         {
@@ -683,6 +697,13 @@ namespace DaggerfallWorkshop.Sim.Engine
         public static bool ShouldStayInQueue(bool inQueue, int heldBuilding,
             ActivityKind winnerKind, int winnerBuilding)
             => inQueue && winnerKind == ActivityKind.Buy && winnerBuilding == heldBuilding;
+
+        /// The interrupt rule: a committed agent abandons what it's doing only when the best
+        /// alternative is meaningfully better — beats the current commitment's score by the
+        /// hysteresis margin. A free agent picks the winner. Pure — unit-tested in isolation.
+        public static bool ShouldSwitchCommitment(bool committed, double currentScore,
+            double winnerScore, double hysteresis)
+            => !committed || winnerScore > currentScore * (1.0 + hysteresis);
 
         /// <summary>Remembered danger d∈[0,1] → a clamped aversion factor: a fully-deadly place is
         /// avoided hard (DangerFloor) but never zeroed, so a desperate need still overrides it.</summary>
