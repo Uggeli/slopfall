@@ -123,12 +123,21 @@ main           pick a mode; wire engine + net + ui
   (`parity/smoke-r3.mjs`: agents stream → click → panel opens, zero console errors). Design:
   `docs/superpowers/specs/2026-06-22-the-renderer-r3-ui-carve-design.md`. The shell is now just the
   fly-cam + capture + animate loop + onSnapshot + init — i.e. the future `modes/observer` + `main`.
-- [client] **R4 — The boundary: focal-point contract + `modes/observer`.** Introduce the
-  explicit `engine` API (`render(frame)`, streams around a focal point; a camera the mode
-  owns) and reframe today's behaviour as `modes/observer` (orbit/fly cam → focal point =
-  camera target; mounts the inspector + HUD). This is the deliverable that makes
-  first-person free. Done = observer is a ~thin mode over engine+net+ui, and the engine
-  takes a focal point it can't tell apart from an avatar's.
+- [client] **R4 — The boundary: focal-point contract + `modes/observer`.** DONE. The engine
+  facade `engine/index.js` exposes `createEngine({net}).render({camera, focal, dt, now,
+  selectedId})` — it streams + draws the world around a *focal point* it cannot tell apart from
+  an avatar's (the gate toggle moved to `engine/world.js` `updateGates`). `modes/observer.js`
+  owns the camera + OrbitControls + WASD fly-cam + framing + capture-mode test infra + the rAF
+  loop, mounts the inspector + HUD, and each frame hands the engine `focal = controls.target`.
+  `town3d.html` is now thin `main` (~199 lines): onSnapshot, createNet, createEngine,
+  createObserver, init(), start. Two parity-gated steps (engine.render 88px; observer 0.000%
+  after a fix). Boundary holds: `grep` finds no OrbitControls/camera-movement in `engine/` code;
+  `engine.render`'s view inputs are only `camera`+`focal`, so `modes/player` would call it with
+  `focal = avatarPos` unchanged — **first-person is free on the rendering side.** Validated:
+  parity PASS, console clean, inspector click works (`parity/click-check.mjs` against a live
+  server). Regression caught + fixed mid-step: a bulk delete swept up `let terrainTiles` (used by
+  init), silently swallowed by init's try/catch — terrain vanished until made a local `const`.
+  Design: `docs/superpowers/specs/2026-06-22-the-renderer-r4-observer-mode-design.md`.
 - [client] **R5 — Sole-client cutover.** Delete `wwwroot/index.html` (2D canvas
   spectator) and `wwwroot/view3d.html` (single-model debug viewer); make the town client
   the default page (update `Sim.Web/Program.cs` static-file/default-doc routing). Done =

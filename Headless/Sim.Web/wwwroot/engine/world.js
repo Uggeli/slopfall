@@ -15,6 +15,14 @@ export const regionStructures = new Map();   // "mx,my" -> THREE.Group | 'loadin
 let townClimate = 2, townSeason = 0;  // region texture climate/season (from /asset/town)
 export function setTownClimateSeason(climate, season) { townClimate = climate; townSeason = season; }
 
+// Town gates: paired open/closed door models (446/447) the engine toggles by day/night.
+// init() collects the pairs while placing buildings; the render loop calls updateGates.
+let gatePairs = null;
+export function setGatePairs(g) { gatePairs = g; }
+export function updateGates(night) {
+  if (gatePairs) for (const g of gatePairs) { g.open.visible = !night; g.closed.visible = night; }
+}
+
 // Instantiate one pixel's render geometry: clone each unique building model (loaded
 // once, browser-cached) and apply its world matrix; instance the decorative flats per
 // archive. The group is parented to `town` so the mirror/wireframe toggles apply.
