@@ -40,8 +40,10 @@ namespace DaggerfallWorkshop.Sim.Memory
             LastRefresh = lastRefresh;
         }
 
-        /// <summary>Back-compat constructor: broadcasts one (strength, flags) to every atom. Temporary
-        /// shim while call sites migrate to per-atom meta — removed once they all do.</summary>
+        /// <summary>Uniform-strength convenience: broadcasts one (strength, flags) onto every atom.
+        /// For genuinely-uniform writes and tests; per-atom writers pass an AtomMeta[] to the other
+        /// constructor. (Production write paths — encode, consolidation, place merge — are all
+        /// per-atom; this exists for uniform fixtures, not as a fallback for them.)</summary>
         public MemoryRecord(MemoryKey key, CategoryId categoryRef, AtomBag deltaBag,
                             byte strength, long writtenAt, long lastRefresh, MemoryFlags flags)
             : this(key, categoryRef, deltaBag, Broadcast(deltaBag, strength, flags), writtenAt, lastRefresh) { }
@@ -79,14 +81,6 @@ namespace DaggerfallWorkshop.Sim.Memory
         public bool IsInnate => AnyInnate;
         public bool IsSurprise => AnySurprise;
         public byte Strength => (byte)MaxStrength;   // actual etch-depth (NOT eviction-saturated)
-
-        /// <summary>Combined atom flags (compat, for the back-compat broadcast path). Faithful while a
-        /// record's atoms share flags (broadcast-built); per-atom carry lands when consolidation/encode
-        /// migrate off the shim.</summary>
-        public MemoryFlags Flags
-        {
-            get { MemoryFlags f = MemoryFlags.None; for (int i = 0; i < Meta.Length; i++) f |= Meta[i].Flags; return f; }
-        }
 
         /// <summary>Reconsolidation: bump every non-INNATE atom's strength (clamped 0..255) and set
         /// LastRefresh. INNATE atoms are already permanent.</summary>
