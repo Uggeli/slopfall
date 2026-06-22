@@ -83,6 +83,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createNet } from './net/client.js';
 
 const ui = id => document.getElementById(id);
 const stat = s => ui('stat').textContent = s;
@@ -259,8 +260,7 @@ function streamRegionTerrain(dt) {
   // the visible edge). Only on change, to avoid spamming the socket.
   if (cmx !== lastViewMx || cmy !== lastViewMy) {
     lastViewMx = cmx; lastViewMy = cmy;
-    if (agentWs && agentWs.readyState === 1)
-      agentWs.send(JSON.stringify({ type: 'view', mx: cmx, my: cmy, r: R + 2 }));
+    net.send({ type: 'view', mx: cmx, my: cmy, r: R + 2 });
   }
 
   // Collect missing pixels in the ring, request the nearest few this tick.
@@ -540,7 +540,7 @@ function animate() {
   if (gatePairs) for (const g of gatePairs) { g.open.visible = !world.night; g.closed.visible = world.night; }
   updateAtmosphere(dt);
   streamRegionTerrain(dt);
-  if (spritePools && curSnap.size) updateAgents(now);
+  if (spritePools && net.curSnap.size) updateAgents(now);
   // Flat billboards are instanced and camera-face in the vertex shader — no per-frame lookAt.
   if (_capState === 'settle') {
     controls.update();
@@ -636,9 +636,6 @@ let flats = null;   // THREE.Group of flat billboards; populated by init(), bill
 let spritePools = null;   // { civilian:[], guard:[], monster:[] }
 const sheets = new Map();          // archive -> { tex, meta, mat, sheetW, sheetH } | 'loading'
 const people = new Map();          // entityId -> { mesh, archive }
-let prevSnap = new Map(), curSnap = new Map();   // id -> [x,z,yaw]
-let prevTime = 0, curTime = 0;
-const SNAP_INTERVAL = 0.2;         // fallback gap; web pump publishes ~5 Hz
 // 8-direction -> (record, flip): records 0-4 = facing S/SW/W/NW/N; NE/E/SE reuse
 // records 3/2/1 mirrored (DFU MobilePersonBillboard). Idle = record 5.
 const ORI_RECORD = [0, 1, 2, 3, 4, 3, 2, 1];
@@ -796,11 +793,9 @@ renderer.domElement.addEventListener('pointerup', e => {
 });
 addEventListener('keydown', e => { if (e.code === 'Escape') deselect(); });
 
-function send(o) { if (agentWs && agentWs.readyState === 1) agentWs.send(JSON.stringify(o)); }
-
 // Drop whatever is currently selected (agent or building) and stop watching.
 function clearSelection() {
-  if (selectedId >= 0) send({ type: 'watch', id: null });
+  if (selectedId >= 0) net.send({ type: 'watch', id: null });
   selectedId = -1; selectedBuildingI = -1; lastAgentDetail = null; oddCollapsed.clear();
   clearInterval(inspectTimer); inspectTimer = null;
   selRing.visible = false;
@@ -813,8 +808,8 @@ function selectAgent(id) {
   selectedId = id; agentTab = 'status';
   ui('detail').style.display = 'block';
   ui('detail').innerHTML = `<div class="dh">#${id}…</div>`;
-  send({ type: 'watch', id });                       // start ODD snapshotting this agent
-  const ask = () => send({ type: 'inspect', id });
+  net.send({ type: 'watch', id });                       // start ODD snapshotting this agent
+  const ask = () => net.send({ type: 'inspect', id });
   ask();
   inspectTimer = setInterval(ask, 1000);             // keep the panel live while selected
 }
@@ -824,7 +819,7 @@ function pickBuilding(x, z) {
   selectedBuildingI = -2;                            // pending (any non -1 marks "building mode")
   ui('detail').style.display = 'block';
   ui('detail').innerHTML = `<div class="dh">building…</div>`;
-  send({ type: 'pickBuilding', x, z });
+  net.send({ type: 'pickBuilding', x, z });
 }
 
 // Server needs.V axes, in order (NeedsRegistry.NeedAxis); each is a deficit 0..1.
@@ -940,12 +935,11 @@ function needBar(label, v) {
 function updateAgents(t) {
   // Interpolate prev->cur over the ACTUAL snapshot gap (the web pump runs ~5 Hz,
   // not the 10 tps tick rate), so movement glides instead of teleport-then-freeze.
-  const interval = (curTime - prevTime) || SNAP_INTERVAL;
-  const alpha = curTime ? Math.min(1, (t - curTime) / interval) : 0;
+  const alpha = net.alpha(t);
   const seen = new Set();
   selRing.visible = false;   // re-shown below only if the selected agent is present
 
-  for (const [id, c] of curSnap) {
+  for (const [id, c] of net.curSnap) {
     seen.add(id);
     const kind = c[4] | 0;
     const pool = poolFor(kind);
@@ -966,7 +960,7 @@ function updateAgents(t) {
     }
 
     // interpolate position prev->cur (incl. ground height for region towns)
-    const pr = prevSnap.get(id) || c;
+    const pr = net.prevSnap.get(id) || c;
     const x = pr[0] + (c[0] - pr[0]) * alpha, z = pr[1] + (c[1] - pr[1]) * alpha;
     const gy = pr[3] + (c[3] - pr[3]) * alpha;
     p.mesh.position.set(x, gy + s.meta.worldH / 2, z);
@@ -1049,15 +1043,9 @@ function pushUtterances(list) {
   }
 }
 
-function onSnap(msg) {
-  prevSnap = curSnap; prevTime = curTime;
+// App-side reactions to a decoded snapshot (net owns the buffer + decode).
+function onSnapshot(msg) {
   if (msg.utterances) pushUtterances(msg.utterances);
-  // id -> [x, z, yaw, groundY, kind, activity]. groundY is the town's terrain-pad
-  // height in region mode (0 in town mode), so agents stand on the ground instead of
-  // at y=0. kind (index 6) is the render-kind (0 civilian, 1 guard, 2 monster).
-  // activity (index 3) is the ActivityKind ordinal.
-  curSnap = new Map(msg.entities.map(e => [e[0], [e[1], e[2], e[5], e[7] || 0, e[6] || 0, e[3] || 0]]));
-  curTime = performance.now() / 1000;
   world.hour = msg.hour; world.minute = msg.minute; world.night = msg.night;
   world.sun = msg.sun; world.weather = msg.weather;
   // Capture grabs the first published frame at-or-past CAP_TICK (timing-dependent tick, deterministic per machine).
@@ -1068,27 +1056,20 @@ function onSnap(msg) {
     controls.target.set(CAP_CAM[3], CAP_CAM[4], CAP_CAM[5]);
     controls.update();
   }
-  stat(`live · ${curSnap.size} agents · ${String(msg.hour).padStart(2,'0')}:${String(msg.minute).padStart(2,'0')} · ${msg.weather}`);
+  stat(`live · ${net.curSnap.size} agents · ${String(msg.hour).padStart(2,'0')}:${String(msg.minute).padStart(2,'0')} · ${msg.weather}`);
 }
 
-let agentWs = null;
-function connectAgents() {
-  stat('agents: connecting…');
-  agentWs = new WebSocket(`ws://${location.host}/ws`);
-  agentWs.onopen = () => { stat('agents: stream open, waiting…'); setSpeed(CAPTURE ? -1 : 10); };
-  agentWs.onerror = () => stat('agents: WebSocket error');
-  agentWs.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === 'snap') onSnap(msg);        // ignore the 'world' frame; we have /asset/town
-    else if (msg.type === 'detail') renderDetail(msg.detail);
-    else if (msg.type === 'building') renderBuilding(msg.building);
-  };
-  agentWs.onclose = () => { stat('agents: stream closed, retrying…'); setTimeout(connectAgents, 1000); };
-}
+const net = createNet({
+  onSnapshot,
+  onDetail: (d) => renderDetail(d),
+  onBuilding: (b) => renderBuilding(b),
+  onStatus: (s) => stat(s),
+  onOpen: () => setSpeed(CAPTURE ? -1 : 10),
+});
 
+// Speed control wrapper: net transport + HUD button highlight (the latter → ui/ in R3).
 function setSpeed(scale) {
-  if (agentWs && agentWs.readyState === 1)
-    agentWs.send(JSON.stringify({ type: 'speed', scale }));
+  net.send({ type: 'speed', scale });
   document.querySelectorAll('#speed button').forEach(b =>
     b.style.color = Number(b.dataset.s) === scale ? '#9fd0ff' : '#8893a7');
 }
@@ -1177,7 +1158,7 @@ async function init() {
 
   // Live agents: all sprite pools by render-kind, then the snapshot stream.
   spritePools = await (await fetch('/asset/spritepools')).json();
-  connectAgents();
+  net.connect();
 }
 init().catch(e => { stat('error: ' + (e?.message || e)); console.error(e); });
 animate();   // start the render loop after all declarations are initialised
