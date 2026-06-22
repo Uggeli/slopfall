@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Screenshot parity gate for the town3d web client (The Renderer milestone)",
   "scripts": {
+    "test": "node --test",
     "spike": "node spike.mjs",
     "baseline": "node capture.mjs --out baseline/gothway.png",
     "parity": "node capture.mjs --out current.png && node compare.mjs baseline/gothway.png current.png"
