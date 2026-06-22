@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DaggerfallWorkshop.Sim.Memory;
 
 namespace DaggerfallWorkshop.Sim.Engine
 {
@@ -42,6 +43,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         readonly RelationsRegistry _relations;
         readonly MeaningsRegistry _meanings;
         readonly PlaceMemoryRegistry _placeMemory;
+        readonly AgentMemoryRegistry _agentMemory;
         readonly StockRegistry _stock;
         readonly ItemRegistry _items;
         readonly WorldClockRegistry _worldClock;
@@ -68,6 +70,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             RelationsRegistry relations,
             MeaningsRegistry meanings,
             PlaceMemoryRegistry placeMemory,
+            AgentMemoryRegistry agentMemory,
             StockRegistry stock,
             ItemRegistry items,
             WorldClockRegistry worldClock,
@@ -92,6 +95,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             _relations = relations;
             _meanings = meanings;
             _placeMemory = placeMemory;
+            _agentMemory = agentMemory;
             _stock = stock;
             _items = items;
             _worldClock = worldClock;
@@ -568,6 +572,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 * (s.FearDriven ? DesperationFactor(c.Needs, NeedAxis.Fear) : 1.0)
                 * (s.Kind == ActivityKind.Attack && c.IsGuard ? GuardCombatBoost : 1.0)
                 * (s.RelationSensitive ? RelationFactor(RegardFieldAt(ad.Building, c)) : 1.0)
+                * PlaceMemoryFactor(c.Self, ad)
                 * ConscienceFactor(_conscience.ChargeFor(c.Self, ad.Verb))
                 * (c.Holiday && s.HolidayFactor != 1.0 ? s.HolidayFactor : 1.0)
                 * (s.TraitOnBase ? 1.0 : traitFactor);
@@ -624,6 +629,40 @@ namespace DaggerfallWorkshop.Sim.Engine
         {
             double f = 1.0 - charge;
             return f < ShameFloor ? ShameFloor : (f > 1.0 ? 1.0 : f);
+        }
+
+        // PLACES scoring — the dense coupling: every decision consults the agent's rich place memory.
+        const double DangerAversion = 0.9, DangerFloor = 0.1;   // remembered danger lowers the gate, never to zero
+        const double ProvisionPenalty = 0.4;                    // remembered-empty provisioning: a gentle deprioritise
+
+        /// <summary>Remembered danger d∈[0,1] → a clamped aversion factor: a fully-deadly place is
+        /// avoided hard (DangerFloor) but never zeroed, so a desperate need still overrides it.</summary>
+        public static double PlaceAversion(double danger)
+        {
+            double f = 1.0 - DangerAversion * danger;
+            return f < DangerFloor ? DangerFloor : (f > 1.0 ? 1.0 : f);
+        }
+
+        /// <summary>Remembered provisioning p∈[0,1] → a gentle preference: a place remembered as empty
+        /// is mildly deprioritised (soft prior; the hard larder gate stays ground truth).</summary>
+        public static double ProvisionPreference(double prov)
+        {
+            double f = 1.0 - ProvisionPenalty * (1.0 - prov);
+            double floor = 1.0 - ProvisionPenalty;
+            return f < floor ? floor : (f > 1.0 ? 1.0 : f);
+        }
+
+        /// <summary>The PLACES gate factor for an ad: avoid remembered-dangerous buildings, prefer
+        /// remembered-provisioned ones. 1.0 (no effect) for building-less or unremembered ads.</summary>
+        double PlaceMemoryFactor(EntityId self, Ad ad)
+        {
+            if (ad.Building < 0 || !_agentMemory.TryGet(self, out var mem)) return 1.0;
+            if (!mem.Stores.Places.TryGet(new MemoryKey(ad.Building), out var rec)) return 1.0;
+            double f = 1.0;
+            if (rec.DeltaBag.TryGet(PlaceAtoms.Danger, out var d)) f *= PlaceAversion(d.ToDouble());
+            if (ad.Spec != null && ad.Spec.LarderGated && rec.DeltaBag.TryGet(PlaceAtoms.Provisions, out var p))
+                f *= ProvisionPreference(p.ToDouble());
+            return f;
         }
 
         const double DesperationStrength = 0.7;
