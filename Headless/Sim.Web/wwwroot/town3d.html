@@ -98,6 +98,15 @@ scene.fog = new THREE.Fog(0x9fc0e8, 400, 1600);   // hides the 3x3 terrain edge 
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.minDistance = 5;                    // don't let dolly collapse the pivot to ~0 (frozen zoom)
+
+// --- Capture mode (test infra: deterministic screenshot for the parity gate) ---
+const _capQ = new URLSearchParams(location.search);
+const CAPTURE = _capQ.has('capture');
+const CAP_TICK = Number(_capQ.get('tick') ?? 50);
+const CAP_CAM = (_capQ.get('cam') ?? '600,900,600,600,0,600').split(',').map(Number);
+let _capState = CAPTURE ? 'ff' : 'off';   // ff -> waiting for CAP_TICK; settle -> counting down; done
+let _capSettle = 90;                       // render frames to let interpolation converge after pause
+window.__captureReady = false;
 controls.maxPolarAngle = Math.PI * 0.495;    // keep the camera above the ground plane
 
 const ambient = new THREE.AmbientLight(0xffffff, 0.6);
@@ -533,6 +542,10 @@ function animate() {
   streamRegionTerrain(dt);
   if (spritePools && curSnap.size) updateAgents(now);
   // Flat billboards are instanced and camera-face in the vertex shader — no per-frame lookAt.
+  if (_capState === 'settle') {
+    controls.update();
+    if (--_capSettle <= 0) { _capState = 'done'; window.__captureReady = true; }
+  }
   renderer.render(scene, camera);
 }
 
@@ -1047,6 +1060,13 @@ function onSnap(msg) {
   curTime = performance.now() / 1000;
   world.hour = msg.hour; world.minute = msg.minute; world.night = msg.night;
   world.sun = msg.sun; world.weather = msg.weather;
+  if (_capState === 'ff' && msg.tick >= CAP_TICK) {
+    _capState = 'settle';
+    setSpeed(0);
+    camera.position.set(CAP_CAM[0], CAP_CAM[1], CAP_CAM[2]);
+    controls.target.set(CAP_CAM[3], CAP_CAM[4], CAP_CAM[5]);
+    controls.update();
+  }
   stat(`live · ${curSnap.size} agents · ${String(msg.hour).padStart(2,'0')}:${String(msg.minute).padStart(2,'0')} · ${msg.weather}`);
 }
 
@@ -1054,7 +1074,7 @@ let agentWs = null;
 function connectAgents() {
   stat('agents: connecting…');
   agentWs = new WebSocket(`ws://${location.host}/ws`);
-  agentWs.onopen = () => { stat('agents: stream open, waiting…'); setSpeed(10); };
+  agentWs.onopen = () => { stat('agents: stream open, waiting…'); setSpeed(CAPTURE ? -1 : 10); };
   agentWs.onerror = () => stat('agents: WebSocket error');
   agentWs.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
