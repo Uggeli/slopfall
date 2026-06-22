@@ -40,6 +40,7 @@ namespace DaggerfallWorkshop.Sim.Memory
 
             Surprise surprise;
             AtomBag deltaBag;
+            AtomBag prediction = AtomBag.Empty;
             if (cat.IsNone)
             {
                 surprise = Surprise.Maximal;
@@ -49,27 +50,38 @@ namespace DaggerfallWorkshop.Sim.Memory
             {
                 CategoryNode node;
                 store.TryGetNode(cat, out node);
-                AtomBag prediction = node.Prediction(store.Config);
+                prediction = node.Prediction(store.Config);
                 surprise = Surprise.Against(percept, prediction);
                 deltaBag = AtomBag.Diff(percept, prediction);
                 store.Fold(cat, percept);           // ungated StatFold on every recognition
             }
 
+            // The WRITE GATE stays record-level + MEAN-encode (the anti-flood guard): whether to
+            // write at all. Per-atom strength below decides only how deeply each stored atom etches.
             bool surpriseFired = surprise.Encode.Raw > cfg.SurpriseThresholdRaw;
             bool arousalFired = arousal.Raw > cfg.ArousalThresholdRaw;
             if (!surpriseFired && !arousalFired)
                 return new EncodeResult(false, default(MemoryRecord), surprise, cat);
 
-            int peak = surprise.Encode.Raw > arousal.Raw ? surprise.Encode.Raw : arousal.Raw;
-            byte strength = Scale(peak);
-            MemoryFlags flags = surpriseFired ? MemoryFlags.Surprise : MemoryFlags.None;
-            // Per-atom strength lives on the bag's atoms, so a write needs at least one atom to carry
-            // it. A recognized-and-fully-matched percept has an empty delta — but if AROUSAL drove the
-            // write (it mattered though nothing diverged), etch the whole episode (flashbulb), not a
-            // strengthless empty record. (T2 refines each atom's strength from its own surprise.)
+            // Per-atom etch. A recognized-and-fully-matched percept has an empty delta, but if AROUSAL
+            // drove the write (it mattered though nothing diverged), etch the whole episode (flashbulb)
+            // so the strength has atoms to live on.
             AtomBag bag = deltaBag.Count > 0 ? deltaBag : percept;
-            MemoryRecord record = new MemoryRecord(key, cat, bag, strength, tick, tick, flags);
-            return new EncodeResult(true, record, surprise, cat);
+            int novelErr = Fixed.One.Raw;           // novelty: every atom maximally surprising
+            var meta = new AtomMeta[bag.Count];
+            for (int k = 0; k < bag.Count; k++)
+            {
+                long err = cat.IsNone
+                    ? novelErr
+                    : (prediction.TryGet(bag[k].Type, out var pv) ? Abs((long)bag[k].Value.Raw - pv.Raw)
+                                                                  : Abs(bag[k].Value.Raw));
+                int peak = err > arousal.Raw ? (int)err : arousal.Raw;
+                // SURPRISE (decay-resistant) when the atom's OWN divergence drove its etch; if it only
+                // rode in on arousal, it is ordinary and fades normally.
+                MemoryFlags flags = err > arousal.Raw ? MemoryFlags.Surprise : MemoryFlags.None;
+                meta[k] = new AtomMeta(Scale(peak), flags);
+            }
+            return new EncodeResult(true, new MemoryRecord(key, cat, bag, meta, tick, tick), surprise, cat);
         }
 
         /// <summary>Map a raw Fixed surprise/arousal (Q8, ~[0,1]) to a strength byte [0,255].</summary>
@@ -79,5 +91,7 @@ namespace DaggerfallWorkshop.Sim.Memory
             else if (raw > 255) raw = 255;
             return (byte)raw;
         }
+
+        static long Abs(long x) => x < 0 ? -x : x;
     }
 }

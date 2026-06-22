@@ -44,18 +44,38 @@ namespace Sim.MemoryTests
         }
 
         [Fact]
-        public void NotchedEar_WhenWritten_StoresOnlyTheDelta_Weakly()
+        public void NotchedEar_WhenWritten_StoresOnlyTheDelta_AtItsOwnStrength()
         {
             var s = FoxStore(out _);
             var percept = Bag((1, 1.0), (2, 1.0), (3, 1.0), (4, 1.0), (5, 1.0), (99, 1.0));
-            // Threshold low enough to write: proves delta-only storage + low strength (no flood).
+            // Threshold low enough to write: proves delta-only storage. Under per-atom strength the
+            // notched-ear atom is etched at ITS OWN divergence (strong), not MEAN-diluted across the
+            // five matched features — the MEAN only gates whether we write (anti-flood), not how deep.
             var cfg = new EncodeConfig(0, 154);
             var r = MemoryEncoder.Perceive(s, FoxSignature, percept, Fixed.Zero, new MemoryKey(7), 100, cfg);
 
             Assert.True(r.Written);
             Assert.Equal(new[] { 99 }, r.Record.DeltaBag.Atoms.Select(a => a.Type.Value).ToArray());   // ONLY the new atom
-            Assert.True(r.Record.Strength < 64);             // weak (scale of ~1/6), not a full etch
-            Assert.True(r.Record.IsSurprise);                // surprise-driven
+            Assert.True(r.Record.Meta[0].Strength > 200);    // the surprising atom etched deep
+            Assert.True(r.Record.Meta[0].IsSurprise);        // surprise-driven
+        }
+
+        [Fact]
+        public void DeltaAtoms_EtchedByTheirOwnError_NotOneRecordStrength()
+        {
+            var s = FoxStore(out _);
+            // Atom 2 wildly off (err ~1.0), atom 3 slightly off (err ~0.1); the rest match.
+            var percept = Bag((1, 1.0), (2, 0.0), (3, 0.9), (4, 1.0), (5, 1.0));
+            var cfg = new EncodeConfig(0, 999);   // gate on surprise only; force the write
+            var r = MemoryEncoder.Perceive(s, FoxSignature, percept, Fixed.Zero, new MemoryKey(7), 100, cfg);
+
+            Assert.True(r.Written);
+            Assert.Equal(new[] { 2, 3 }, r.Record.DeltaBag.Atoms.Select(a => a.Type.Value).ToArray());
+            byte s2 = r.Record.Meta[0].Strength;   // atom 2 (big divergence)
+            byte s3 = r.Record.Meta[1].Strength;   // atom 3 (small divergence)
+            Assert.True(s2 > 200);                  // deep etch
+            Assert.True(s3 < 64);                   // shallow etch — same record, different importance
+            Assert.True(s2 > s3);
         }
 
         [Fact]
