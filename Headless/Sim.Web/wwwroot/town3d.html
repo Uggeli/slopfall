@@ -81,21 +81,19 @@
 
 <script type="module">
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createNet } from './net/client.js';
+import { renderer, scene, grid, world, gfx } from './engine/scene.js';
+import { loadModel } from './engine/assets.js';
+import { updateAtmosphere } from './engine/atmosphere.js';
+import { town, setTownClimateSeason, getFlatSheet, buildFlatInstances } from './engine/world.js';
+import { terrainGroup, buildTerrain, streamRegionTerrain, terrainTargetMeshes,
+         getRegionMeta, setRegionMeta } from './engine/terrain.js';
+import { agents, setSpritePools, clearSelRing, updateAgents } from './engine/agents.js';
 
 const ui = id => document.getElementById(id);
 const stat = s => ui('stat').textContent = s;
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(innerWidth, innerHeight);
-document.body.appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x9fc0e8);
-scene.fog = new THREE.Fog(0x9fc0e8, 400, 1600);   // hides the 3x3 terrain edge too
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.minDistance = 5;                    // don't let dolly collapse the pivot to ~0 (frozen zoom)
@@ -110,283 +108,11 @@ let _capSettle = 90;                       // 90 frames is enough for interpolat
 if (CAPTURE) window.__captureReady = false;
 controls.maxPolarAngle = Math.PI * 0.495;    // keep the camera above the ground plane
 
-const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambient);
-const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-sun.position.set(0.5, 1, 0.4);
-scene.add(sun);
-
-const grid = new THREE.GridHelper(2000, 200, 0x335577, 0x1c2738);
-scene.add(grid);
-
-const town = new THREE.Group();    // all building instances
-scene.add(town);
-
 let terrainTiles = null;        // array of tile data (centre + neighbours)
-let terrainMat = null;          // shared ground-atlas material
-const texLoader = new THREE.TextureLoader();
-const terrainGroup = new THREE.Group();
-scene.add(terrainGroup);
 
-// Region mode: terrain is too big to ship in one payload, so we stream it per
-// map pixel as the camera pans. regionMeta carries the pixel bbox + tile size
-// (819.2 m). regionTiles caches the meshes we've built/requested by "mx,my".
-let regionMeta = null;
-const regionTiles = new Map();   // "mx,my" -> mesh | 'loading'
-// Region mode also streams building/flat geometry per pixel on the SAME ring as
-// terrain, via /asset/towntile. regionStructures caches a THREE.Group per pixel.
-const regionStructures = new Map();   // "mx,my" -> THREE.Group | 'loading' | 'empty'
-let townClimate = 2, townSeason = 0;  // region texture climate (from /asset/town)
-let lastViewMx = -999, lastViewMy = -999;   // last camera pixel reported to the server
-
-// Build a per-cell textured terrain mesh: heightfield (129x129) + a 128x128
-// tilemap that picks a ground-tile per cell. The server bakes the atlas with all
-// 4 tile orientations (32x7 grid, 64px tiles), so the client samples a pre-oriented
-// tile with identity UVs — zero orientation logic on the client.
-const ATLAS_COLS = 32, ATLAS_ROWS = 7, ATLAS_RECCOLS = 8;
-
-function ensureTerrainMat(archive) {
-  if (terrainMat) return terrainMat;
-  terrainMat = new THREE.MeshLambertMaterial({ color: 0x8a8a8a });
-  texLoader.load(`/asset/groundatlas/${archive}`, t => {
-    t.flipY = false;   // atlas is top-down; UV v=0 at top
-    // Crisp pixels up close (nearest mag), but mip + anisotropy when the tile
-    // minifies — otherwise the 64px ground art aliases into diagonal moiré bands
-    // at grazing angles. (Atlas mips bleed slightly across the 8x7 grid at far
-    // distance; the half-texel UV inset keeps the base level clean.)
-    t.magFilter = THREE.NearestFilter;
-    t.minFilter = THREE.LinearMipmapLinearFilter;
-    t.generateMipmaps = true;
-    t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    terrainMat.map = t; terrainMat.color.set(0xffffff); terrainMat.needsUpdate = true;
-  });
-  return terrainMat;
-}
-
-// Rebuild all tile meshes (centre + neighbours) into terrainGroup.
-function buildTerrain(tiles) {
-  while (terrainGroup.children.length) { const m = terrainGroup.children.pop(); m.geometry.dispose(); }
-  for (const d of tiles) {
-    const m = buildTileMesh(d);
-    m.position.set(d.originX, 0, d.originZ);
-    terrainGroup.add(m);
-  }
-  positionTerrain();
-}
-
-function buildTileMesh(d) {
-  const dim = d.dim, step = d.worldSize / (dim - 1), td = d.tileDim;
-  // Server emits canonical DFU-frame data (x→world X east, y→world Z north); the
-  // client renders it raw — no flips. byte[] arrives base64 from System.Text.Json.
-  const tilemap = Uint8Array.from(atob(d.tilemap), c => c.charCodeAt(0));
-  const heights = d.heights;
-  const H = (gx, gy) => heights[Math.min(dim - 1, Math.max(0, gx)) * dim + Math.min(dim - 1, Math.max(0, gy))];
-  const wx = gx => gx * step;
-  const wz = gy => gy * step;
-  // Smooth normal per heightfield grid point (central differences).
-  const N = (gx, gy) => {
-    const nx = H(gx - 1, gy) - H(gx + 1, gy), nz = H(gx, gy - 1) - H(gx, gy + 1);
-    const v = new THREE.Vector3(nx, 2 * step, nz); v.normalize(); return v;
-  };
-
-  const cells = (td) * (td), pos = new Float32Array(cells * 4 * 3),
-        nor = new Float32Array(cells * 4 * 3), uv = new Float32Array(cells * 4 * 2);
-  const idx = new Uint32Array(cells * 6);
-  const epsU = 0.5 / (ATLAS_COLS * 64), epsV = 0.5 / (ATLAS_ROWS * 64);  // half-texel inset
-  let vp = 0, up = 0, ip = 0, vbase = 0;
-
-  for (let cx = 0; cx < td; cx++) {
-    for (let cy = 0; cy < td; cy++) {
-      const tile = tilemap[cx * td + cy];
-      // The atlas is pre-oriented: orientation o = rot + 2*flip selects a column band.
-      // Server bakes the rotation; client just looks up the cell with identity UVs.
-      const rec = tile & 63, o = ((tile & 64) ? 1 : 0) + ((tile & 128) ? 2 : 0);
-      const col = (rec % ATLAS_RECCOLS) + o * ATLAS_RECCOLS, row = (rec / ATLAS_RECCOLS) | 0;
-      const u0 = col / ATLAS_COLS + epsU, u1 = (col + 1) / ATLAS_COLS - epsU;
-      const v0 = row / ATLAS_ROWS + epsV, v1 = (row + 1) / ATLAS_ROWS - epsV;
-      // Identity UV per quad corner [ (cx,cy),(cx+1,cy),(cx,cy+1),(cx+1,cy+1) ]:
-      // tile u <- +terrain X (cu), tile v <- +terrain Z (cv). No client transforms.
-      const luv = [[0, 0], [1, 0], [0, 1], [1, 1]];
-
-      const corners = [[cx, cy], [cx + 1, cy], [cx, cy + 1], [cx + 1, cy + 1]];
-      for (let k = 0; k < 4; k++) {
-        const [gx, gy] = corners[k];
-        pos[vp++] = wx(gx); pos[vp++] = H(gx, gy); pos[vp++] = wz(gy);
-        const n = N(gx, gy); nor[vp - 3] = n.x; nor[vp - 2] = n.y; nor[vp - 1] = n.z;
-        uv[up++] = u0 + luv[k][0] * (u1 - u0);
-        uv[up++] = v0 + luv[k][1] * (v1 - v0);
-      }
-      // two triangles (CCW up-facing): 0,3,1  0,2,3
-      idx[ip++] = vbase; idx[ip++] = vbase + 3; idx[ip++] = vbase + 1;
-      idx[ip++] = vbase; idx[ip++] = vbase + 2; idx[ip++] = vbase + 3;
-      vbase += 4;
-    }
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  geo.setIndex(new THREE.BufferAttribute(idx, 1));
-
-  return new THREE.Mesh(geo, ensureTerrainMat(d.groundArchive));
-}
-
+// Apply the 'show terrain' HUD toggle to the engine terrain group (→ ui/ in R3).
 function positionTerrain() {
   terrainGroup.visible = ui('terr').checked;
-}
-
-// Stream the region's terrain around the camera target. We map the target's
-// world (x,z) back to a map pixel, request the ring of pixels within R of it
-// (nearest-first, a few per tick so the single-threaded asset service keeps
-// up), and evict tiles that drift well outside the ring. Fog hides the moving
-// edge, so a modest R suffices. Server caches each pixel — re-entry is cheap.
-let streamAccum = 0;
-function streamRegionTerrain(dt) {
-  if (!regionMeta) return;
-  streamAccum += dt;
-  if (streamAccum < 0.3) return;   // throttle: ~3 Hz is plenty for panning
-  streamAccum = 0;
-
-  const ts = regionMeta.tileSize, t = controls.target;
-  // Inverse of the server placement: worldX = (mx-mx0)*ts, worldZ = (my1-my)*ts.
-  const cmx = regionMeta.mx0 + Math.round(t.x / ts);
-  const cmy = regionMeta.my1 - Math.round(t.z / ts);
-  const dist = camera.position.distanceTo(t);
-  const R = Math.min(6, Math.max(2, Math.ceil(dist / ts) + 1));
-
-  // Tell the server our camera pixel so it filters the agent snapshot to our ring
-  // (R+2 matches the structure/terrain eviction hysteresis, so agents don't pop at
-  // the visible edge). Only on change, to avoid spamming the socket.
-  if (cmx !== lastViewMx || cmy !== lastViewMy) {
-    lastViewMx = cmx; lastViewMy = cmy;
-    net.send({ type: 'view', mx: cmx, my: cmy, r: R + 2 });
-  }
-
-  // Collect missing pixels in the ring, request the nearest few this tick.
-  const want = [];
-  for (let mx = cmx - R; mx <= cmx + R; mx++)
-    for (let my = cmy - R; my <= cmy + R; my++) {
-      if (mx < regionMeta.mx0 || mx > regionMeta.mx1 ||
-          my < regionMeta.my0 || my > regionMeta.my1) continue;
-      const key = mx + ',' + my;
-      if (regionTiles.has(key)) continue;
-      want.push({ mx, my, key, d: (mx - cmx) * (mx - cmx) + (my - cmy) * (my - cmy) });
-    }
-  want.sort((a, b) => a.d - b.d);
-  for (const w of want.slice(0, 8)) {
-    regionTiles.set(w.key, 'loading');
-    fetch(`/asset/terraintile/${w.mx}/${w.my}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (!d) { regionTiles.delete(w.key); return; }
-        const m = buildTileMesh(d);
-        m.position.set(d.originX, 0, d.originZ);
-        m.visible = ui('terr').checked;
-        terrainGroup.add(m);
-        regionTiles.set(w.key, m);
-        // Wilderness nature scatter: instanced billboards from the tile's climate
-        // nature atlas, positioned in world space (tile origin + tile-local scatter).
-        // Parented to the tile mesh so they unload with it.
-        if (d.nature && d.nature.length && d.natureArchive) {
-          getFlatSheet(d.natureArchive).then(({ meta, tex }) => {
-            const items = d.nature.map(n => ({ record: n.record, x: d.originX + n.x, y: n.y, z: d.originZ + n.z }));
-            m.add(buildFlatInstances(meta, tex, items));
-          });
-        }
-      })
-      .catch(() => regionTiles.delete(w.key));
-  }
-
-  // Evict tiles that have drifted beyond the ring (keep a 2-pixel hysteresis).
-  for (const [key, m] of regionTiles) {
-    if (m === 'loading') continue;
-    const [mx, my] = key.split(',').map(Number);
-    if (Math.abs(mx - cmx) > R + 2 || Math.abs(my - cmy) > R + 2) {
-      // Dispose the tile mesh AND its child nature InstancedMesh (geometry +
-      // per-instance attributes + its own ShaderMaterial). The atlas texture is
-      // shared/cached in flatSheets and must NOT be disposed here.
-      m.traverse(o => {
-        if (o.isMesh || o.isInstancedMesh) { o.geometry.dispose(); if (o !== m) o.material.dispose(); }
-      });
-      terrainGroup.remove(m); m.geometry.dispose(); regionTiles.delete(key);
-    }
-  }
-
-  // Structures (buildings + decorative flats) stream on the SAME ring as terrain.
-  const wantS = [];
-  for (let mx = cmx - R; mx <= cmx + R; mx++)
-    for (let my = cmy - R; my <= cmy + R; my++) {
-      if (mx < regionMeta.mx0 || mx > regionMeta.mx1 ||
-          my < regionMeta.my0 || my > regionMeta.my1) continue;
-      const key = mx + ',' + my;
-      if (regionStructures.has(key)) continue;
-      wantS.push({ mx, my, key, d: (mx - cmx) * (mx - cmx) + (my - cmy) * (my - cmy) });
-    }
-  wantS.sort((a, b) => a.d - b.d);
-  for (const w of wantS.slice(0, 4)) {
-    regionStructures.set(w.key, 'loading');
-    fetch(`/asset/towntile/${w.mx}/${w.my}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => addStructureTile(w.key, d))
-      .catch(() => regionStructures.delete(w.key));
-  }
-  // Evict structure tiles beyond the ring (same 2-pixel hysteresis as terrain).
-  for (const [key, g] of regionStructures) {
-    if (g === 'loading' || g === 'empty') continue;
-    const [mx, my] = key.split(',').map(Number);
-    if (Math.abs(mx - cmx) > R + 2 || Math.abs(my - cmy) > R + 2) {
-      // Building instances are proto.clone()s that SHARE the proto's geometry +
-      // material (cached, reused by other tiles) — never dispose those. Only the
-      // per-tile flat InstancedMeshes own their geometry + ShaderMaterial; dispose
-      // those, but not the atlas texture (shared/cached in flatSheets).
-      g.traverse(o => {
-        if (o.isInstancedMesh) { o.geometry.dispose(); o.material.dispose(); }
-      });
-      town.remove(g); regionStructures.delete(key);
-    }
-  }
-}
-
-// Instantiate one pixel's render geometry: clone each unique building model (loaded
-// once, browser-cached) and apply its world matrix; instance the decorative flats per
-// archive. The group is parented to `town` so the mirror/wireframe toggles apply.
-async function addStructureTile(key, d) {
-  if (!d || (!(d.placements && d.placements.length) && !(d.flats && d.flats.length))) {
-    regionStructures.set(key, 'empty'); return;   // cache the empty pixel
-  }
-  const g = new THREE.Group();
-  // Each placement carries its settlement's climate (mixed-climate regions span
-  // desert/mountain/etc., and a large town can spill into a neighbour's pixel). So
-  // key protos by (modelId, climate) — the model URL already varies by climate, so
-  // the browser caches each variant separately.
-  const protos = {};
-  const need = new Map();
-  for (const p of d.placements) {
-    const c = p.climateBase ?? townClimate;
-    need.set(p.modelId + '|' + c, { id: p.modelId, climate: c });
-  }
-  await Promise.all([...need.values()].map(({ id, climate }) =>
-    loadModel(id, climate, townSeason).then(m => { protos[id + '|' + climate] = m; })));
-  for (const p of d.placements) {
-    const proto = protos[p.modelId + '|' + (p.climateBase ?? townClimate)];
-    if (!proto) continue;
-    const inst = proto.clone();
-    inst.applyMatrix4(new THREE.Matrix4().fromArray(p.matrix));
-    g.add(inst);
-  }
-  // Flats carry absolute world coords + worldW/H already (same as the town path),
-  // so pass them straight through — no tile offset, unlike terrain nature scatter.
-  const byArchive = {};
-  for (const f of (d.flats || [])) (byArchive[f.archive] ||= []).push(f);
-  for (const [archive, items] of Object.entries(byArchive)) {
-    const { meta, tex } = await getFlatSheet(Number(archive));
-    g.add(buildFlatInstances(meta, tex, items));
-  }
-  // A tile may have been evicted while its models were loading; honor that.
-  if (regionStructures.get(key) !== 'loading') return;
-  town.add(g);
-  regionStructures.set(key, g);
 }
 
 // WASD fly-cam (on top of OrbitControls): move camera + target together over the
@@ -439,19 +165,11 @@ function moveCamera(dt) {
 const _hcaster = new THREE.Raycaster();
 const _hfrom = new THREE.Vector3(), _hdir = new THREE.Vector3(0, -1, 0);
 let groundAccum = 0, groundY = 0;
-function terrainTargetMeshes() {
-  if (!regionMeta) return terrainGroup.children;   // town: just the 3x3 tiles
-  const ts = regionMeta.tileSize, t = controls.target;
-  const mx = regionMeta.mx0 + Math.round(t.x / ts);
-  const my = regionMeta.my1 - Math.round(t.z / ts);
-  const m = regionTiles.get(mx + ',' + my);
-  return (m && m !== 'loading') ? [m] : null;       // null → tile not streamed yet
-}
 function followGround(dt) {
   groundAccum += dt;
   if (groundAccum >= 0.1) {                          // ~10 Hz sampling is plenty for panning
     groundAccum = 0;
-    const meshes = terrainTargetMeshes();
+    const meshes = terrainTargetMeshes(controls.target);
     if (meshes && meshes.length) {
       _hfrom.set(controls.target.x, 1e5, controls.target.z);
       _hcaster.set(_hfrom, _hdir);
@@ -461,33 +179,6 @@ function followGround(dt) {
   }
   const dy = (groundY - controls.target.y) * Math.min(1, dt * 6);
   if (Math.abs(dy) > 1e-4) { controls.target.y += dy; camera.position.y += dy; }
-}
-
-const manager = new THREE.LoadingManager();
-manager.onError = url => console.warn('load error', url);
-const loader = new GLTFLoader(manager);
-loader.setResourcePath(location.origin + '/');   // resolve /asset/texture URLs
-
-function applyNearest(root) {
-  root.traverse(o => {
-    if (!o.isMesh) return;
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    for (const m of mats) if (m.map) {
-      m.map.magFilter = THREE.NearestFilter;
-      m.map.minFilter = THREE.NearestFilter;
-      m.map.generateMipmaps = false;
-      m.map.needsUpdate = true;
-    }
-  });
-}
-
-function loadModel(id, climate, season) {
-  return new Promise(res => {
-    loader.load(`/asset/model/${id}?climate=${climate}&season=${season}`,
-      gltf => { applyNearest(gltf.scene); res(gltf.scene); },
-      undefined,
-      () => res(null));   // missing model -> skip its instances
-  });
 }
 
 function frame(min, max) {
@@ -503,6 +194,7 @@ function frame(min, max) {
 // fog, so we drop the camera over the region centre at fog-scale altitude and let
 // the streamer fill in. Pan/zoom to roam — fog hides the moving tile edge.
 function frameRegion() {
+  const regionMeta = getRegionMeta();
   const ts = regionMeta.tileSize;
   const cx = ((regionMeta.mx0 + regionMeta.mx1) / 2 - regionMeta.mx0) * ts;
   const cz = ((regionMeta.my0 + regionMeta.my1) / 2 - regionMeta.my0) * ts;
@@ -539,8 +231,10 @@ function animate() {
   controls.update();
   if (gatePairs) for (const g of gatePairs) { g.open.visible = !world.night; g.closed.visible = world.night; }
   updateAtmosphere(dt);
-  streamRegionTerrain(dt);
-  if (spritePools && net.curSnap.size) updateAgents(now);
+  // HUD clock (engine writes no DOM; the shell reflects engine `world` here → ui/ in R3).
+  ui('clock').textContent = `${String(world.hour).padStart(2,'0')}:${String(world.minute).padStart(2,'0')} · ${world.weather}`;
+  streamRegionTerrain(dt, controls.target, camera, net);
+  if (net.curSnap.size) updateAgents(now, camera, net, selectedId);
   // Flat billboards are instanced and camera-face in the vertex shader — no per-frame lookAt.
   if (_capState === 'settle') {
     controls.update();
@@ -549,229 +243,33 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-// ---- M5a: day/night sky, sun arc, weather tint, fog ----
-const world = { hour: 12, minute: 0, night: false, sun: 1, weather: 'Sunny' };
+// ---- M5a: day/night sky, sun arc, weather tint, fog → engine/atmosphere.js ----
 let gatePairs = null;   // populated by init(); toggled each frame in animate()
-let fogFar = 1600;   // town scale; region mode widens this so several tiles show
 
 // ---- Graphics sliders: fog distance/toggle, brightness, FOV, render scale ----
-// These feed live into the atmosphere/camera/renderer state. fogFar and brightness
+// These feed live into the engine gfx/camera/renderer state. gfx.fogFar and brightness
 // are read each frame by updateAtmosphere(); FOV and resolution apply on change.
-const gfx = { bright: 1, fogOn: true };
 function syncGfx() {
-  fogFar = +ui('fog').value;
+  gfx.fogFar = +ui('fog').value;
   gfx.bright = +ui('bright').value / 100;
   gfx.fogOn = ui('fogOn').checked;
   camera.fov = +ui('fov').value; camera.updateProjectionMatrix();
   renderer.setPixelRatio(devicePixelRatio * (+ui('res').value / 100));
   renderer.setSize(innerWidth, innerHeight);
-  ui('fogVal').textContent = fogFar >= 1000 ? (fogFar / 1000).toFixed(1) + 'km' : fogFar + 'm';
+  ui('fogVal').textContent = gfx.fogFar >= 1000 ? (gfx.fogFar / 1000).toFixed(1) + 'km' : gfx.fogFar + 'm';
   ui('brightVal').textContent = Math.round(gfx.bright * 100) + '%';
   ui('fovVal').textContent = camera.fov + '°';
   ui('resVal').textContent = ui('res').value + '%';
 }
 // Reflect the active fogFar in the slider (init picks town 1600 vs region 3200).
-function setFogSlider() { ui('fog').value = fogFar; syncGfx(); }
+function setFogSlider() { ui('fog').value = gfx.fogFar; syncGfx(); }
 for (const id of ['fog', 'bright', 'fov', 'res', 'fogOn']) ui(id).addEventListener('input', syncGfx);
-const SKY_DAY = new THREE.Color(0x9fc0e8), SKY_NIGHT = new THREE.Color(0x10141f);
-const SKY_DUSK = new THREE.Color(0xd98a4a);   // dawn/dusk warm
-const tmpA = new THREE.Color(), tmpB = new THREE.Color();
 
-// Weather → (sky desaturation toward grey, sun scale, fog tightness).
-function weatherMods(w) {
-  switch (w) {
-    case 'Cloudy':   return { grey: 0.35, sun: 0.7, fog: 1.0 };
-    case 'Overcast': return { grey: 0.6,  sun: 0.45, fog: 0.8 };
-    case 'Fog':      return { grey: 0.5,  sun: 0.5, fog: 0.35 };
-    case 'Rain':     return { grey: 0.7,  sun: 0.35, fog: 0.6 };
-    case 'Thunder':  return { grey: 0.8,  sun: 0.25, fog: 0.5 };
-    case 'Snow':     return { grey: 0.55, sun: 0.6, fog: 0.55, white: true };
-    default:         return { grey: 0.0,  sun: 1.0, fog: 1.0 };   // Sunny
-  }
-}
-
-function updateAtmosphere(dt) {
-  // dawn/dusk weighting: peaks near 6:00 and 18:00
-  const h = world.hour + world.minute / 60;
-  const twilight = Math.max(0, 1 - Math.min(Math.abs(h - 6), Math.abs(h - 18)) / 2.5);
-  const sun01 = Math.max(0, Math.min(1, world.sun));
-  const wm = weatherMods(world.weather);
-
-  // target sky: night→day by daylight, warm push at twilight, grey by weather
-  tmpA.copy(SKY_NIGHT).lerp(SKY_DAY, sun01);
-  tmpA.lerp(SKY_DUSK, twilight * 0.6 * sun01);
-  tmpB.setRGB((tmpA.r + tmpA.g + tmpA.b) / 3, (tmpA.r + tmpA.g + tmpA.b) / 3, (tmpA.r + tmpA.g + tmpA.b) / 3);
-  if (wm.white) tmpB.setRGB(0.85, 0.87, 0.9);
-  tmpA.lerp(tmpB, wm.grey);
-
-  const k = 1 - Math.pow(0.001, dt);   // ~frame-rate-independent smoothing
-  scene.background.lerp(tmpA, k);
-  scene.fog.color.copy(scene.background);
-  if (gfx.fogOn) {
-    scene.fog.far = fogFar * wm.fog;
-    scene.fog.near = scene.fog.far * 0.25;
-  } else {
-    scene.fog.near = scene.fog.far = 1e9;   // push fog past everything
-  }
-
-  // sun light: arc by hour (east→west), intensity by daylight*weather, warm at twilight
-  const az = (h / 24) * Math.PI * 2 - Math.PI / 2;   // rough azimuth
-  const pitch = Math.max(0.05, sun01);
-  sun.position.set(Math.cos(az), pitch * 1.2 + 0.15, Math.sin(az));
-  const sunTargetI = sun01 * wm.sun * 1.4 * gfx.bright;
-  sun.intensity += (sunTargetI - sun.intensity) * k;
-  tmpB.setRGB(1, 1 - twilight * 0.35, 1 - twilight * 0.55);   // warm at dawn/dusk
-  sun.color.lerp(tmpB, k);
-  const ambTarget = (0.25 + sun01 * 0.45 * (1 - wm.grey * 0.4)) * gfx.bright;
-  ambient.intensity += (ambTarget - ambient.intensity) * k;
-
-  // HUD clock
-  ui('clock').textContent = `${String(world.hour).padStart(2,'0')}:${String(world.minute).padStart(2,'0')} · ${world.weather}`;
-}
-
-// ---- Live agents (M4a): the sim's people as animated sprite billboards ----
-const agents = new THREE.Group();
-scene.add(agents);
+// ---- Live agents (M4a): sprite billboards + per-frame interp → engine/agents.js ----
 let flats = null;   // THREE.Group of flat billboards; populated by init(), billboarded each frame
-let spritePools = null;   // { civilian:[], guard:[], monster:[] }
-const sheets = new Map();          // archive -> { tex, meta, mat, sheetW, sheetH } | 'loading'
-const people = new Map();          // entityId -> { mesh, archive }
-// 8-direction -> (record, flip): records 0-4 = facing S/SW/W/NW/N; NE/E/SE reuse
-// records 3/2/1 mirrored (DFU MobilePersonBillboard). Idle = record 5.
-const ORI_RECORD = [0, 1, 2, 3, 4, 3, 2, 1];
-const ORI_FLIP   = [false, false, false, false, false, true, true, true];
-const DIR_SIGN = 1;   // verified: maps walk direction to the correct facing sprite
-
-// Render-kind (server WorldRunner): 0 civilian, 1 guard, 2 monster.
-const RK_CIVILIAN = 0, RK_GUARD = 1, RK_MONSTER = 2;
-// Animation FPS per state.
-const FPS_WALK_PEOPLE = 4, FPS_WALK_COMBAT = 6, FPS_ATTACK = 10, FPS_IDLE = 4;
-// ActivityKind.Attack ordinal (BehaviorRegistry.ActivityKind).
-const ACT_ATTACK = 19;
-
-function poolFor(kind) {
-  if (!spritePools) return null;
-  if (kind === RK_MONSTER) return spritePools.monster;
-  if (kind === RK_GUARD)   return spritePools.guard;
-  return spritePools.civilian;
-}
-
-function hash32(n) { n = (n ^ 61) ^ (n >>> 16); n = (n + (n << 3)) | 0; n ^= n >>> 4; n = Math.imul(n, 0x27d4eb2d); n ^= n >>> 15; return n >>> 0; }
-
-function getSheet(archive) {
-  let s = sheets.get(archive);
-  if (s) return s === 'loading' ? null : s;
-  sheets.set(archive, 'loading');
-  Promise.all([
-    fetch(`/asset/spritemeta/${archive}`).then(r => r.json()),
-    new Promise(res => texLoader.load(`/asset/spritesheet/${archive}`, res)),
-  ]).then(([meta, tex]) => {
-    tex.flipY = false; tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
-    const mat = new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide });
-    sheets.set(archive, { tex, meta, mat, sheetW: meta.cols * meta.cellW, sheetH: meta.rows * meta.cellH });
-  }).catch(() => sheets.delete(archive));
-  return null;
-}
-
-// ---- World flats (nature + decorative billboards) ----
-const flatSheets = new Map();
-function getFlatSheet(archive) {
-  if (flatSheets.has(archive)) return flatSheets.get(archive);
-  const p = Promise.all([
-    fetch(`/asset/flatmeta/${archive}`).then(r => r.json()),
-    new Promise(res => texLoader.load(`/asset/flatsheet/${archive}`, res)),
-  ]).then(([meta, tex]) => {
-    // flipY stays true (three.js default): the offset/repeat UV math below
-    // (offset.y = 1-(v+h)/sheetH) is the flipY=true convention, unlike the agent
-    // path which sets per-vertex UVs directly. Forcing flipY=false flips flats upside-down.
-    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
-    return { meta, tex };
-  });
-  flatSheets.set(archive, p);
-  return p;
-}
-
-// Camera-facing (Y-axis, upright) billboard shader for instanced flats. The quad
-// orients to the camera in the vertex shader (no per-frame CPU work); per-instance
-// attributes carry the atlas cell (aOffset/aRepeat) and world size (aSize). The base
-// of the billboard sits at the instance position (anchored, not centred).
-function makeFlatMaterial(tex) {
-  return new THREE.ShaderMaterial({
-    uniforms: { map: { value: tex } },
-    vertexShader: `
-      attribute vec2 aOffset;
-      attribute vec2 aRepeat;
-      attribute vec2 aSize;
-      varying vec2 vUv;
-      void main() {
-        vec3 P = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
-        vec3 d = normalize(vec3(cameraPosition.x - P.x, 0.0, cameraPosition.z - P.z));
-        vec3 right = vec3(d.z, 0.0, -d.x);              // perpendicular to view in XZ
-        vec3 world = P
-          + right * (position.x * aSize.x)              // position.x in [-0.5,0.5]
-          + vec3(0.0, 1.0, 0.0) * ((position.y + 0.5) * aSize.y);  // base anchored at P.y
-        gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
-        vUv = aOffset + uv * aRepeat;
-      }
-    `,
-    fragmentShader: `
-      uniform sampler2D map;
-      varying vec2 vUv;
-      void main() {
-        vec4 c = texture2D(map, vUv);
-        if (c.a < 0.5) discard;
-        gl_FragColor = c;
-      }
-    `,
-    side: THREE.DoubleSide,
-  });
-}
-
-// Build one InstancedMesh for all flats of an archive. `list` items are
-// {record, x, y, z} (+ optional worldW/H override; else taken from the atlas cell).
-function buildFlatInstances(meta, tex, list) {
-  // Filter to flats whose record exists in this atlas.
-  const items = list.filter(f => meta.cells[f.record]);
-  const n = items.length;
-  const geo = new THREE.PlaneGeometry(1, 1);   // unit quad; sized + oriented in the shader
-  const off = new Float32Array(n * 2), rep = new Float32Array(n * 2), siz = new Float32Array(n * 2);
-  const mesh = new THREE.InstancedMesh(geo, makeFlatMaterial(tex), n);
-  const m = new THREE.Matrix4();
-  for (let i = 0; i < n; i++) {
-    const f = items[i], c = meta.cells[f.record];
-    off[i * 2] = c.u / meta.sheetW;        off[i * 2 + 1] = 1 - (c.v + c.h) / meta.sheetH;
-    rep[i * 2] = c.w / meta.sheetW;        rep[i * 2 + 1] = c.h / meta.sheetH;
-    siz[i * 2] = f.worldW ?? c.worldW;     siz[i * 2 + 1] = f.worldH ?? c.worldH;
-    mesh.setMatrixAt(i, m.makeTranslation(f.x, f.y, f.z));
-  }
-  geo.setAttribute('aOffset', new THREE.InstancedBufferAttribute(off, 2));
-  geo.setAttribute('aRepeat', new THREE.InstancedBufferAttribute(rep, 2));
-  geo.setAttribute('aSize', new THREE.InstancedBufferAttribute(siz, 2));
-  mesh.instanceMatrix.needsUpdate = true;
-  mesh.frustumCulled = false;   // billboards span the scene; skip whole-mesh culling
-  return mesh;
-}
-
-// Set a plane's UVs to a sheet cell (record row, frame col); optional horizontal flip.
-function setCellUV(geo, s, record, frame, flip) {
-  const m = s.meta;
-  const uL = (frame * m.cellW) / s.sheetW, uR = ((frame + 1) * m.cellW) / s.sheetW;
-  const vT = (record * m.cellH) / s.sheetH, vB = ((record + 1) * m.cellH) / s.sheetH;  // flipY=false: v=0 top
-  const a = flip ? uR : uL, b = flip ? uL : uR;
-  const uv = geo.attributes.uv;
-  uv.setXY(0, a, vT); uv.setXY(1, b, vT); uv.setXY(2, a, vB); uv.setXY(3, b, vB);
-  uv.needsUpdate = true;
-}
 
 // ---- Click-to-inspect: pick a person billboard, show its live detail ----
-// A flat ring marks the selected agent (updateAgents keeps it on their feet).
-const selRing = new THREE.Mesh(
-  new THREE.RingGeometry(0.55, 0.78, 28),
-  new THREE.MeshBasicMaterial({ color: 0x9fd0ff, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthWrite: false }));
-selRing.rotation.x = -Math.PI / 2;   // lay flat on the ground
-selRing.visible = false;
-scene.add(selRing);
-
+// A flat ring marks the selected agent (engine/agents.js keeps it on their feet).
 const raycaster = new THREE.Raycaster();
 const ptr = new THREE.Vector2();
 let selectedId = -1, selectedBuildingI = -1, inspectTimer = null, downX = 0, downY = 0;
@@ -798,7 +296,7 @@ function clearSelection() {
   if (selectedId >= 0) net.send({ type: 'watch', id: null });
   selectedId = -1; selectedBuildingI = -1; lastAgentDetail = null; oddCollapsed.clear();
   clearInterval(inspectTimer); inspectTimer = null;
-  selRing.visible = false;
+  clearSelRing();
 }
 function deselect() { clearSelection(); ui('detail').style.display = 'none'; }
 
@@ -932,79 +430,6 @@ function needBar(label, v) {
   return `<div class="nb"><span>${label}</span><span class="nbar"><i style="width:${pct}%;background:${col}"></i></span></div>`;
 }
 
-function updateAgents(t) {
-  // Interpolate prev->cur over the ACTUAL snapshot gap (the web pump runs ~5 Hz,
-  // not the 10 tps tick rate), so movement glides instead of teleport-then-freeze.
-  const alpha = net.alpha(t);
-  const seen = new Set();
-  selRing.visible = false;   // re-shown below only if the selected agent is present
-
-  for (const [id, c] of net.curSnap) {
-    seen.add(id);
-    const kind = c[4] | 0;
-    const pool = poolFor(kind);
-    if (!pool || pool.length === 0) continue;
-    const archive = pool[hash32(id) % pool.length];
-    const s = getSheet(archive);
-    if (!s) continue;
-
-    let p = people.get(id);
-    if (!p || p.archive !== archive) {
-      if (p) agents.remove(p.mesh);
-      const geo = new THREE.PlaneGeometry(s.meta.worldW, s.meta.worldH);
-      const mesh = new THREE.Mesh(geo, s.mat);
-      mesh.userData.id = id;   // for click-to-inspect raycasting
-      agents.add(mesh);
-      p = { mesh, archive, geo };
-      people.set(id, p);
-    }
-
-    // interpolate position prev->cur (incl. ground height for region towns)
-    const pr = net.prevSnap.get(id) || c;
-    const x = pr[0] + (c[0] - pr[0]) * alpha, z = pr[1] + (c[1] - pr[1]) * alpha;
-    const gy = pr[3] + (c[3] - pr[3]) * alpha;
-    p.mesh.position.set(x, gy + s.meta.worldH / 2, z);
-    // Aim at the camera in the XZ plane only (same height as the sprite), so the
-    // billboard stays vertical. Using a fixed Y here tilted it by the town's ground
-    // pad height (gy), which differs per town — hence the axis flip when panning.
-    p.mesh.lookAt(camera.position.x, p.mesh.position.y, camera.position.z);   // upright billboard
-
-    if (id === selectedId) { selRing.position.set(x, gy + 0.05, z); selRing.visible = true; }
-
-    // Direction index 0-7 (S,SW,W,NW,N,NE,E,SE) relative to the camera-locked
-    // billboard. Moving: derive from velocity (verified). Else: derive from yaw.
-    const mvx = c[0] - pr[0], mvz = c[1] - pr[1];
-    const speed = Math.hypot(mvx, mvz);
-    let fx, fz;
-    if (speed >= 0.05) { const fl = 1 / speed; fx = mvx * fl; fz = mvz * fl; }
-    else { const ry = c[2] * Math.PI / 180; fx = Math.sin(ry); fz = Math.cos(ry); }   // yaw is degrees = atan2(dx,dz)
-    let dx = camera.position.x - x, dz = camera.position.z - z;
-    const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
-    const dot = dx * fx + dz * fz, cross = dx * fz - dz * fx;
-    let ori = Math.round(DIR_SIGN * Math.atan2(cross, dot) / (Math.PI / 4));
-    ori = ((ori % 8) + 8) % 8;
-
-    const combat = (kind === RK_GUARD || kind === RK_MONSTER);
-    const attacking = combat && (c[5] | 0) === ACT_ATTACK;
-
-    let base, fps, directional;
-    if (attacking)           { base = 5;  fps = FPS_ATTACK;       directional = true; }   // attack rows 5-9
-    else if (speed >= 0.05)  { base = 0;  fps = combat ? FPS_WALK_COMBAT : FPS_WALK_PEOPLE; directional = true; }  // walk rows 0-4
-    else if (combat)         { base = 15; fps = FPS_IDLE;          directional = true; }   // combat idle rows 15-19
-    else                     { base = 5;  fps = FPS_IDLE;          directional = false; }  // civilian idle row 5
-
-    let record = directional ? base + ORI_RECORD[ori] : base;
-    let flip = directional ? ORI_FLIP[ori] : false;
-    if (record >= s.meta.rows) { record = ORI_RECORD[ori]; flip = ORI_FLIP[ori]; }   // archive lacks this block → fall back to walk
-
-    const fc = s.meta.frames[record] || 1;
-    const frame = Math.floor(t * fps) % fc;
-    setCellUV(p.geo, s, record, frame, flip);
-  }
-
-  for (const [id, p] of people) if (!seen.has(id)) { agents.remove(p.mesh); p.geo.dispose(); people.delete(id); }
-}
-
 // --- comms log (P4): structured utterances off the snapshot stream, rendered as a
 // minimal scrolling feed. Atom ids -> concept names via a one-time /asset/atoms fetch.
 let atomNames = {};   // "6001" -> "Danger"
@@ -1086,7 +511,7 @@ async function init() {
   // per-asset model/texture/atlas endpoints stay cacheable (immutable).
   const data = await (await fetch('/asset/town', { cache: 'no-store' })).json();
   const climate = data.climateBase, season = data.season;
-  townClimate = climate; townSeason = season;   // used by streamed region structures
+  setTownClimateSeason(climate, season);   // used by streamed region structures
 
   // Terrain. Region mode streams per-pixel tiles around the camera (the static
   // /asset/terrain payload is empty there); town mode ships its pixel + 3x3
@@ -1094,11 +519,12 @@ async function init() {
   try {
     const meta = await (await fetch('/asset/regionmeta', { cache: 'no-store' })).json();
     if (meta.isRegion) {
-      regionMeta = meta;                     // streamRegionTerrain() takes over
-      fogFar = 3200;                         // region scale: see a few tiles out
+      setRegionMeta(meta);                   // streamRegionTerrain() takes over
+      gfx.fogFar = 3200;                     // region scale: see a few tiles out
     } else {
       terrainTiles = await (await fetch('/asset/terrain', { cache: 'no-store' })).json();
       buildTerrain(terrainTiles);
+      positionTerrain();                     // apply the 'show terrain' toggle to the new tiles
     }
   } catch (e) { console.warn('terrain load failed', e); }
   setFogSlider();   // seed the fog slider with the chosen town/region distance
@@ -1151,13 +577,13 @@ async function init() {
   }
 
   applyToggles();
-  if (regionMeta) frameRegion(); else frame(data.min, data.max);
+  if (getRegionMeta()) frameRegion(); else frame(data.min, data.max);
 
   const climates = ['Desert', 'Mountain', 'Temperate', 'Swamp'];
   stat(`${data.region} · ${data.location}\nclimate: ${climates[climate] ?? climate}\nplacements: ${placed}/${data.placements.length}\nunique models: ${data.modelIds.length}\nconnecting agents…`);
 
   // Live agents: all sprite pools by render-kind, then the snapshot stream.
-  spritePools = await (await fetch('/asset/spritepools')).json();
+  setSpritePools(await (await fetch('/asset/spritepools')).json());
   net.connect();
 }
 init().catch(e => { stat('error: ' + (e?.message || e)); console.error(e); });

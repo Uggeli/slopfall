@@ -101,11 +101,18 @@ main           pick a mode; wire engine + net + ui
   interpolation / `send` out of `town3d.html` into `net/client.js`; town3d imports it.
   Smallest seam, zero visual change. Done = the town renders identically, all transport
   goes through `net/`.
-- [client] **R2 — Carve `engine/`.** Extract the six engine submodules in turn (scene,
-  assets, terrain, world, agents, atmosphere). Each is a pure move — no behaviour change
-  per extraction. After this, `town3d.html` is a thin consumer of `engine/` + `net/`.
-  Done = Gothway Garden looks pixel-identical (geometry, climate tiles, NPCs walking,
-  day/night) and `engine/` contains no `OrbitControls`/inspector references.
+- [client] **R2 — Carve `engine/`.** DONE. Extracted the six engine submodules in dependency
+  order (scene → assets → atmosphere → world → terrain → agents), each a pure move parity-gated
+  to PASS. `town3d.html` dropped 1167 → 594 lines; `engine/` is 656 lines across the six files.
+  The engine↔mode boundary holds: streaming/billboarding take a *focal point* + camera + net
+  from the shell (the mode owns those); `engine/` references no `OrbitControls`, camera framing,
+  or HUD/inspector DOM in code (the camera-framing fly-cam, the inspector/HUD, and the `animate()`
+  render loop stay in the shell → `modes/observer` in R4). Design:
+  `docs/superpowers/specs/2026-06-22-the-renderer-r2-engine-carve-design.md`.
+  Note: the committed parity baseline (`baseline/gothway.png`) was captured on a different machine
+  and FAILs here on tick drift; R2 was gated against a local `baseline/local-r2-base.png` from the
+  unmodified town3d (run-to-run noise floor ~0.01%). A server-side "run to tick N then pause" is
+  still the clean cross-machine fix (see R0.5).
 - [client] **R3 — Carve `ui/`.** Move the inspector panels and the HUD/speed/gfx widgets
   into `ui/`, mounted by the mode, fed by `net/`. Done = inspect + HUD work unchanged,
   DOM concerns out of engine.
