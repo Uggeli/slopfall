@@ -34,32 +34,41 @@ scores ads on remembered danger (Phase 2) — they avoid it. Heard, not seen. Th
    - **Offer** (commissive) — "I will give X for Y": trade, promises, deals.
    - **Express** (expressive) — "I feel X toward you": greet, thank, threaten, praise (relations).
    - *(Declare — institutional/authoritative "X is now so": law, ownership transfer — DEFERRED.)*
-3. **Channels are reach + cost, not message types.** **Talk** = directed, conversational range,
-   private (addressee + very close overhearers). **Shout** = broadcast, large radius, public, cheap,
-   low effort. Reception reuses the **perception reach** (who can hear = a hearing-range gate beside
-   sight). *(Deferred channels: written/posted notices — persistent, place-bound; relay-chains —
-   rumour drift.)*
-4. **Reception is one router keyed by act.** Inform → memory ingest; Request → an ad/intent for the
+3. **Channels are HEARING-RADIUS tiers — none are private; eavesdropping is the point.**
+   **Whisper** (smallest radius) < **Talk** (small) < **Shout** (largest). "Private" is only *a smaller
+   radius* (fewer possible overhearers), never a guarantee — **any** agent within a channel's radius
+   hears it, addressed or not. This is deliberate: a bystander who overhears "danger at the mill", a
+   haggle, or "Bob stole the bread" can **correct its own rumour, act on the news, or report it** —
+   emergent behaviour from leaked information. The speaker chooses a channel to trade reach against the
+   chance of being overheard (whisper to a confidant; shout to alert the square). *(Deferred channels:
+   written/posted notices — persistent, place-bound; relay-chains — rumour drift.)*
+4. **Hearing is a NEW sense.** Agents perceive by **sight only** today (`SenseSystem`, 12u, LOS-blocked).
+   Communication adds **hearing** — receiving utterances within a channel's radius — as a second
+   perceptual modality, **LOS-relaxed** (sound rounds corners; whisper/talk are short so walls still
+   mostly contain them, a shout carries through). The `Audience` field is *who the speaker aims at*;
+   the *hearers* are everyone in radius (addressee **+ eavesdroppers**). Initially hearing carries
+   utterances; it generalises later to non-speech sounds (combat, screams, footsteps).
+5. **Reception is one router keyed by act.** Inform → memory ingest; Request → an ad/intent for the
    receiver; Offer → an evaluation→accept/decline; Express → a relation update. The router is the
    single extension point; the substrate (utterance + reach + dispatch) never changes.
-5. **Heard ≠ witnessed — relayed facts are SECOND-HAND.** An Inform's content enters the receiver's
+6. **Heard ≠ witnessed — relayed facts are SECOND-HAND.** An Inform's content enters the receiver's
    memory through the **existing encode path**, but at **reduced strength**, **source-attributed**, so
    hearsay never outweighs first-hand and a later contradiction can distrust the teller. First-hand
    danger (strength 255, SURPRISE) stays stronger than "Bob told me there's danger."
-6. **Trust gates belief.** How much a heard fact is believed (its ingest strength) scales with the
+7. **Trust gates belief.** How much a heard fact is believed (its ingest strength) scales with the
    receiver's **regard for the speaker** (`Relations`/`Interpret` valence) × the speaker's stated
    **confidence**. You believe friends, discount strangers, distrust enemies. Belief is not binary.
-7. **Truthfulness is content, not channel.** An agent relays its *own memory* — which may be a
+8. **Truthfulness is content, not channel.** An agent relays its *own memory* — which may be a
    confident false memory, stale, or (later, when motivated) a deliberate lie. The substrate enforces
    no truth; rumour drift and deception are emergent, not special-cased.
-8. **CQRS.** An utterance is an `IEvent`; a reception registry applies it (sole-writer into memory /
+9. **CQRS.** An utterance is an `IEvent`; a reception registry applies it (sole-writer into memory /
    relations / intents via existing intents). Uniform one-tick latency — you hear this tick what was
    said last tick.
-9. **Utterances are OBSERVABLE, not just internal.** They are first-class records surfaced on the
+10. **Utterances are OBSERVABLE, not just internal.** They are first-class records surfaced on the
    sim→client stream so the **town3d / client catches every communication** (who said what, to whom,
    on which channel, the content atoms). The client can show speech bubbles / a conversation log /
    social-graph overlays from the structured stream — the deep social state stops being invisible.
-10. **Text lives at the render edge — the sim emits STRUCTURE, never prose.** Natural-language
+11. **Text lives at the render edge — the sim emits STRUCTURE, never prose.** Natural-language
     "rendering" of an utterance (an LLM mapping `{speaker identity, act, content atoms, relation}` → a
     line of dialogue) is a **client/render-side** concern, added later. The sim stays deterministic,
     headless, and text-free (the sim/render split); the same structured utterance can render as a
@@ -73,8 +82,9 @@ scores ads on remembered danger (Phase 2) — they avoid it. Heard, not seen. Th
 ```
 Utterance : IEvent {
     Speaker   : EntityId
-    Audience  : EntityId   (a target; EntityId.None = broadcast to the channel's reach)
-    Channel   : Talk | Shout         (reach + cost)
+    Audience  : EntityId   (who the speaker AIMS at; None = undirected. NOT a reach gate —
+                            reception is the hearing radius; bystanders in range eavesdrop.)
+    Channel   : Whisper | Talk | Shout   (hearing-radius tiers, smallest → largest)
     Act       : Inform | Request | Offer | Express
     Content   : AtomBag              (the payload — places/entities/items/events as atoms)
     Confidence: Fixed                (how sure the speaker claims to be — scales receiver belief)
@@ -82,24 +92,38 @@ Utterance : IEvent {
 }
 ```
 
-### Who hears — the reach gate (code-mapped)
+### Who hears — the hearing sense (new) and its radius tiers
 
-Perception is sight-only today: `SenseSystem` rebuilds `SensedRegistry.Of(agent)` every 5 ticks at a
-**12-unit, line-of-sight-blocked** radius (`SenseSystem.cs:23`); there is **no audio channel**. So:
+Perception is **sight-only** today: `SenseSystem` rebuilds `SensedRegistry.Of(agent)` every 5 ticks at
+a **12-unit, LOS-blocked** radius (`SenseSystem.cs:23`); there is **no audio channel**. Communication
+adds **hearing**: who receives an utterance = **every agent within the channel's radius**, regardless
+of whether they're the `Audience` — overhearers eavesdrop. Hearing is **LOS-relaxed** (sound rounds
+corners) where sight is blocked.
 
-- **Talk** (directed, private): the `Audience` plus agents already in the speaker's `Sensed` set —
-  conversational range, LOS-gated, free. Reuses `SensedRegistry` as-is. (Venue keepers indoors aren't
-  "sensed" as passers-by but are queried directly, as `RequestSystem.cs:79` already does — the comms
-  reach must include the building's occupants when speaker is inside.)
-- **Shout** (broadcast, public): a **new larger audible radius** (e.g. ~25 units, LOS-relaxed — sound
-  rounds corners). This is the one genuinely-new spatial query: a `ShoutSystem`/reach helper that, for
-  a shout, gathers agents within the audible radius (a coarse grid scan like `SenseSystem` does, wider
-  + no wall block). Kept separate so sight stays cheap and unchanged.
+- **Whisper** — smallest radius (~conversational-adjacent); only those very close hear, so it's the
+  *least* likely to leak (still not guaranteed private).
+- **Talk** — small radius (a few units / room scale); nearby bystanders overhear. **Not private.**
+- **Shout** — largest radius (~25u+, carries through); alerts the area, freely overheard.
+
+Implementation: a hearing-reach helper does a coarse grid scan around the speaker at the channel's
+radius (the same bucket structure `SenseSystem` uses, wider + LOS-relaxed) and returns the hearers.
+It is a **new sense path beside sight**, so sight stays cheap and unchanged. Radii are species/config
+constants, tuned later. (Indoor venue keepers/occupants are included when the speaker is inside, as
+`RequestSystem.cs:79` already special-cases.)
+
+**Audience vs. hearers:** the `Audience` is only *who the speaker aims at* (matters for directed acts —
+a `Request`/`Offer` the addressee may answer). **All hearers receive the content** and may act on it;
+only the addressee runs the directed-response path. Eavesdropping falls out for free: a bystander
+hears the content, ingests it (second-hand), and its own ODD may then act — correct a rumour, avoid a
+named danger, or (later) report what it overheard.
 
 ### Reception router — act → state update (code-mapped)
 
-A `CommunicationSystem` consumes `Utterance` events, runs each through the reach gate, and for each
-hearer dispatches by act onto the **existing** intent pipelines (sole-writer discipline preserved):
+A `CommunicationSystem` consumes `Utterance` events, runs each through the hearing-reach gate, and for
+**every hearer** dispatches by act onto the **existing** intent pipelines (sole-writer discipline
+preserved). **All hearers ingest the content** (the eavesdrop path — they learn what was said); for
+directed acts (`Request`/`Offer`) the **addressee additionally** runs the response (answer/accept),
+while bystanders just learn it happened.
 
 - **Inform → second-hand memory.**
   - *Place facts* (`PlaceAtoms` in Content) → emit `PlaceObserveIntent` for the hearer — the same hook
@@ -192,8 +216,11 @@ UtteranceRecord (wire) {
 | **Trade** | Offer→Accept | goods + price atoms | evaluate vs coin/need; on accept, item+coin transfer |
 | **Quest / job handout** | Request (directed) + reward | task atoms + reward | receiver gains an ad to do it; completion → reward |
 | **Greet / threaten / praise** | Express | affect atoms | regard update (SocialSystem reframed) |
+| **Eavesdrop** (cross-cutting) | any | whatever was overheard | a non-addressed hearer in radius ingests the content → corrects a rumour, avoids a named danger, or (later) reports it |
 
-Every row is the *same* utterance + router; only the act and the atoms differ. That is what "founda­tional" means here.
+Every row is the *same* utterance + router; only the act and the atoms differ — and **eavesdropping is
+not a feature, it's a consequence**: reception is by hearing radius, so anyone in range receives any
+row above. That is what "foundational" means here.
 
 ## Data flow
 
@@ -220,14 +247,18 @@ client   -> town3d shows bubbles/log/overlays now; an LLM renders records -> pro
   shouted spreads to hearers — danger-memory count rises **beyond** the first-hand witness set, and
   population danger-avoidance becomes visible in the soak (vs Phase-2 baseline where it stayed at
   ~6/340). Confirm no economy/stability regression and determinism (serial == parallel).
+- **Eavesdrop:** a non-addressed agent **within the channel's radius** receives an utterance's content
+  (and one **outside** the radius does not); a closer channel (whisper) reaches fewer bystanders than a
+  wider one (shout). Proves reception is by hearing radius, not by `Audience`.
 - **Client exposure:** the tick's utterances appear in the snapshot `utterances[]` (the buffer drains
   fully — none dropped between 5 Hz publishes); town3d shows them as a log/bubbles. Atom name table
   resolves content ids to concepts.
 
 ## Scope / deferred
 
-- **In (foundational layer):** the `Utterance` model (atom-bag content + act + channel), the reach
-  gate (reusing perception + a shout radius), the reception **router skeleton**, the **Inform act →
+- **In (foundational layer):** the `Utterance` model (atom-bag content + act + channel), the new
+  **hearing sense** (whisper/talk/shout radius tiers, LOS-relaxed, eavesdroppable), the reception
+  **router skeleton** (all hearers ingest; addressee answers directed acts), the **Inform act →
   second-hand memory** path with trust-scaling + source attribution — proven end-to-end by **danger
   spread** (shout → hear → avoid) — plus the **structured utterance stream to town3d** so the client
   catches communications (bubbles/log from the records). Speaking-as-an-ad so the decision loop can
