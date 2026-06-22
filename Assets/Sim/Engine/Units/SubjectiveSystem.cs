@@ -44,6 +44,8 @@ namespace DaggerfallWorkshop.Sim.Engine
         readonly CreatureRegistry _creatures;
         readonly ResidencyRegistry _residency;
         readonly SocialCooldownRegistry _cooldowns;
+        readonly PerceivableRegistry _perceivable;
+        readonly AgentMemoryRegistry _agentMem;
 
         public SubjectiveSystem(
             EventBus events,
@@ -57,7 +59,9 @@ namespace DaggerfallWorkshop.Sim.Engine
             PersonalityRegistry personality,
             CreatureRegistry creatures,
             ResidencyRegistry residency,
-            SocialCooldownRegistry cooldowns) : base(events)
+            SocialCooldownRegistry cooldowns,
+            PerceivableRegistry perceivable,
+            AgentMemoryRegistry agentMem) : base(events)
         {
             _clock = clock;
             _sensed = sensed;
@@ -70,7 +74,14 @@ namespace DaggerfallWorkshop.Sim.Engine
             _creatures = creatures;
             _residency = residency;
             _cooldowns = cooldowns;
+            _perceivable = perceivable;
+            _agentMem = agentMem;
         }
+
+        /// <summary>Confidence-weighted blend of the old role-scalar valence and the new learned
+        /// category valence: confidence 0 = old (today's behavior), 1 = fully learned.</summary>
+        public static double BlendValence(double oldV, double newV, double confidence)
+            => oldV * (1.0 - confidence) + newV * confidence;
 
         /// interpret(self, other): what `other` means to `self` right now. A pure read,
         /// callable for sensed OR remembered entities. S1: valence is the dossier regard,
@@ -82,7 +93,8 @@ namespace DaggerfallWorkshop.Sim.Engine
         public static EntityRead Interpret(
             CreatureRegistry creatures, RelationsRegistry relations, AffectsRegistry affects,
             MeaningsRegistry meanings, BehaviorRegistry behavior, PersonalityRegistry personality,
-            ResidencyRegistry residency, EntityId self, EntityId other)
+            ResidencyRegistry residency, PerceivableRegistry perceivable, AgentMemoryRegistry agentMem,
+            EntityId self, EntityId other)
         {
             // A creature is read by what it IS (a CreatureRegistry member), not a dossier: an
             // innate, recognized threat. No social history applies.
@@ -103,8 +115,16 @@ namespace DaggerfallWorkshop.Sim.Engine
             }
             else
             {
-                // A stranger — judge by their KIND, the learned category (S3).
-                baseValence = MeaningsSystem.CategoryValence(meanings, residency, self, other);
+                // A stranger — judge by their KIND. Blend the old role-scalar with the agent's OWN
+                // learned category (the new MeaningsStore), weighted by how confident that learning
+                // is: confidence 0 = today's behavior, 1 = fully the agent's perceived/reinforced read.
+                double oldV = MeaningsSystem.CategoryValence(meanings, residency, self, other);
+                double newV = 0, conf = 0;
+                if (agentMem != null && perceivable != null
+                    && agentMem.TryGet(self, out var mem)
+                    && mem.Meanings.RecognizedValence(perceivable.Signature(other), out var lv, out var lc))
+                { newV = lv.ToDouble(); conf = lc.ToDouble(); }
+                baseValence = BlendValence(oldV, newV, conf);
             }
             // + acute feeling (Affects, S2). Emotion-as-controller: this valence colors the
             // decider's place-lens and the greet/dislike percepts.
@@ -161,7 +181,8 @@ namespace DaggerfallWorkshop.Sim.Engine
                 for (int i = 0; i < sensed.Count; i++)
                 {
                     var read = Interpret(_creatures, _relations, _affects, _meanings,
-                                         _behavior, _personality, _residency, self, sensed[i]);
+                                         _behavior, _personality, _residency, _perceivable, _agentMem,
+                                         self, sensed[i]);
                     view.Entities.Add(read);
                     InterpretPercepts(self, read, now, scratchGreet, scratchDislike);
                 }

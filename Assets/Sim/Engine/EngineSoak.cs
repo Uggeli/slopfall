@@ -65,16 +65,31 @@ namespace DaggerfallWorkshop.Sim.Engine
                 $" kills[gate={m.KillsAtGate} inside={m.KillsInside} day={m.KillsByDay} night={m.KillsByNight}]";
             Console.WriteLine($"           guards[posting={posting} attacking={attacking}] hungryMonsters={hungry}{kills}");
 
-            // Agent-memory learning arc: categories minted + records held, averaged over the population.
-            long cats = 0, recs = 0; int memAgents = 0, learned = 0;
+            // Agent-memory learning arc: categories minted + records held, plus the "blend lean"
+            // (mean |valence| + mean confidence over all category nodes — how much learned feeling
+            // the agents have accrued, i.e. how far the Interpret blend has shifted off the old store).
+            long cats = 0, recs = 0; int memAgents = 0, learned = 0, nodes = 0;
+            double absVal = 0, conf = 0;
             foreach (var kv in w.AgentMemory.All)
             {
-                int c2 = kv.Value.Meanings.Count;
+                var meanings = kv.Value.Meanings;
+                int c2 = meanings.Count;
                 cats += c2; recs += kv.Value.Stores.Things.Count; memAgents++;
                 if (c2 > 0) learned++;
+                for (int ni = 0; ni < c2; ni++)
+                {
+                    var node = meanings[ni];
+                    absVal += System.Math.Abs(node.Valence.ToDouble());
+                    conf += node.Confidence.ToDouble();
+                    nodes++;
+                }
             }
             if (memAgents > 0)
+            {
                 Console.WriteLine($"           mem[cat/agent={(double)cats / memAgents:F2} rec/agent={(double)recs / memAgents:F1} learned%={100.0 * learned / memAgents:F0}]");
+                if (nodes > 0)
+                    Console.WriteLine($"           val[meanAbs={absVal / nodes:F2} conf={conf / nodes:F2}]");
+            }
         }
     }
 }
