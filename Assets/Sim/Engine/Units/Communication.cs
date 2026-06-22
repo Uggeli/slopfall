@@ -17,6 +17,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         public EntityId Speaker, Audience;
         public CommChannel Channel;
         public SpeechAct Act;
+        public int SubjectBuilding;   // the place the content is ABOUT (for place facts); <0 = none
         public AtomBag Content;
         public Fixed Confidence;
     }
@@ -69,6 +70,56 @@ namespace DaggerfallWorkshop.Sim.Engine
                 case CommChannel.Shout: return ShoutRadius;
                 default: return TalkRadius;
             }
+        }
+    }
+
+    /// <summary>
+    /// Reception router: dispatches each HeardUtterance by act. P2 handles Inform of PLACE facts —
+    /// a relayed place atom becomes a SECOND-HAND PlaceObserveIntent for the hearer, its strength
+    /// scaled by belief = trust(hearer→speaker) × the speaker's confidence. Trust is floored so even a
+    /// stranger partly heeds a shouted warning. (Request/Offer/Express and entity-fact relay are later
+    /// handlers on this same router.)
+    /// </summary>
+    public sealed class CommunicationSystem : SimSystem
+    {
+        readonly RelationsRegistry _relations;
+
+        public CommunicationSystem(EventBus events, RelationsRegistry relations) : base(events)
+        { _relations = relations; }
+
+        public override void Update(long tick)
+        {
+            var heard = Events.GetEvents<HeardUtterance>();
+            for (int i = 0; i < heard.Length; i++)
+            {
+                var u = heard[i].Said;
+                if (u.Act != SpeechAct.Inform || u.SubjectBuilding < 0 || u.Content == null) continue;
+                Fixed belief = BeliefScale(heard[i].Hearer, u.Speaker, u.Confidence);
+                var atoms = u.Content.Atoms;
+                for (int k = 0; k < atoms.Count; k++)
+                {
+                    if (atoms[k].Type.Value < PlaceAtoms.KindBase) continue;   // P2: only PLACE facts relay
+                    Events.Publish(new PlaceObserveIntent
+                    {
+                        Agent = heard[i].Hearer, Building = u.SubjectBuilding, Atom = atoms[k].Type,
+                        Value = atoms[k].Value, SecondHand = true, TrustScale = belief
+                    });
+                }
+            }
+        }
+
+        /// belief = clamp(0.5 + 0.5·regard, 0.1, 1) × confidence — strangers half-heed, friends fully,
+        /// enemies barely; a confident teller is believed more.
+        Fixed BeliefScale(EntityId hearer, EntityId speaker, Fixed confidence)
+        {
+            double regard = 0.0;
+            if (_relations.TryGet(hearer, out var rd) && rd != null && rd.Of != null
+                && rd.Of.TryGetValue(speaker, out var r) && r != null) regard = r.Regard;
+            double t = 0.5 + 0.5 * regard;
+            if (t < 0.1) t = 0.1; else if (t > 1.0) t = 1.0;
+            double conf = confidence.ToDouble();
+            if (conf < 0) conf = 0; else if (conf > 1) conf = 1;
+            return Fixed.FromDouble(t * conf);
         }
     }
 }

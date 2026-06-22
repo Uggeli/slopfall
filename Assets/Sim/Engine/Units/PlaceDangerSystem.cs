@@ -47,6 +47,15 @@ namespace DaggerfallWorkshop.Sim.Engine
                     if (seen == null || (!seen.Contains(d.Entity) && !seen.Contains(d.Killer))) continue;
                     Events.Publish(new PlaceObserveIntent
                     { Agent = kv.Key, Building = building, Atom = PlaceAtoms.Danger, Value = Severity });
+
+                    // A witness also SHOUTS the danger — bystanders in earshot who didn't see it learn
+                    // it second-hand (word of mouth), the principled way sparse first-hand danger spreads.
+                    Events.Publish(new Utterance
+                    {
+                        Speaker = kv.Key, Audience = EntityId.None, Channel = CommChannel.Shout,
+                        Act = SpeechAct.Inform, SubjectBuilding = building, Confidence = Severity,
+                        Content = AtomBag.Create(new[] { new Atom(PlaceAtoms.Danger, Severity) })
+                    });
                 }
             }
         }

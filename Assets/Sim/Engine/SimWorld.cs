@@ -133,6 +133,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 new CombatSystem(e, WorldClock, Behavior, Position, Creatures, Vitals, seed),
                 new SenseSystem(e, WorldClock, Behavior, Position, Creatures, TownGrid, seed),
                 new HearingSystem(e, Behavior, Position),
+                new CommunicationSystem(e, Relations),
                 new SubjectiveSystem(e, WorldClock, Sensed, Subjective, Relations, Affects, Meanings,
                     Behavior, Personality, Creatures, Residency, SocialCooldown, Perceivable, AgentMemory),
                 new MemoryWriteSystem(e, Sensed, Perceivable, AgentMemoryConfig.Default),

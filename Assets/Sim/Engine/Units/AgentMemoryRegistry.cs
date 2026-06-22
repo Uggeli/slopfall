@@ -48,8 +48,11 @@ namespace DaggerfallWorkshop.Sim.Engine
     /// <summary>Reinforce the perceiver's recognized category (of the signature) toward an outcome.</summary>
     public struct MemoryReinforceIntent : IEvent { public EntityId Perceiver; public AtomBag Signature; public Fixed Outcome; }
 
-    /// <summary>Stamp/refresh one atom on the agent's memory of a place (building).</summary>
-    public struct PlaceObserveIntent : IEvent { public EntityId Agent; public int Building; public AtomTypeId Atom; public Fixed Value; }
+    /// <summary>Stamp/refresh one atom on the agent's memory of a place (building). First-hand by
+    /// default; <see cref="SecondHand"/> (relayed by word of mouth) caps strength to
+    /// salience × <see cref="TrustScale"/>, drops SURPRISE/INNATE, and never downgrades a witnessed trace.</summary>
+    public struct PlaceObserveIntent : IEvent
+    { public EntityId Agent; public int Building; public AtomTypeId Atom; public Fixed Value; public bool SecondHand; public Fixed TrustScale; }
 
     /// <summary>
     /// Sole writer of per-agent memory. Systems read percepts and emit intents; this registry
@@ -68,19 +71,29 @@ namespace DaggerfallWorkshop.Sim.Engine
 
         /// <summary>Load-time direct place stamp (no intent) — the first SeedX of agent-memory seeding.</summary>
         public void SeedPlace(EntityId agent, int building, AtomTypeId atom, Fixed value)
-        { if (_d.TryGetValue(agent, out var mem)) MergePlaceAtom(mem, building, atom, value, 0); }
+        { if (_d.TryGetValue(agent, out var mem)) MergePlaceAtom(mem, building, atom, value, 0, false, Fixed.One); }
 
-        /// <summary>Upsert one observed fact into the agent's memory of a building, at the atom's
-        /// intrinsic salience (Kind=INNATE permanent, Danger=SURPRISE resistant, Provisions=ordinary).
-        /// Re-observation refreshes that atom back to vivid; its peers keep their own per-atom meta.</summary>
-        static void MergePlaceAtom(AgentMemory mem, int building, AtomTypeId atom, Fixed value, long tick)
+        /// <summary>Upsert one observed fact into the agent's memory of a building. FIRST-HAND uses the
+        /// atom's intrinsic salience (Kind=INNATE, Danger=SURPRISE, Provisions=ordinary) and refreshes
+        /// to vivid. SECOND-HAND (heard) caps strength to salience × trustScale, flags None (fades),
+        /// and may only RAISE an existing atom's strength — never downgrade a witnessed (SURPRISE) trace.</summary>
+        static void MergePlaceAtom(AgentMemory mem, int building, AtomTypeId atom, Fixed value, long tick,
+                                   bool secondHand, Fixed trustScale)
         {
             var key = new MemoryKey(building);
-            AtomMeta seed = MemorySalience.For(atom);
+            AtomMeta incoming = MemorySalience.For(atom);
+            if (secondHand)
+            {
+                int ts = trustScale.Raw; if (ts < 0) ts = 0; else if (ts > Fixed.Scale) ts = Fixed.Scale;
+                int s = incoming.Strength * ts / Fixed.Scale;        // integer, deterministic (Scale=256)
+                if (s <= 0) return;                                  // no belief → leave no trace
+                incoming = new AtomMeta((byte)s, MemoryFlags.None);
+            }
+
             if (!mem.Stores.Places.TryGet(key, out var rec))
             {
                 var bag0 = AtomBag.Create(new[] { new Atom(atom, value) });
-                mem.Stores.Places.Encode(new MemoryRecord(key, CategoryId.None, bag0, new[] { seed }, tick, tick));
+                mem.Stores.Places.Encode(new MemoryRecord(key, CategoryId.None, bag0, new[] { incoming }, tick, tick));
                 return;
             }
 
@@ -92,12 +105,19 @@ namespace DaggerfallWorkshop.Sim.Engine
             for (int i = 0; i < atoms.Count; i++)
             {
                 if (!placed && atoms[i].Type.CompareTo(atom) > 0)
-                { outA.Add(new Atom(atom, value)); outM.Add(seed); placed = true; }
+                { outA.Add(new Atom(atom, value)); outM.Add(incoming); placed = true; }
                 if (atoms[i].Type == atom)
-                { outA.Add(new Atom(atom, value)); outM.Add(seed); placed = true; continue; }   // re-observe: refresh to vivid
+                {
+                    // First-hand refreshes to vivid; second-hand may only RAISE strength and keeps the
+                    // existing flags — so hearsay cannot downgrade a witnessed (SURPRISE) trace.
+                    AtomMeta merged = secondHand
+                        ? new AtomMeta(rec.Meta[i].Strength >= incoming.Strength ? rec.Meta[i].Strength : incoming.Strength, rec.Meta[i].Flags)
+                        : incoming;
+                    outA.Add(new Atom(atom, value)); outM.Add(merged); placed = true; continue;
+                }
                 outA.Add(atoms[i]); outM.Add(rec.Meta[i]);
             }
-            if (!placed) { outA.Add(new Atom(atom, value)); outM.Add(seed); }
+            if (!placed) { outA.Add(new Atom(atom, value)); outM.Add(incoming); }
             mem.Stores.Places.Encode(new MemoryRecord(key, CategoryId.None, AtomBag.Create(outA), outM.ToArray(), rec.WrittenAt, tick));
         }
 
@@ -124,7 +144,8 @@ namespace DaggerfallWorkshop.Sim.Engine
             var places = Events.GetEvents<PlaceObserveIntent>();
             for (int i = 0; i < places.Length; i++)
                 if (_d.TryGetValue(places[i].Agent, out var pm))
-                    MergePlaceAtom(pm, places[i].Building, places[i].Atom, places[i].Value, tick);
+                    MergePlaceAtom(pm, places[i].Building, places[i].Atom, places[i].Value, tick,
+                                   places[i].SecondHand, places[i].TrustScale);
 
             var cons = Events.GetEvents<MemoryConsolidateIntent>();
             for (int i = 0; i < cons.Length; i++)
