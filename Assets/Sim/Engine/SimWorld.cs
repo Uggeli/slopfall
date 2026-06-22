@@ -136,6 +136,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                     Behavior, Personality, Creatures, Residency, SocialCooldown),
                 new MemoryWriteSystem(e, Sensed, Perceivable, AgentMemoryConfig.Default),
                 new ConsolidationSystem(e, Behavior, AgentMemoryConfig.Default),
+                new MemoryReinforceSystem(e, Perceivable),
                 new AffectsSystem(e, WorldClock, Affects),
                 new MeaningsSystem(e, WorldClock, Meanings, Residency),
                 new SocialSystem(e, Behavior, Relations, Personality, Memory, WorldClock, seed),
