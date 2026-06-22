@@ -16,6 +16,21 @@
 - **Test framework:** xUnit `[Fact]`. Run from `/home/uggeli/slopfall/Headless`: `dotnet test Sim.MemoryTests/Sim.MemoryTests.csproj`. The `Sim.World` project compiles `Assets/Sim/**`; the test project references it.
 - **Stale suite:** the broader sim test suite is being rewritten — write NEW tests for everything here; do not rely on pre-existing integration tests for confidence.
 - **Tuning constants** (`QueueSpacing`, `PreemptEveryTicks`, `Hysteresis`, shop `Capacity = 1`) are first-cut values flagged in the spec's open questions. Define them as named constants so the soak can tune them.
+- **Performance budget: a single sim tick must complete in ≤ 100 ms** at the milestone's target population (region-scale soak). This is a HARD cap. The chief risk is Pillar B: percept-driven preemption re-runs `OddSystem.Decide` (GatherAds + scoring) for committed agents. `PreemptEveryTicks` staggering keeps that to ~1/N of committed agents per tick — if a tick exceeds 100 ms, **raise `PreemptEveryTicks`** (cheaper, coarser balking) before anything else. The soak (Task 13) measures and gates this.
+
+---
+
+## Testing Approach (codebase idiom — there is NO `TestWorld`)
+
+Verified against the existing suite. Match these patterns exactly; do NOT invent an integration harness.
+
+1. **Registry / low-dependency system tests → a per-test `Rig`.** Mirror `MemoryWriteSystemTests`/`ConsolidationSystemTests`: a `sealed class Rig` holding `EventBus E`, the few registries the unit needs, and the system under test. `Step()` = `E.Tick(); reg.Update(0); sys.Update(0);`. Drain published intents with a helper: `Next() { E.Tick(); return E.GetEvents<T>().ToArray(); }`. Assert on **published intents** and **registry reads**, never on private state. Tasks 2, 4, 5, 6, 9 use this.
+
+2. **`OddSystem` logic → pure static helpers, tested directly.** `OddSystem` has ~24 constructor dependencies and is NEVER instance-constructed in a test. The established idiom (`OddSystem.PlaceAversion`, `OddSystem.ProvisionPreference`, `OddSystem.BuildSnapshot` in `PlaceScoringTests`/`OddSnapshotTests`) is: **extract the decision rule into a pure `public static` method on `OddSystem`, unit-test the method, and call it from `Decide`/`Update`.** Tasks 7, 10, 11 each add one such helper (`ShouldLeaveQueue`, `ShouldSwitchCommitment`, `SleepShouldWake`) and test it purely. The wiring into `Decide`/`Update` carries no new logic of its own and is covered end-to-end by the Task 13 soak.
+
+3. **Multi-agent / economy invariants → the soak (Task 13), not a unit test.** The "never more than `Capacity` in `Doing`" and "only the served agent pays" claims are emergent from the wired sim; assert them in the `Sim.Host --soak` histogram. (The capacity invariant is ALSO proven structurally at the registry level in Task 2.)
+
+Run command for all unit tests, from `/home/uggeli/slopfall/Headless`: `dotnet test Sim.MemoryTests/Sim.MemoryTests.csproj` (and `Sim.SpatialTests/Sim.SpatialTests.csproj` where noted).
 
 ---
 
@@ -757,12 +772,14 @@ git commit -m "feat(threshold): route Buy arrivals into the ServiceQueue (Queued
 
 **Interfaces:**
 - Consumes: `BehaviorData.Phase` (now includes `Queued`).
-- Produces: `MovementSystem` advances agents whose `Phase` is `Moving` OR `Queued` toward `TargetX/TargetZ`; it publishes `ArrivedAtTargetEvent` ONLY for `Moving` agents (so a waiter arriving at its slot does not re-trigger the arrival/queue logic).
+- Produces:
+  - Pure predicates `public static bool MovementSystem.PhaseMoves(ActivityPhase p)` (`p == Moving || p == Queued`) and `public static bool MovementSystem.PhaseArrives(ActivityPhase p)` (`p == Moving`).
+  - Wiring: the per-agent loop processes any phase where `PhaseMoves` is true; the arrival publish fires only where `PhaseArrives` is true (so a waiter reaching its slot doesn't re-trigger the queue-join logic).
+- Test: pure unit tests on the two predicates (idiom: `PlaceScoringTests`). The walking-toward-slot behaviour itself needs `TownGrid`/`Path` setup and is covered by the Task 13 soak (visible line) and Task 12 (browser).
 
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
-using System.Linq;
 using DaggerfallWorkshop.Sim;
 using DaggerfallWorkshop.Sim.Engine;
 using Xunit;
@@ -772,32 +789,55 @@ namespace Sim.MemoryTests
     public class MovementQueuedTests
     {
         [Fact]
-        public void QueuedAgent_MovesTowardSlot_NoArrivalEvent()
+        public void MovingAndQueued_BothMove()
         {
-            var (e, world) = TestWorld.New();   // see note below
-            var id = world.SpawnAgentAt(50, 50);
-            world.SetBehavior(id, ActivityKind.Buy, ActivityPhase.Queued, targetX: 50, targetZ: 40);
+            Assert.True(MovementSystem.PhaseMoves(ActivityPhase.Moving));
+            Assert.True(MovementSystem.PhaseMoves(ActivityPhase.Queued));
+        }
 
-            for (int i = 0; i < 20; i++) world.Step();
+        [Fact]
+        public void Doing_DoesNotMove()
+            => Assert.False(MovementSystem.PhaseMoves(ActivityPhase.Doing));
 
-            var pos = world.PositionOf(id);
-            Assert.True(pos.Z < 50, "queued agent should walk toward its slot at Z=40");
-            Assert.Empty(world.DrainEvents<ArrivedAtTargetEvent>().Where(ev => ev.Entity.Equals(id)));
+        [Fact]
+        public void OnlyMoving_PublishesArrival()
+        {
+            Assert.True(MovementSystem.PhaseArrives(ActivityPhase.Moving));
+            Assert.False(MovementSystem.PhaseArrives(ActivityPhase.Queued));   // waiter doesn't re-arrive
+            Assert.False(MovementSystem.PhaseArrives(ActivityPhase.Doing));
         }
     }
 }
 ```
 
-> Note: if no `TestWorld` harness exists, assert at the unit level instead: construct a `MovementSystem` with the same registries `SimWorld` passes it, seed one `PositionRegistry` + `BehaviorRegistry` entry with `Phase = Queued`, call `Update`, and assert (a) a `PositionSetIntent`/position delta toward the target was published and (b) no `ArrivedAtTargetEvent` was published for a `Queued` agent. Match the registry types from `new MovementSystem(e, WorldClock, Behavior, Position, TownGrid, Path, seed)`.
-
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd /home/uggeli/slopfall/Headless && dotnet test Sim.MemoryTests/Sim.MemoryTests.csproj --filter MovementQueuedTests`
-Expected: FAIL — queued agents don't move today (only `Moving` is advanced), or an arrival event fires.
+Expected: FAIL — `MovementSystem` has no `PhaseMoves`/`PhaseArrives`.
 
-- [ ] **Step 3: Let `Queued` agents move; gate the arrival event**
+- [ ] **Step 3a: Add the pure predicates**
 
-In `MovementSystem.cs`, find the per-agent loop that currently processes `Moving` agents. Change the phase guard so the body also runs for `Queued`. Then change the arrival publish (lines 92-98) so the `ArrivedAtTargetEvent` is only emitted for `Moving`:
+In `MovementSystem.cs`:
+
+```csharp
+/// Moving and Queued agents both walk toward TargetX/Z (a waiter walks up its line).
+public static bool PhaseMoves(ActivityPhase p)
+    => p == ActivityPhase.Moving || p == ActivityPhase.Queued;
+
+/// Only a Moving agent's arrival flips into the activity / joins a queue; a waiter
+/// reaching its slot must not re-trigger that.
+public static bool PhaseArrives(ActivityPhase p) => p == ActivityPhase.Moving;
+```
+
+- [ ] **Step 3b: Wire the predicates into the loop**
+
+Find the per-agent loop's phase filter and replace it with `PhaseMoves`:
+
+```csharp
+if (!PhaseMoves(behavior.Phase)) continue;
+```
+
+Gate the arrival publish (lines 92-98) with `PhaseArrives`:
 
 ```csharp
 float gx = behavior.TargetX - x, gz = behavior.TargetZ - z;
@@ -805,19 +845,10 @@ if (plan.Next >= plan.Points.Count
     || gx * gx + gz * gz <= ArriveDistance * ArriveDistance)
 {
     Events.Publish(new PathClearIntent { Id = kv.Key });
-    if (behavior.Phase == ActivityPhase.Moving)
+    if (PhaseArrives(behavior.Phase))
         Events.Publish(new ArrivedAtTargetEvent { Entity = kv.Key });
 }
 ```
-
-If the loop currently `continue`s for non-`Moving` phases, change that filter to include `Queued`:
-
-```csharp
-if (behavior.Phase != ActivityPhase.Moving && behavior.Phase != ActivityPhase.Queued)
-    continue;
-```
-
-(The exact line depends on how the loop filters; the rule is: process `Moving` and `Queued`, emit `ArrivedAtTargetEvent` only for `Moving`.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -842,12 +873,14 @@ git commit -m "feat(threshold): MovementSystem walks queued agents to their slot
 
 **Interfaces:**
 - Consumes: `SharedActivityRegistry.AnchorOf(EntityId, out QueueAnchor)`.
-- Produces: when `Decide` commits a behaviour whose `(TargetBuilding, Activity)` differs from the agent's current `QueueAnchor`, OR whose chosen activity is not `Buy`, publish `QueueLeaveIntent { Agent = id }`. When the same shop+Buy wins, do NOT leave and do NOT reset the behaviour (avoid losing queue position).
+- Produces:
+  - Pure helper `public static bool OddSystem.ShouldStayInQueue(bool inQueue, int heldBuilding, ActivityKind winnerKind, int winnerBuilding)` — `true` only when `inQueue && winnerKind == ActivityKind.Buy && winnerBuilding == heldBuilding` (same shop+Buy still wins → keep your place). Its negation (when `inQueue`) means "leave the line."
+  - Wiring: `Decide` calls the helper; if in a queue and not staying, publish `QueueLeaveIntent { Agent = id }`; if staying, early-`return` (no new `BehaviorSetIntent`, no lost position). The decide loop also lets `Queued` agents re-decide on dawn/dusk + the staggered cap.
+- Test: pure unit tests on `ShouldStayInQueue` (idiom: `PlaceScoringTests`).
 
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
-using System.Linq;
 using DaggerfallWorkshop.Sim;
 using DaggerfallWorkshop.Sim.Engine;
 using Xunit;
@@ -857,55 +890,52 @@ namespace Sim.MemoryTests
     public class OddQueueLeaveTests
     {
         [Fact]
-        public void RedecideToDifferentTarget_PublishesLeave()
-        {
-            // A queued agent whose ODD now prefers Sleep (night) must leave the line.
-            var (e, world) = TestWorld.New();
-            var id = world.SpawnQueuedBuyer(building: 7);     // helper: agent Queued at shop 7
-            world.MakeNight();                                // Sleep should now win
-            world.StepUntilRedecide(id);
-
-            Assert.Contains(world.DrainEvents<QueueLeaveIntent>(), lv => lv.Agent.Equals(id));
-        }
+        public void SameShopBuyWins_StaysInQueue()
+            => Assert.True(OddSystem.ShouldStayInQueue(true, 7, ActivityKind.Buy, 7));
 
         [Fact]
-        public void RedecideToSameShop_DoesNotLeave()
-        {
-            var (e, world) = TestWorld.New();
-            var id = world.SpawnQueuedBuyer(building: 7);
-            world.ForceRedecide(id);                          // cap/dawn rethink, Buy still wins
-            Assert.DoesNotContain(world.DrainEvents<QueueLeaveIntent>(), lv => lv.Agent.Equals(id));
-        }
+        public void DifferentBuildingWins_LeavesQueue()
+            => Assert.False(OddSystem.ShouldStayInQueue(true, 7, ActivityKind.Buy, 9));
+
+        [Fact]
+        public void NonBuyWins_LeavesQueue()
+            => Assert.False(OddSystem.ShouldStayInQueue(true, 7, ActivityKind.Sleep, 7));
+
+        [Fact]
+        public void NotInQueue_NeverStays()
+            => Assert.False(OddSystem.ShouldStayInQueue(false, 7, ActivityKind.Buy, 7));
     }
 }
 ```
 
-> Note: if `TestWorld` helpers don't exist, drive `OddSystem` directly: seed `SharedActivityRegistry` with the agent (publish a `QueueJoinIntent`, tick), seed `NeedsData`/`ResidencyData`/`Position` so `Decide` produces the desired winner, call `OddSystem.Update`, and inspect `e.GetEvents<QueueLeaveIntent>()`. Reuse the construction args from `SimWorld`'s `new OddSystem(...)` call.
-
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd /home/uggeli/slopfall/Headless && dotnet test Sim.MemoryTests/Sim.MemoryTests.csproj --filter OddQueueLeaveTests`
-Expected: FAIL — `OddSystem` constructor has no `SharedActivityRegistry`, no leave published.
+Expected: FAIL — `OddSystem` has no `ShouldStayInQueue`.
 
-- [ ] **Step 3: Inject the registry and publish conditional leave**
+- [ ] **Step 3a: Add the pure helper**
 
-In `OddSystem.cs`, add the field + constructor parameter:
+In `OddSystem.cs`, add (near `PlaceAversion`/`ProvisionPreference`):
+
+```csharp
+/// A queued agent keeps its place only if the same shop+Buy still wins; any
+/// other winner means it leaves the line. Pure — unit-tested in isolation.
+public static bool ShouldStayInQueue(bool inQueue, int heldBuilding,
+    ActivityKind winnerKind, int winnerBuilding)
+    => inQueue && winnerKind == ActivityKind.Buy && winnerBuilding == heldBuilding;
+```
+
+- [ ] **Step 3b: Inject the registry and wire the helper**
+
+Add the field + constructor parameter:
 
 ```csharp
 readonly SharedActivityRegistry _shared;
 ```
 
-Allow `Queued` agents to participate in the decide loop. In `Update` (lines 119-133), the current code only sets `decide` for `Doing` on expiry/cap. Add a `Queued` branch so dawn/dusk + the staggered cap can re-decide a waiter:
+Let `Queued` agents re-decide. In `Update` (lines 119-133), alongside the `Doing` branch, add:
 
 ```csharp
-if (behavior.Phase == ActivityPhase.Doing)
-{
-    currentRemaining = behavior.RemainingGameMinutes - gameMinutes;
-    double since = behavior.SinceDecisionGameMinutes + gameMinutes;
-    double cap = 48 + (Hash(id.Value, 0) & 0x1F);
-    if (currentRemaining <= 0 || since >= cap)
-        decide = true;
-}
 else if (behavior.Phase == ActivityPhase.Queued)
 {
     double since = behavior.SinceDecisionGameMinutes + gameMinutes;
@@ -915,23 +945,18 @@ else if (behavior.Phase == ActivityPhase.Queued)
 }
 ```
 
-At the END of `Decide(...)`, after the winning behaviour is chosen (you have `bestKind`, `bestBuilding`), guard the queue membership before publishing the new `BehaviorSetIntent`:
+At the END of `Decide(...)`, before the existing `Events.Publish(new BehaviorSetIntent { ... })`, gate on the helper (you have `bestKind`, `bestBuilding`):
 
 ```csharp
-// Queue bookkeeping: if this agent is in a line and the new choice points
-// somewhere else (or isn't a Buy), it leaves. If the same shop+Buy still
-// wins, keep its place — don't churn the line or reset its behaviour.
 if (_shared.AnchorOf(id, out var heldAnchor))
 {
-    bool sameTarget = bestKind == ActivityKind.Buy
-        && bestBuilding == heldAnchor.Building;
-    if (sameTarget)
-        return;                                  // stay queued in place; no new intent
-    Events.Publish(new QueueLeaveIntent { Agent = id });
+    if (ShouldStayInQueue(true, heldAnchor.Building, bestKind, bestBuilding))
+        return;                                  // keep your place; no new intent
+    Events.Publish(new QueueLeaveIntent { Agent = id });   // leave the line, fall through
 }
 ```
 
-> Place this block immediately before the existing `Events.Publish(new BehaviorSetIntent { ... })` (or `IntentSetIntent`) at the end of `Decide`. The early `return` when `sameTarget` prevents resetting `RemainingGameMinutes`/position for an agent that's already correctly queued.
+> The early `return` when staying prevents resetting `RemainingGameMinutes`/position for an agent already correctly queued. `bestKind`/`bestBuilding` are the winner locals in `Decide` (lines 185-259); confirm their names on the live code.
 
 - [ ] **Step 4: Pass the registry in `SimWorld`**
 
@@ -957,16 +982,16 @@ git commit -m "feat(threshold): OddSystem leaves the queue on re-decide to a dif
 
 ---
 
-## Task 8: Verify serialized service — only the served agent pays
+## Task 8: Verify serialized service — capacity throttles `Doing`
 
 **Files:**
 - Test only: `Headless/Sim.MemoryTests/QueueSerializesSaleTests.cs` (create)
-- (No production change expected — `EconomySystem` already pays only `Phase == Doing`. This task is a regression guard that the queue actually throttles transactions.)
+- (No production change. `EconomySystem.PaySale` already pays only `Phase == Doing`; since the queue keeps all but `Capacity` agents in `Queued`, serialization is emergent. This is a `Rig` regression guard at the registry+system level.)
 
 **Interfaces:**
-- Consumes: full `SimWorld` step loop; `EconomySystem.PaySale` gated by `behavior.Phase == ActivityPhase.Doing` (line 201).
+- Consumes: `SharedActivityRegistry` (Task 2) + `SharedActivitySystem` (Task 4) + `BehaviorRegistry`. The invariant: across join/serve/leave cycles, never more than `Capacity` agents are in `ActivityPhase.Doing` at one anchor — so `EconomySystem` (which only acts on `Doing`) pays at most `Capacity` patrons at once.
 
-- [ ] **Step 1: Write the failing-then-passing regression test**
+- [ ] **Step 1: Write the test (Rig over registry + system)**
 
 ```csharp
 using System.Linq;
@@ -978,39 +1003,70 @@ namespace Sim.MemoryTests
 {
     public class QueueSerializesSaleTests
     {
-        [Fact]
-        public void ThreeBuyers_OneCounter_AtMostOneIsDoingPerTick()
-        {
-            var (e, world) = TestWorld.New();
-            var shopBuilding = world.CreateShopWithKeeper();
-            var buyers = Enumerable.Range(0, 3).Select(_ => world.SpawnBuyerHeadedTo(shopBuilding)).ToArray();
+        static readonly QueueAnchor Shop = new QueueAnchor(7, ActivityKind.Buy);
 
-            int maxDoingAtShop = 0;
-            for (int i = 0; i < 500; i++)
+        sealed class Rig
+        {
+            public readonly EventBus E = new EventBus();
+            public readonly SharedActivityRegistry Shared;
+            public readonly BehaviorRegistry Behavior;
+            public readonly SharedActivitySystem System;
+            public Rig()
             {
-                world.Step();
-                int doing = buyers.Count(b => world.PhaseOf(b) == ActivityPhase.Doing
-                                              && world.TargetBuildingOf(b) == shopBuilding);
-                maxDoingAtShop = System.Math.Max(maxDoingAtShop, doing);
+                Shared = new SharedActivityRegistry(E);
+                Behavior = new BehaviorRegistry(E);
+                System = new SharedActivitySystem(E, Shared, Behavior);
             }
-            Assert.True(maxDoingAtShop <= 1, $"counter capacity is 1, saw {maxDoingAtShop} simultaneous");
+            public void Queue(int id)
+            {
+                E.Publish(new BehaviorSetIntent { Id = new EntityId(id), Data = new BehaviorData
+                    { Activity = ActivityKind.Buy, Phase = ActivityPhase.Queued, TargetBuilding = 7,
+                      TargetX = 10, TargetZ = 20 } });
+                E.Publish(new QueueJoinIntent { Agent = new EntityId(id), Anchor = Shop,
+                    Capacity = 1, AnchorX = 10, AnchorZ = 20 });
+            }
+            public void Leave(int id) => E.Publish(new QueueLeaveIntent { Agent = new EntityId(id) });
+            public void Step(long t) { E.Tick(); Behavior.Update(t); Shared.Update(t); System.Update(t); }
+            public int DoingCount(int[] ids) => ids.Count(i =>
+                Behavior.TryGet(new EntityId(i), out var b) && b.Phase == ActivityPhase.Doing
+                && b.TargetBuilding == 7);
+        }
+
+        [Fact]
+        public void ThreeBuyers_OneCounter_NeverMoreThanOneDoing()
+        {
+            var r = new Rig();
+            var ids = new[] { 1, 2, 3 };
+            foreach (var i in ids) r.Queue(i);
+
+            int maxDoing = 0;
+            for (long t = 0; t < 12; t++)
+            {
+                r.Step(t);
+                maxDoing = System.Math.Max(maxDoing, r.DoingCount(ids));
+                // whoever is being served finishes and leaves, freeing the counter
+                foreach (var i in ids)
+                    if (r.Behavior.TryGet(new EntityId(i), out var b) && b.Phase == ActivityPhase.Doing)
+                        r.Leave(i);
+            }
+            Assert.True(maxDoing <= 1, $"capacity 1, but saw {maxDoing} agents Doing at once");
         }
     }
 }
 ```
 
-> Note: if `TestWorld` helpers are unavailable, this becomes an integration test in the `Sim.Host` soak harness instead (assert via the activity histogram that `Doing@shop` never exceeds capacity). Keep the assertion: **never more than `Capacity` agents in `Doing` at one anchor.**
-
 - [ ] **Step 2: Run the test**
 
 Run: `cd /home/uggeli/slopfall/Headless && dotnet test Sim.MemoryTests/Sim.MemoryTests.csproj --filter QueueSerializesSaleTests`
-Expected: PASS (the queue already throttles `Doing`). If it FAILS with >1 doing, the promotion/capacity logic in Tasks 2/4 has a bug — fix there, not here.
+Expected: PASS. If it FAILS with >1 Doing, the promotion/capacity logic in Tasks 2/4 has a bug — fix there.
+
+> The end-to-end "only the served agent's coin moves" claim (through `EconomySystem`) is observed in the Task 13 soak histogram; this Rig proves the structural invariant it rests on.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add Headless/Sim.MemoryTests/QueueSerializesSaleTests.cs
-git commit -m "test(threshold): regression — one-counter shop serializes Doing/PaySale"
+git commit -m "test(threshold): one-counter shop never exceeds capacity in Doing"
 ```
 
 ---
@@ -1032,7 +1088,7 @@ git commit -m "test(threshold): regression — one-counter shop serializes Doing
 
 Pick atom-type IDs that don't collide with existing ones. `PerceivableAtoms.Activity(...)` uses certain ranges (see `Program.cs:527-530`); the memory tests use IDs like `1004`, `4002`. Use a dedicated reserved band `7000-7099` for somatic atoms.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing test (Rig over NeedsRegistry + system + PerceivableRegistry)**
 
 ```csharp
 using DaggerfallWorkshop.Sim;
@@ -1044,24 +1100,42 @@ namespace Sim.MemoryTests
 {
     public class SomaticPerceptTests
     {
+        sealed class Rig
+        {
+            public readonly EventBus E = new EventBus();
+            public readonly NeedsRegistry Needs;
+            public readonly PerceivableRegistry Perceivable;
+            public readonly SomaticPerceptSystem System;
+            public Rig()
+            {
+                Needs = new NeedsRegistry(E);
+                Perceivable = new PerceivableRegistry(E);
+                System = new SomaticPerceptSystem(E, Needs);
+            }
+            public void SetHunger(int id, double v)
+            {
+                var d = new NeedsData();
+                d.V[NeedAxis.Hunger] = v;
+                E.Publish(new NeedsSetIntent { Id = new EntityId(id), Data = d });
+            }
+            public void Step(long t) { E.Tick(); Needs.Update(t); Perceivable.Update(t); System.Update(t); }
+        }
+
         [Fact]
         public void HungerNeed_IsStampedIntoOwnBag()
         {
-            var (e, world) = TestWorld.New();
-            var id = world.SpawnAgentAt(0, 0);
-            world.SetNeed(id, NeedAxis.Hunger, 0.7);
+            var r = new Rig();
+            r.SetHunger(1, 0.7);
+            r.Step(0);     // needs applied; system stamps at tick % SenseEveryTicks == 0
+            r.Step(1);     // perceivable applies the StampAtomIntent published on the previous step
 
-            for (int i = 0; i < 6; i++) world.Step();        // cross a SenseEveryTicks boundary
-
-            var bag = world.PerceivableBag(id);
+            var bag = r.Perceivable.Bag(new EntityId(1));
             Assert.True(bag.TryGet(SomaticAtoms.Hunger, out var v));
             Assert.True(v > Fixed.Zero);
         }
     }
 }
 ```
-
-> Note: if no `TestWorld`, unit-test `SomaticPerceptSystem` directly with a `NeedsRegistry` seeded via `NeedsSetIntent` and a `PerceivableRegistry`; after `sys.Update(5)` + tick + `perceivable.Update(6)`, assert `perceivable.Bag(id).TryGet(SomaticAtoms.Hunger, out _)`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1167,14 +1241,15 @@ git commit -m "feat(threshold): somatic percepts — stamp body needs into the a
 
 **Interfaces:**
 - Consumes: existing `GatherAds(id)`, `V(ad, sc)` scoring, `OddTree` traversal inside `Decide`.
-- Produces: a throttled `decide = true` for committed agents on a stagger (`tick % PreemptEveryTicks == Hash(id.Value, 1) % PreemptEveryTicks`); inside `Decide`, when the agent is already committed (currently `Queued`/`Doing` with a real activity), only switch if the winner beats the current commitment's score by `Hysteresis`.
+- Produces:
+  - Pure helper `public static bool OddSystem.ShouldSwitchCommitment(bool committed, double currentScore, double winnerScore, double hysteresis)` — a non-committed agent always picks freely (`true`); a committed agent switches only if `winnerScore > currentScore * (1 + hysteresis)`. This IS the interrupt rule: "switch only when something is meaningfully more important than what I'm doing."
+  - Wiring: a throttled `decide = true` for committed agents on a stagger (`tick % PreemptEveryTicks == Hash(id.Value, 1) % PreemptEveryTicks`); inside `Decide`, gate the switch through the helper using the current activity's score vs. the winner's score.
 - Constants: `const int PreemptEveryTicks = 5;`, `const double Hysteresis = 0.15;` (both tunable — spec open questions).
+- Test: pure unit tests on `ShouldSwitchCommitment` (idiom: `PlaceScoringTests`).
 
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
-using System.Linq;
-using DaggerfallWorkshop.Sim;
 using DaggerfallWorkshop.Sim.Engine;
 using Xunit;
 
@@ -1182,41 +1257,51 @@ namespace Sim.MemoryTests
 {
     public class OddPreemptionTests
     {
-        [Fact]
-        public void UrgentHunger_BalksFromQueue_BeforeCap()
-        {
-            var (e, world) = TestWorld.New();
-            var id = world.SpawnQueuedBuyer(building: 7);
-            world.SetNeed(id, NeedAxis.Hunger, 1.4);          // far outranks waiting to Buy
-            world.MakeFoodAtHomeCheaper(id);                  // EatHome should now win
-
-            world.StepN(PreemptCadence());                    // < the 48-min cap
-            Assert.Contains(world.DrainEvents<QueueLeaveIntent>(), lv => lv.Agent.Equals(id));
-        }
+        const double Hyst = 0.15;
 
         [Fact]
-        public void MarginalGain_DoesNotThrash()
-        {
-            var (e, world) = TestWorld.New();
-            var id = world.SpawnQueuedBuyer(building: 7);
-            world.SetNeed(id, NeedAxis.Hunger, 0.32);         // only slightly tips another action
-            world.StepN(PreemptCadence());
-            Assert.DoesNotContain(world.DrainEvents<QueueLeaveIntent>(), lv => lv.Agent.Equals(id));
-        }
+        public void Committed_UrgentWinner_Switches()      // a clearly better option interrupts
+            => Assert.True(OddSystem.ShouldSwitchCommitment(true, currentScore: 1.0, winnerScore: 2.0, Hyst));
 
-        static int PreemptCadence() => 6;   // one cadence window
+        [Fact]
+        public void Committed_MarginalWinner_DoesNotSwitch()   // anti-thrash
+            => Assert.False(OddSystem.ShouldSwitchCommitment(true, currentScore: 1.0, winnerScore: 1.10, Hyst));
+
+        [Fact]
+        public void Committed_WinnerBelowCurrent_DoesNotSwitch()
+            => Assert.False(OddSystem.ShouldSwitchCommitment(true, currentScore: 1.0, winnerScore: 0.8, Hyst));
+
+        [Fact]
+        public void NotCommitted_AlwaysPicksFreely()
+            => Assert.True(OddSystem.ShouldSwitchCommitment(false, currentScore: 5.0, winnerScore: 0.1, Hyst));
+
+        [Fact]
+        public void Committed_ExactlyAtThreshold_DoesNotSwitch()
+            => Assert.False(OddSystem.ShouldSwitchCommitment(true, currentScore: 1.0, winnerScore: 1.15, Hyst));
     }
 }
 ```
 
-> Note: if `TestWorld` helpers don't exist, drive `OddSystem` directly: seed the agent as queued (`QueueJoinIntent` + `Queued` behaviour), set `NeedsData`, and step `OddSystem.Update` across one `PreemptEveryTicks` window; assert on published `QueueLeaveIntent`. The two facts encode the core invariants: urgency balks; marginal gain does not thrash.
-
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd /home/uggeli/slopfall/Headless && dotnet test Sim.MemoryTests/Sim.MemoryTests.csproj --filter OddPreemptionTests`
-Expected: FAIL — committed agents are not re-valued before the cap; no balk.
+Expected: FAIL — `OddSystem` has no `ShouldSwitchCommitment`.
 
-- [ ] **Step 3: Add the throttled trigger**
+- [ ] **Step 3a: Add the pure helper**
+
+In `OddSystem.cs`, near the other pure helpers:
+
+```csharp
+/// The interrupt rule: a committed agent (Queued/Doing) abandons what it's doing
+/// only when the best alternative is meaningfully better — beats the current
+/// commitment's score by the hysteresis margin. A free agent picks the winner.
+/// Pure — unit-tested in isolation.
+public static bool ShouldSwitchCommitment(bool committed, double currentScore,
+    double winnerScore, double hysteresis)
+    => !committed || winnerScore > currentScore * (1.0 + hysteresis);
+```
+
+- [ ] **Step 3b: Add the throttled trigger**
 
 In `OddSystem.Update`, extend the `Doing`/`Queued` branches (from Task 7) to also fire on the preemption cadence:
 
@@ -1248,33 +1333,25 @@ const int PreemptEveryTicks = 5;     // re-value commitments ~every 5 ticks (tun
 const double Hysteresis = 0.15;      // winner must beat current by 15% to switch (anti-thrash)
 ```
 
-- [ ] **Step 4: Add hysteresis to the switch**
+- [ ] **Step 4: Gate the switch through the helper in `Decide`**
 
-Inside `Decide`, after scoring all ads but before committing, compute the *current commitment's* score and gate the switch. Locate where the winner (`bestKind`, its score) is selected (the `OddTree.Traverse` result and its `verbScore`). Add:
+Inside `Decide`, after scoring all ads but before committing, compute the current commitment's score and the winner's score, then call the helper. Keep this BEFORE the Task-7 queue-leave block so a no-switch returns early without leaving the line:
 
 ```csharp
-// Anti-thrash: a committed agent (Queued/Doing) only switches if the winner
-// clearly beats staying put. Find the current activity's score among the ads.
+// The interrupt gate: a committed agent only switches if the winner is
+// meaningfully better (ShouldSwitchCommitment). Otherwise keep what it's doing.
 bool committed = current != null
     && (current.Phase == ActivityPhase.Queued || current.Phase == ActivityPhase.Doing)
     && current.Activity != ActivityKind.None;
-if (committed)
-{
-    double currentScore = 0;
-    if (verbIndex.TryGetValue(current.Activity, out var ci))
-        currentScore = verbScore[ci];
-    double winnerScore = verbScore[/* index of bestKind */ verbIndex[bestKind]];
-    if (winnerScore <= currentScore * (1.0 + Hysteresis))
-    {
-        // Not worth switching — keep the current commitment untouched.
-        if (_shared.AnchorOf(id, out _)) return;   // stay in line, no new intent
-        // For Doing (non-queued), also leave the behaviour as-is:
-        return;
-    }
-}
+double currentScore = 0;
+if (committed && verbIndex.TryGetValue(current.Activity, out var ci))
+    currentScore = verbScore[ci];
+double winnerScore = verbScore[verbIndex[bestKind]];
+if (!ShouldSwitchCommitment(committed, currentScore, winnerScore, Hysteresis))
+    return;   // not worth interrupting — keep the current commitment untouched
 ```
 
-> The exact variable names (`verbScore`, `verbIndex`, `bestKind`) come from `OddSystem.Decide` lines 185-224. If `bestKind`'s score isn't already retained, capture it where `winner` is computed: `double winnerScore = verbScore[winner < verbScore.Count ? winner : 0];`. Keep this block BEFORE the Task-7 queue-leave block so a no-switch returns early without leaving.
+> The locals `verbScore`/`verbIndex`/`bestKind` come from `OddSystem.Decide` (lines 185-259); confirm their exact names on the live code. If the winner's score isn't already retained, capture it where the winner is computed (`verbScore[winner]`). The early `return` leaves a queued agent in place (no `QueueLeaveIntent`, no new `BehaviorSetIntent`) and leaves a `Doing` agent's activity untouched.
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -1298,15 +1375,16 @@ git commit -m "feat(threshold): percept-driven preemption — balk on urgency, h
 
 **Interfaces:**
 - Consumes: `DamageEvent { EntityId Target, Source; int Amount; DamageType Type; }`.
-- Produces: while `behavior.Activity == ActivityKind.Sleep`, `preemptTick` does NOT trigger a decide; only the normal night/dawn/cap path OR a `DamageEvent` targeting the sleeper sets `decide = true`.
+- Produces:
+  - Pure helper `public static bool OddSystem.SleepShouldWake(bool wasHit, bool reDecideAll, bool durationExpired, bool capReached)` — a sleeper wakes ONLY on a hit, the dawn/dusk rethink, sleep duration expiry, or the staggered cap. Crucially it has NO `preemptTick` parameter: cadence-based percept preemption can never wake a sleeper. This encodes "percepts are suppressed during sleep; only a hit (or natural end) wakes you."
+  - Wiring: in `Update`, when `behavior.Activity == ActivityKind.Sleep`, decide via `SleepShouldWake(...)` and `continue` — skipping the generic Doing/Queued preemption branches entirely.
+- Test: pure unit tests on `SleepShouldWake` (idiom: `PlaceScoringTests`).
 
-> Loud-noise wake is deferred: no loud-noise event exists in `SimEvents.cs` yet (`HeardUtterance` is speech, not a salient physical noise). Scope this task to wake-on-hit; note loud-noise as future.
+> Loud-noise wake is deferred: no loud-noise event exists in `SimEvents.cs` yet (`HeardUtterance` is speech, not a salient physical noise). Scope this task to wake-on-hit; note loud-noise as future (a new salient-noise event + an added bool to this helper).
 
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
-using System.Linq;
-using DaggerfallWorkshop.Sim;
 using DaggerfallWorkshop.Sim.Engine;
 using Xunit;
 
@@ -1315,66 +1393,72 @@ namespace Sim.MemoryTests
     public class OddSleepGatingTests
     {
         [Fact]
-        public void Sleeping_IgnoresPreemption()
-        {
-            var (e, world) = TestWorld.New();
-            var id = world.SpawnSleeper(id: 1);               // Activity=Sleep, Doing, night
-            world.SetNeed(id, NeedAxis.SocialDef, 0.9);       // a tempting non-urgent pull
-            world.StepN(6);                                   // a full preempt window
-            Assert.DoesNotContain(world.DrainBehaviorChanges(id),
-                bd => bd.Activity != ActivityKind.Sleep);     // never woke for a mere social itch
-        }
+        public void Hit_WakesSleeper()
+            => Assert.True(OddSystem.SleepShouldWake(wasHit: true, reDecideAll: false,
+                                                     durationExpired: false, capReached: false));
 
         [Fact]
-        public void Sleeping_WakesOnDamage()
-        {
-            var (e, world) = TestWorld.New();
-            var id = world.SpawnSleeper(id: 1);
-            world.Publish(new DamageEvent { Target = id, Source = new EntityId(2), Amount = 3 });
-            world.StepN(2);
-            Assert.Contains(world.DrainBehaviorChanges(id),
-                bd => bd.Activity != ActivityKind.Sleep);     // a hit forced a re-decide
-        }
+        public void Dawn_WakesSleeper()
+            => Assert.True(OddSystem.SleepShouldWake(false, reDecideAll: true, false, false));
+
+        [Fact]
+        public void DurationExpired_WakesSleeper()
+            => Assert.True(OddSystem.SleepShouldWake(false, false, durationExpired: true, false));
+
+        [Fact]
+        public void NothingSalient_StaysAsleep()   // percepts suppressed: no cadence wake here
+            => Assert.False(OddSystem.SleepShouldWake(false, false, false, false));
     }
 }
 ```
 
-> Note: if `TestWorld` helpers don't exist, drive `OddSystem` directly with a sleeping `BehaviorData`, publish a `DamageEvent`, and assert a `BehaviorSetIntent` away from `Sleep` is (or isn't) published.
-
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd /home/uggeli/slopfall/Headless && dotnet test Sim.MemoryTests/Sim.MemoryTests.csproj --filter OddSleepGatingTests`
-Expected: FAIL — sleepers currently get preempted by the cadence; no damage-wake path.
+Expected: FAIL — `OddSystem` has no `SleepShouldWake`.
 
-- [ ] **Step 3: Gate sleep in the decide loop**
+- [ ] **Step 3a: Add the pure helper**
 
-In `OddSystem.Update`, before the phase branches, build the set of sleepers hit this tick, and special-case `Sleep`:
+In `OddSystem.cs`, near the other pure helpers:
 
 ```csharp
-// Hits force a sleeper awake; nothing else interrupts sleep (percepts are suppressed).
+/// Sleep suppresses percepts: a sleeper wakes only on a hit, the dawn/dusk
+/// rethink, sleep-duration expiry, or the staggered cap — NEVER on the percept
+/// preemption cadence (note: no preemptTick parameter). Pure — unit-tested.
+public static bool SleepShouldWake(bool wasHit, bool reDecideAll,
+    bool durationExpired, bool capReached)
+    => wasHit || reDecideAll || durationExpired || capReached;
+```
+
+- [ ] **Step 3b: Gate sleep in the decide loop**
+
+In `OddSystem.Update`, before the phase branches, build the set of sleepers hit this tick:
+
+```csharp
 var hitThisTick = new HashSet<EntityId>();
 foreach (ref readonly var d in Events.GetEvents<DamageEvent>())
     hitThisTick.Add(d.Target);
 ```
 
-Then inside the per-agent loop, when the agent is asleep:
+Then, inside the per-agent loop, special-case sleepers BEFORE the Doing/Queued branches from Tasks 7/10:
 
 ```csharp
 if (behavior.Activity == ActivityKind.Sleep)
 {
-    // Suppress percept-driven preemption while asleep. Wake only on a hit, or
-    // let the normal night→dawn / cap path end sleep as before.
-    bool woke = hitThisTick.Contains(id);
     double sinceSleep = behavior.SinceDecisionGameMinutes + gameMinutes;
     double capSleep = 48 + (Hash(id.Value, 0) & 0x1F);
-    decide = reDecideAll || woke || behavior.RemainingGameMinutes - gameMinutes <= 0
-             || sinceSleep >= capSleep;
-    if (decide) Decide(id, kv.Value, behavior, behavior.RemainingGameMinutes - gameMinutes, clock.Hour, tick);
-    continue;   // skip the generic Doing/Queued preemption branches
+    bool wake = SleepShouldWake(
+        wasHit: hitThisTick.Contains(id),
+        reDecideAll: reDecideAll,
+        durationExpired: behavior.RemainingGameMinutes - gameMinutes <= 0,
+        capReached: sinceSleep >= capSleep);
+    if (wake)
+        Decide(id, kv.Value, behavior, behavior.RemainingGameMinutes - gameMinutes, clock.Hour, tick);
+    continue;   // percept-cadence preemption never applies to a sleeper
 }
 ```
 
-> Place this `Sleep` special-case at the top of the loop body, right after `_behavior.TryGet(id, out behavior)` succeeds and before the `Doing`/`Queued` branches from Tasks 7/10. The `continue` ensures the cadence-based `preemptTick` never applies to a sleeper.
+> Place this `Sleep` special-case right after `_behavior.TryGet(id, out behavior)` succeeds. The `continue` ensures `preemptTick` (Task 10) never reaches a sleeper.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1480,12 +1564,19 @@ Confirm from the histogram / logs:
 - **No deadlock:** no agent remains `Queued` indefinitely — every queued agent eventually reaches `Doing` or leaves. (Check the max continuous `Queued` duration per agent is bounded well under the run length.)
 - **No economy collapse:** `SalesRevenue` and deaths are within the same band as a pre-Threshold baseline soak (throttled `Buy` shouldn't starve the town). Compare against the figures in the relevant memory/soak notes.
 
+- [ ] **Step 2b: Gate the performance budget (≤ 100 ms/tick)**
+
+Measure per-tick wall-clock time during the soak at region-scale population. The existing `MetricsSystem` is the natural home for a tick-duration metric; if it doesn't already record one, time `SimEngine.Step()` in the soak harness (`System.Diagnostics.Stopwatch` around the step call — soak harness only, NOT inside the deterministic sim) and report max + p99 + mean.
+
+Assert: **max tick time ≤ 100 ms** across the run. Capture the numbers before AND after enabling preemption (Tasks 10/11) so the preemption cost is attributable. If the cap is exceeded, raise `PreemptEveryTicks` (Task 10) and re-measure — this is the first lever, since per-tick `Decide` re-runs are the dominant new cost. Record the final tick-time figures with the tuning outcome (Step 4).
+
 - [ ] **Step 3: If a signal is wrong, debug at its source**
 
 - Lines never form → check Task 5 routing (`Buy` → `Queued`) and Task 4 promotion.
 - Deadlock (stuck `Queued`) → check Task 4 promote loop and Task 7/10 re-decide triggers fire for `Queued`.
 - Thrash (agents join/leave every cadence) → raise `Hysteresis` (Task 10).
 - Economy collapse → raise `ShopCapacity` (Task 5) or shorten `Buy` `serviceTime`; re-soak.
+- **Tick > 100 ms** → raise `PreemptEveryTicks` (Task 10) first; if still over, profile `GatherAds`/scoring and consider only re-valuing `Queued` (not `Doing`) agents on the cadence.
 
 - [ ] **Step 4: Record the tuning outcome**
 
@@ -1509,15 +1600,18 @@ git commit -m "test(threshold): soak verification + tuned queue/preemption const
 - Balking via the preemption loop, not bespoke logic → Tasks 7 + 10. ✓
 - Viewer: phase already on wire; queue line from real slot positions; inspector lines → Tasks 4 (slots) + 12. ✓
 - Testing: queue invariants (Task 2), serialization (Task 8), preemption invariants (Task 10), sleep (Task 11), deadlock guard + honesty-histogram soak (Task 13). ✓
+- Performance: ≤ 100 ms/tick hard cap (Global Constraints), measured + gated in the soak (Task 13 Step 2b), with `PreemptEveryTicks` as the primary lever. ✓
 - Seams designed-for: `protocolState`/anchor model (Task 2) accommodates Barter/Combat; somatic atoms (Task 9) ready for sleep-salience/future; single PaySale call-site preserved (Task 8). ✓
 - **Doors (Phase 3) are intentionally NOT in this plan** — they reuse this runtime and get their own plan (`Open`/`Close` executors, movement-time door trigger, wall gates + building doors, curfew). Recorded as out of scope here.
 
-**Placeholder scan:** no "TBD"/"add error handling"/"similar to Task N". Each task carries real test + implementation code. The "Note" callouts on Tasks 5-11 give a concrete fallback (drive the system directly, assert on published intents) when a `TestWorld` harness is absent — they are alternatives, not gaps.
+**Testing idiom (confirmed against the live suite):** there is NO `TestWorld`/full-`SimWorld` test harness. Registry/low-dep-system tasks (2, 4, 5, 8, 9) use the per-test `Rig` pattern (EventBus + the few registries + the system; assert on published intents). `OddSystem` tasks (7, 10, 11) extract the decision rule into a `public static` pure helper (`ShouldStayInQueue`, `ShouldSwitchCommitment`, `SleepShouldWake`) and unit-test it directly — the codebase idiom (`PlaceScoringTests`/`OddSnapshotTests`). `MovementSystem` (Task 6) extracts pure predicates (`PhaseMoves`/`PhaseArrives`). End-to-end behaviour is the Task 13 soak. No task depends on a harness that doesn't exist.
+
+**Placeholder scan:** no "TBD"/"add error handling"/"similar to Task N". Each task carries real test + implementation code.
 
 **Type consistency:** `QueueAnchor`, `QueueJoinIntent`/`QueueLeaveIntent`, `SharedActivityInstance`, `SharedActivityRegistry` (reads: `TryGet`, `AnchorOf`, `IsServed`, `PositionOf`, `ServedSnapshot`), `SharedActivitySystem`, `SomaticAtoms.{Hunger,Energy,Fear}`, `SomaticPerceptSystem`, `ActivityPhase.Queued`, constants `QueueSpacing`/`ShopCapacity`/`SenseEveryTicks`/`PreemptEveryTicks`/`Hysteresis` — all referenced names are defined in the task that introduces them and used consistently downstream.
 
 **Known uncertainty to confirm during execution (not placeholders — verify against the live code):**
-1. `NeedsRegistry` may need a public `All` enumerator (flagged in Task 9 Step 4).
+1. `NeedsRegistry` may need a public `All` enumerator (flagged in Task 9 Step 4); mirror `OccupancyRegistry`/`BehaviorRegistry`.
 2. The exact constructor parameter list/order for `ExecutionSystem`/`OddSystem`/`MovementSystem` — append the new registry and match the call site in `SimWorld.cs`.
-3. Inside `OddSystem.Decide`, the precise local names for the winner's score (`verbScore`/`verbIndex`/`bestKind`) — confirm at lines 185-224 and capture the winner's score there.
-4. Whether a `TestWorld` integration harness exists; if not, use the per-task unit fallback noted in each test step.
+3. Inside `OddSystem.Decide`, the precise local names for the winner / its score (`verbScore`/`verbIndex`/`bestKind`/`bestBuilding`) — confirm at lines 185-259 and capture the winner's score there.
+4. Whether `MetricsSystem` already records a per-tick duration (Task 13 Step 2b); if not, time `SimEngine.Step()` in the soak harness only.

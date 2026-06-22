@@ -236,6 +236,14 @@ Plan B order — prove the vertical slice before generalizing.
 4. **Phase 3 — `ServiceQueue` on doors.** `Open`/`Close` executors; movement-time door trigger; wall
    gates + building-entry doors; curfew `Close`; door mesh open/closed state.
 
+## Performance budget
+
+- **A single sim tick must complete in ≤ 100 ms** at region-scale population. Hard cap, gated in the soak.
+- The chief risk is Pillar B: percept-driven preemption re-runs `OddSystem.Decide` (ad-gathering + scoring)
+  for committed agents. `PreemptEveryTicks` staggering bounds this to ~1/N of committed agents per tick;
+  it is the first lever if a tick exceeds budget. Measure tick time before and after enabling preemption
+  so its cost is attributable.
+
 ## Seams designed-for (built now, not implemented)
 
 - `protocolState` is opaque per kind → `Barter`/`Combat` add their own without touching the runtime.
