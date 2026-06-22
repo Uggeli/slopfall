@@ -117,6 +117,11 @@ namespace DaggerfallWorkshop.Sim.Engine
             bool reDecideAll =
                 Events.GetEvents<DawnEvent>().Length > 0 || Events.GetEvents<DuskEvent>().Length > 0;
 
+            // Build hit set once per tick: sleeping agents hit this tick must wake.
+            var hitThisTick = new HashSet<EntityId>();
+            foreach (ref readonly var d in Events.GetEvents<DamageEvent>())
+                hitThisTick.Add(d.Target);
+
             foreach (var kv in _residency.All)
             {
                 var id = kv.Key;
@@ -126,6 +131,23 @@ namespace DaggerfallWorkshop.Sim.Engine
                 BehaviorData behavior;
                 if (_behavior.TryGet(id, out behavior))
                 {
+                    // Sleep carve-out: sleeping agents suppress percept-cadence preemption;
+                    // they wake ONLY on a hit, the dawn/dusk rethink, duration expiry, or
+                    // the staggered cap. The continue below ensures preemptTick never fires.
+                    if (behavior.Activity == ActivityKind.Sleep)
+                    {
+                        double sinceSleep = behavior.SinceDecisionGameMinutes + gameMinutes;
+                        double capSleep = 48 + (Hash(id.Value, 0) & 0x1F);
+                        bool wake = SleepShouldWake(
+                            wasHit: hitThisTick.Contains(id),
+                            reDecideAll: reDecideAll,
+                            durationExpired: behavior.RemainingGameMinutes - gameMinutes <= 0,
+                            capReached: sinceSleep >= capSleep);
+                        if (wake)
+                            Decide(id, kv.Value, behavior, behavior.RemainingGameMinutes - gameMinutes, clock.Hour, tick);
+                        continue;   // percept-cadence preemption never reaches a sleeper
+                    }
+
                     if (behavior.Phase == ActivityPhase.Doing)
                     {
                         currentRemaining = behavior.RemainingGameMinutes - gameMinutes;
@@ -712,6 +734,13 @@ namespace DaggerfallWorkshop.Sim.Engine
             double f = 1.0 - DangerAversion * danger;
             return f < DangerFloor ? DangerFloor : (f > 1.0 ? 1.0 : f);
         }
+
+        /// Sleep suppresses percepts: a sleeper wakes only on a hit, the dawn/dusk
+        /// rethink, sleep-duration expiry, or the staggered cap — NEVER on the percept
+        /// preemption cadence (note: no preemptTick parameter). Pure — unit-tested.
+        public static bool SleepShouldWake(bool wasHit, bool reDecideAll,
+            bool durationExpired, bool capReached)
+            => wasHit || reDecideAll || durationExpired || capReached;
 
         /// <summary>Remembered provisioning p∈[0,1] → a gentle preference: a place remembered as empty
         /// is mildly deprioritised (soft prior; the hard larder gate stays ground truth).</summary>
