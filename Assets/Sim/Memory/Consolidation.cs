@@ -26,16 +26,9 @@ namespace DaggerfallWorkshop.Sim.Memory
                 CategoryNode node;
                 if (!meanings.TryGetNode(rec.CategoryRef, out node)) continue;   // dangling ref — leave
 
-                AtomBag newDelta = AtomBag.Diff(rec.DeltaBag, node.Prediction(meanings.Config));
-                if (newDelta.Count == 0 && !rec.IsInnate)
-                {
-                    store.Remove(rec.Key);
-                }
-                else
-                {
-                    store.Encode(new MemoryRecord(rec.Key, rec.CategoryRef, newDelta,
-                        rec.Strength, rec.WrittenAt, rec.LastRefresh, rec.Flags));
-                }
+                MemoryRecord shed = ShedPredicted(rec, node.Prediction(meanings.Config), rec.CategoryRef);
+                if (shed.DeltaBag.Count == 0) store.Remove(rec.Key);   // fully migrated into the fact
+                else store.Encode(shed);                                // survivors keep their per-atom meta
             }
         }
 
@@ -84,11 +77,7 @@ namespace DaggerfallWorkshop.Sim.Memory
                 for (int k = 0; k < members.Count; k++) meanings.Fold(catId, members[k].DeltaBag);
 
                 for (int k = 0; k < members.Count; k++)
-                {
-                    MemoryRecord m = members[k];
-                    AtomBag newDelta = AtomBag.Diff(m.DeltaBag, prototype);
-                    store.Encode(new MemoryRecord(m.Key, catId, newDelta, m.Strength, m.WrittenAt, m.LastRefresh, m.Flags));
-                }
+                    store.Encode(ShedPredicted(members[k], prototype, catId));   // re-key + shed shared atoms, keep meta
             }
         }
 
@@ -110,6 +99,27 @@ namespace DaggerfallWorkshop.Sim.Memory
             List<MemoryRecord> list = new List<MemoryRecord>(store.Count);
             for (int i = 0; i < store.Count; i++) list.Add(store[i]);
             return list;
+        }
+
+        /// <summary>Re-diff a record against a prediction, re-keyed to <paramref name="categoryRef"/>:
+        /// drop each atom the fact now predicts at that value (it has migrated into the category),
+        /// keeping every survivor's per-atom meta index-aligned. INNATE atoms are permanent and never
+        /// shed. An empty result means the record fully migrated into the fact.</summary>
+        static MemoryRecord ShedPredicted(in MemoryRecord rec, AtomBag prediction, CategoryId categoryRef)
+        {
+            var atoms = rec.DeltaBag.Atoms;
+            var keepA = new List<Atom>(atoms.Count);
+            var keepM = new List<AtomMeta>(atoms.Count);
+            for (int i = 0; i < atoms.Count; i++)
+            {
+                AtomMeta m = rec.Meta[i];
+                if (!m.IsInnate && prediction.TryGet(atoms[i].Type, out var pv) && pv == atoms[i].Value)
+                    continue;                                   // absorbed by the fact
+                keepA.Add(atoms[i]);
+                keepM.Add(m);
+            }
+            return new MemoryRecord(rec.Key, categoryRef, AtomBag.Create(keepA), keepM.ToArray(),
+                                    rec.WrittenAt, rec.LastRefresh);
         }
     }
 }

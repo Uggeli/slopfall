@@ -70,6 +70,24 @@ namespace Sim.MemoryTests
         }
 
         [Fact]
+        public void ReDiff_KeepsSurvivorPerAtomMeta_ShedsAbsorbed()
+        {
+            var m = FoxPredicts1(out var id);   // predicts {1: 1.0}
+            var s = new MemoryStore(8);
+            // atom 1 matches the prediction (absorbed); atom 2 contradicts (survives). Distinct meta.
+            var bag = Bag((1, 1.0), (2, 0.0));
+            var meta = new[] { new AtomMeta(200, MemoryFlags.None), new AtomMeta(90, MemoryFlags.Surprise) };
+            s.Encode(new MemoryRecord(new MemoryKey(10), id, bag, meta, 0, 0));
+
+            Consolidation.ReDiff(s, m);
+
+            s.TryGet(new MemoryKey(10), out var r);
+            Assert.Equal(new[] { 2 }, r.DeltaBag.Atoms.Select(a => a.Type.Value).ToArray());   // only the un-absorbed atom
+            Assert.Equal((byte)90, r.Meta[0].Strength);     // survivor kept ITS own strength, not the absorbed atom's
+            Assert.True(r.Meta[0].IsSurprise);              // and its own flag
+        }
+
+        [Fact]
         public void ReDiff_NovelRecord_IsUntouched()
         {
             var m = FoxPredicts1(out _);
