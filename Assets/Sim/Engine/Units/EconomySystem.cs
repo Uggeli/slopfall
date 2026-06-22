@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DaggerfallWorkshop.Sim.Memory;
 
 namespace DaggerfallWorkshop.Sim.Engine
 {
@@ -801,6 +802,12 @@ namespace DaggerfallWorkshop.Sim.Engine
         {
             if (building < 0) return;
             Events.Publish(new PlaceNoteIntent { Id = id, Building = building, Fact = fact, Value = value, Tick = tick });
+
+            // Mirror the provisions observation into the rich PLACES atom store (the learned
+            // layer ODD scores on in Phase 2). Owner-stamps-its-own: economy owns provisions.
+            if (fact == PlaceFact.ProvisionsHere)
+                Events.Publish(new PlaceObserveIntent
+                { Agent = id, Building = building, Atom = PlaceAtoms.Provisions, Value = Fixed.FromDouble(value) });
         }
 
         void BuildKeeperOf(Tick t)

@@ -85,6 +85,12 @@ namespace DaggerfallWorkshop.Sim
             SeedFarmAndEmployment(world, s);
             SeedGuards(world, s);
             SeedTownKnowledge(world, s);
+
+            // Knowledge is now final for every resident — seed each one's innate agent
+            // memory (place-kind atoms today; ownerships/reputations/social later, all via
+            // the one AgentMemorySeeding entry point). Reads no RNG → spawn order unchanged.
+            for (int r = 0; r < s.Residents.Count; r++)
+                AgentMemorySeeding.SeedAgent(world, s.Residents[r]);
         }
 
         /// Allocate a combined walkability grid of blocksWide × blocksHigh blocks.
@@ -620,6 +626,7 @@ namespace DaggerfallWorkshop.Sim
             world.Coin.Seed(id, 0);                        // broke newcomer — mints no money
             foreach (var b in settlement.Buildings)
                 world.PlaceMemory.Learn(id, b);
+            AgentMemorySeeding.SeedAgent(world, id);   // innate memory, same as load-time residents
             return id;
         }
 
