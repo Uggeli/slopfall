@@ -73,10 +73,11 @@ main           pick a mode; wire engine + net + ui
   setup that boots `Sim.Web` at a fixed seed, loads town3d in a deterministic **capture
   mode** (fixed camera pose, fixed time-of-day, paused at a known sim tick), screenshots,
   and diffs against a committed baseline within a small tolerance (sub-pixel AA noise).
-  - **De-risk first:** the opening task is a spike — `npx playwright install chromium`,
-    render a WebGL page headlessly, confirm a non-blank PNG of the expected scene. If
-    SwiftShader can't render Three.js on this box, fall back to manual eyeballing and
-    drop the rest of R0.5 — but learn that in an hour, not after building the harness.
+  - **De-risk first:** the opening task is a spike. Playwright 1.61 + its Chromium are
+    already cached (`~/.cache/ms-playwright/chromium-1228`), so no install — just render a
+    WebGL page headlessly and confirm a non-blank PNG of the expected scene. If SwiftShader
+    can't render Three.js on this box, fall back to manual eyeballing and drop the rest of
+    R0.5 — but learn that in minutes, not after building the harness.
   - **Capture mode** is the one place we touch town3d outside a pure move: a `?capture=`
     URL mode (or query params) that sets the camera + pauses the clock at a fixed tick.
     This is test infrastructure, not a rendering change, and it stays in as the regression
