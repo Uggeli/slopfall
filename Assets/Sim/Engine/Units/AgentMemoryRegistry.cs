@@ -63,8 +63,6 @@ namespace DaggerfallWorkshop.Sim.Engine
 
         public AgentMemoryRegistry(EventBus events, AgentMemoryConfig cfg) : base(events) { _cfg = cfg; }
 
-        const byte PlaceStrength = 200;   // observed places stay vivid; unrefreshed fade via consolidation
-
         /// <summary>Load-time: give an agent an empty memory.</summary>
         public void Seed(EntityId id) { if (!_d.ContainsKey(id)) _d[id] = new AgentMemory(); }
 
@@ -72,12 +70,35 @@ namespace DaggerfallWorkshop.Sim.Engine
         public void SeedPlace(EntityId agent, int building, AtomTypeId atom, Fixed value)
         { if (_d.TryGetValue(agent, out var mem)) MergePlaceAtom(mem, building, atom, value, 0); }
 
+        /// <summary>Upsert one observed fact into the agent's memory of a building, at the atom's
+        /// intrinsic salience (Kind=INNATE permanent, Danger=SURPRISE resistant, Provisions=ordinary).
+        /// Re-observation refreshes that atom back to vivid; its peers keep their own per-atom meta.</summary>
         static void MergePlaceAtom(AgentMemory mem, int building, AtomTypeId atom, Fixed value, long tick)
         {
             var key = new MemoryKey(building);
-            var add = AtomBag.Create(new[] { new Atom(atom, value) });
-            AtomBag delta = mem.Stores.Places.TryGet(key, out var rec) ? AtomBag.Merge(rec.DeltaBag, add) : add;
-            mem.Stores.Places.Encode(new MemoryRecord(key, CategoryId.None, delta, PlaceStrength, tick, tick, MemoryFlags.None));
+            AtomMeta seed = MemorySalience.For(atom);
+            if (!mem.Stores.Places.TryGet(key, out var rec))
+            {
+                var bag0 = AtomBag.Create(new[] { new Atom(atom, value) });
+                mem.Stores.Places.Encode(new MemoryRecord(key, CategoryId.None, bag0, new[] { seed }, tick, tick));
+                return;
+            }
+
+            // Rebuild the record's bag + per-atom meta, upserting the observed atom in sorted order.
+            var atoms = rec.DeltaBag.Atoms;
+            var outA = new List<Atom>(atoms.Count + 1);
+            var outM = new List<AtomMeta>(atoms.Count + 1);
+            bool placed = false;
+            for (int i = 0; i < atoms.Count; i++)
+            {
+                if (!placed && atoms[i].Type.CompareTo(atom) > 0)
+                { outA.Add(new Atom(atom, value)); outM.Add(seed); placed = true; }
+                if (atoms[i].Type == atom)
+                { outA.Add(new Atom(atom, value)); outM.Add(seed); placed = true; continue; }   // re-observe: refresh to vivid
+                outA.Add(atoms[i]); outM.Add(rec.Meta[i]);
+            }
+            if (!placed) { outA.Add(new Atom(atom, value)); outM.Add(seed); }
+            mem.Stores.Places.Encode(new MemoryRecord(key, CategoryId.None, AtomBag.Create(outA), outM.ToArray(), rec.WrittenAt, tick));
         }
 
         public override void Update(long tick)

@@ -118,7 +118,7 @@ namespace DaggerfallWorkshop.Sim.Memory
                 AtomMeta m = Meta[i];
                 if (m.IsInnate) { keepA.Add(atoms[i]); keepM.Add(m); continue; }
                 int basis = m.IsSurprise ? surpriseRate : normalRate;
-                int dec = basis * (255 - m.Strength) / 255;
+                int dec = basis * (255 - m.Strength) / 255;   // strength-scaled: important atoms barely erode
                 if (dec < 1) dec = 1;
                 int ns = m.Strength - dec;
                 if (ns <= 0) continue;                       // atom forgotten
