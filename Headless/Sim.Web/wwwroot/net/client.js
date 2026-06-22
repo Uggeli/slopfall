@@ -16,10 +16,11 @@ export function createNet({ onSnapshot, onDetail, onBuilding, onStatus, onOpen }
   // render clock in seconds. Exposed for tests; the live path calls it from onmessage.
   function ingest(msg, now) {
     prevSnap = curSnap; prevTime = curTime;
-    // id -> [x, z, yaw, groundY, kind, activity]; groundY (idx 7) is the town's
+    // id -> [x, z, yaw, groundY, kind, activity, phase]; groundY (idx 7) is the town's
     // terrain-pad height in region mode (0 in town mode); kind (idx 6) is the
-    // render-kind; activity (idx 3) is the ActivityKind ordinal.
-    curSnap = new Map(msg.entities.map(e => [e[0], [e[1], e[2], e[5], e[7] || 0, e[6] || 0, e[3] || 0]]));
+    // render-kind; activity (idx 3) is the ActivityKind ordinal; phase (idx 4) is
+    // ActivityPhase ordinal (0 Moving, 1 Doing, 2 Queued).
+    curSnap = new Map(msg.entities.map(e => [e[0], [e[1], e[2], e[5], e[7] || 0, e[6] || 0, e[3] || 0, e[4] || 0]]));
     curTime = now;
   }
 

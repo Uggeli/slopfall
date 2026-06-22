@@ -13,6 +13,15 @@ const ui = id => document.getElementById(id);
 // Server needs.V axes, in order (NeedsRegistry.NeedAxis); each is a deficit 0..1.
 const NEED_LABELS = ['hunger', 'tiredness', 'loneliness', 'poverty', 'goods', 'fear', 'attire'];
 
+// Format the phase string from an inspect detail object, appending queue position when present.
+// Server sends queuePos (-1 if not in a line) and queueServed (bool).
+function phaseLabel(d) {
+  let label = d.phase ?? '—';
+  if (d.queuePos != null && d.queuePos >= 0) label += ` — in line (#${d.queuePos + 1})`;
+  else if (d.queueServed) label += ` — at counter`;
+  return label;
+}
+
 export function mountInspector({ net, camera }) {
   const raycaster = new THREE.Raycaster();
   const ptr = new THREE.Vector2();
@@ -82,7 +91,7 @@ export function mountInspector({ net, camera }) {
       + `<span class="tab ${agentTab === 'odd' ? 'active' : ''}" data-tab="odd">ODD</span></div>`;
     if (agentTab === 'status') {
       h += `<div class="dim">${d.kind} · ${d.race} · lvl ${d.level}</div>`
-        + `<div class="dim">activity: ${d.activity} (${d.phase})</div>`
+        + `<div class="dim">activity: ${d.activity} (${phaseLabel(d)})</div>`
         + `<div class="dim">coin: ${(d.coin ?? 0).toFixed(2)}</div>`
         + (d.spouse >= 0 ? `<div class="dim">spouse: <span class="dlink" data-id="${d.spouse}">#${d.spouse}</span></div>` : '');
       if (Array.isArray(d.needs)) {

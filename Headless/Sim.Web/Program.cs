@@ -634,6 +634,8 @@ object InspectEntity(EntityId id)
                         prop = nd.Prop, total = nd.Total, terminal = nd.Terminal,
                     }),
                 };
+            int queuePos = world.SharedActivity.PositionOf(id);
+            bool queueServed = world.SharedActivity.IsServed(id);
             return new
             {
                 id = id.Value,
@@ -646,6 +648,8 @@ object InspectEntity(EntityId id)
                 coin = coin,
                 activity = beh != null ? beh.Activity.ToString() : "—",
                 phase = beh != null ? beh.Phase.ToString() : "—",
+                queuePos,       // -1 if not in a line
+                queueServed,    // true while being served at the counter
                 targetBuilding = beh != null ? beh.TargetBuilding : -1,
                 needs = needs != null ? needs.V : null,
                 // Family-tree hook surfaced for the viewer: surname, household id, spouse.

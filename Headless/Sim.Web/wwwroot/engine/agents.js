@@ -26,6 +26,10 @@ const RK_CIVILIAN = 0, RK_GUARD = 1, RK_MONSTER = 2;
 const FPS_WALK_PEOPLE = 4, FPS_WALK_COMBAT = 6, FPS_ATTACK = 10, FPS_IDLE = 4;
 // ActivityKind.Attack ordinal (BehaviorRegistry.ActivityKind).
 const ACT_ATTACK = 19;
+// ActivityPhase ordinals (server ActivityPhase enum).
+const PHASE_MOVING = 0, PHASE_DOING = 1, PHASE_QUEUED = 2;
+// Muted amber tint applied to agents in the Queued phase so a queue reads as "waiting".
+const QUEUED_TINT = 0xd4944a;
 
 function poolFor(kind) {
   if (!spritePools) return null;
@@ -84,12 +88,12 @@ export function updateAgents(t, cam, net, selectedId) {
 
     let p = people.get(id);
     if (!p || p.archive !== archive) {
-      if (p) agents.remove(p.mesh);
+      if (p) { if (p.tintMat) p.tintMat.dispose(); agents.remove(p.mesh); }
       const geo = new THREE.PlaneGeometry(s.meta.worldW, s.meta.worldH);
       const mesh = new THREE.Mesh(geo, s.mat);
       mesh.userData.id = id;   // for click-to-inspect raycasting
       agents.add(mesh);
-      p = { mesh, archive, geo };
+      p = { mesh, archive, geo, tintMat: null };
       people.set(id, p);
     }
 
@@ -134,7 +138,22 @@ export function updateAgents(t, cam, net, selectedId) {
     const fc = s.meta.frames[record] || 1;
     const frame = Math.floor(t * fps) % fc;
     setCellUV(p.geo, s, record, frame, flip);
+
+    // Phase tint: Queued agents get a muted-amber overlay so a queue reads as "waiting".
+    // We clone the shared archive material only when needed (one clone per queued agent),
+    // disposing it and restoring the shared mat when the agent leaves the Queued phase.
+    const phase = c[6] | 0;
+    if (phase === PHASE_QUEUED) {
+      if (!p.tintMat) {
+        p.tintMat = s.mat.clone();
+        p.tintMat.color.setHex(QUEUED_TINT);
+      }
+      p.mesh.material = p.tintMat;
+    } else {
+      if (p.tintMat) { p.tintMat.dispose(); p.tintMat = null; }
+      p.mesh.material = s.mat;
+    }
   }
 
-  for (const [id, p] of people) if (!seen.has(id)) { agents.remove(p.mesh); p.geo.dispose(); people.delete(id); }
+  for (const [id, p] of people) if (!seen.has(id)) { if (p.tintMat) p.tintMat.dispose(); agents.remove(p.mesh); p.geo.dispose(); people.delete(id); }
 }
