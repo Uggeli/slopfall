@@ -1,0 +1,136 @@
+# MSxx — The Renderer (town3d → the modular client)        [client] + [infra]
+
+Goal: promote `town3d.html` from a 1118-line monolith into THE client — a modular
+renderer where an engine layer draws a `Frame` knowing nothing about *how* you look at
+the world, and the observer overview is just one *mode* sitting on top. Delete every
+competing client in the same pass. The payoff is structural, not a feature: once the
+engine↔mode boundary exists, a first-person/player mode inherits the continuous world,
+atmosphere, NPC crowd, assets, and transport **for free** — so the work that mode needs
+shrinks to its control loop, not its renderer.
+
+This is the collection point for the build break and all `[client]` presentation/input
+work that's currently smeared across `town3d.html`. It is independent of the porting
+backlog and can run whenever. It is NOT the final Unity excision (that's the separate
+`[infra]` "remove vendored DFU scaffolding", gated on the porting backlog).
+
+## Depends on (gate before digging in)
+
+Nothing hard. The substrate already exists:
+- The CQRS core rewrite landed; `Sim.Web` already publishes its own immutable
+  `WorldRunner.Frame` to the browser and builds green. The renderer reads a `Frame` —
+  that contract is in place.
+- `docs/render_client_dataflow.md` is the coordinate/orientation contract this refactor
+  must preserve verbatim (see Guardrails). It is current and correct.
+
+The one red thing (`Sim.Net` / the `RenderSnapshot` build break, TODOS.md line 15) is
+resolved *inside* this milestone by deletion (R0), not by re-adding the type.
+
+## The design hinge (the invariant this milestone exists to establish)
+
+**The engine↔mode boundary.** `engine/` draws a `Frame` and streams the world around a
+*focal point*. It must not know whether that focal point is an orbit-camera target
+(observer) or an avatar position (player), and must not reference any UI/inspector DOM.
+A mode supplies: a camera rig, a focal point, input handling, and which UI overlays to
+mount.
+
+Get this right → first-person is free on the rendering side (feed it the avatar's
+position; everything streams/renders identically). Get it wrong → split the file by
+function without the boundary and the modes can't share, defeating the point. **The line
+to defend: nothing in `engine/` references `OrbitControls`, the observer camera, or the
+inspector.**
+
+## Module layout (functions already cluster this way in town3d.html)
+
+```
+engine/        ← mode-agnostic core: "given a Frame + a focal point + a camera, draw the world"
+  scene        renderer, scene, lights, render loop, gfx settings (fog/brightness/FOV/render-scale)
+  assets       model/texture/atlas/sprite-sheet/flat-sheet caches — the /asset/* client
+  terrain      ensureTerrainMat, buildTerrain/buildTileMesh, positionTerrain, streamRegionTerrain
+  world        addStructureTile + loadModel (buildings) + buildFlatInstances/getFlatSheet (nature flats)
+  agents       billboard pool (poolFor/getSheet/hash32), setCellUV, updateAgents (interp from Frame)
+  atmosphere   updateAtmosphere, weatherMods (day/night sky, sun arc, weather tint, fog)
+net/
+  client       WebSocket connect, Frame decode, onSnap, snapshot buffer + interp, send (speed/inspect)
+ui/
+  inspector    selectAgent/pickBuilding, renderDetail/AgentPanel/Odd/Building, needBar, wire*
+  hud          clock/weather readout, speed buttons, gfx sliders (syncGfx/setFogSlider)
+modes/
+  observer     orbit + WASD fly-cam (moveCamera/followGround/frame*), click-to-inspect  ← today's town3d
+  player       (NOT built here — see "Enabled, not built here")
+main           pick a mode; wire engine + net + ui
+```
+
+## Stages
+
+- [infra] **R0 — Build green by deletion.** Delete `Sim.Net` (binary-TCP, the orphaned
+  remote path) and its tests `Sim.Tests/SnapshotTests.cs` + `Sim.Tests/ProtocolTests.cs`;
+  remove the `Sim.Net` project from `Sim.slnx`. Done = whole solution builds; the full
+  test suite runs (TODOS.md line 15 cleared — was "1 of 218 tests runs"). This is the
+  safety net for everything below: a green server-side suite to refactor against.
+- [client] **R1 — Carve `net/`.** Lift the WebSocket / `Frame` decode / `onSnap` /
+  interpolation / `send` out of `town3d.html` into `net/client.js`; town3d imports it.
+  Smallest seam, zero visual change. Done = the town renders identically, all transport
+  goes through `net/`.
+- [client] **R2 — Carve `engine/`.** Extract the six engine submodules in turn (scene,
+  assets, terrain, world, agents, atmosphere). Each is a pure move — no behaviour change
+  per extraction. After this, `town3d.html` is a thin consumer of `engine/` + `net/`.
+  Done = Gothway Garden looks pixel-identical (geometry, climate tiles, NPCs walking,
+  day/night) and `engine/` contains no `OrbitControls`/inspector references.
+- [client] **R3 — Carve `ui/`.** Move the inspector panels and the HUD/speed/gfx widgets
+  into `ui/`, mounted by the mode, fed by `net/`. Done = inspect + HUD work unchanged,
+  DOM concerns out of engine.
+- [client] **R4 — The boundary: focal-point contract + `modes/observer`.** Introduce the
+  explicit `engine` API (`render(frame)`, streams around a focal point; a camera the mode
+  owns) and reframe today's behaviour as `modes/observer` (orbit/fly cam → focal point =
+  camera target; mounts the inspector + HUD). This is the deliverable that makes
+  first-person free. Done = observer is a ~thin mode over engine+net+ui, and the engine
+  takes a focal point it can't tell apart from an avatar's.
+- [client] **R5 — Sole-client cutover.** Delete `wwwroot/index.html` (2D canvas
+  spectator) and `wwwroot/view3d.html` (single-model debug viewer); make the town client
+  the default page (update `Sim.Web/Program.cs` static-file/default-doc routing). Done =
+  exactly one web client exists; no parallel viewer left to rot.
+
+## Enabled, not built here
+
+- **`modes/player` (first-person / player-as-agent).** A new mode that reuses all of
+  `engine/` + `net/`: it supplies an eye-height camera rig and feeds the avatar position
+  as the focal point. The *rendering* is free after R4. What it still needs is its own
+  work, tracked elsewhere: the **player-as-agent control loop** — input frames → server
+  verbs → sim moves the avatar → authoritative position returns in the next `Frame` —
+  plus a join/spawn flow. That's the `[client]` + multiplayer-mechanics backlog
+  (TODOS.md: "player verbs + input frames", agent possession & handoff, join/spawn), and
+  it sits on the "player = entity with `ControlledByInput`" / MMO-by-accident direction.
+  This milestone makes that work small; it does not do it.
+
+## Guardrails (acceptance constraints, not polish)
+
+- **The boundary is the product.** Nothing in `engine/` may reference `OrbitControls`,
+  the observer camera, or the inspector/HUD DOM. If an extraction needs to, the cut is
+  wrong — push that concern up into the mode. This is the one rule the milestone exists
+  to enforce; everything else is mechanics.
+- **Behaviour parity per stage.** Every extraction is a pure move. The rendered town must
+  look identical after each stage (same Gothway Garden, same crowd, same atmosphere). No
+  "improve while refactoring" — new rendering features (water, interiors, post-processing,
+  seasons, flat animation) are separate TODO items and stay out.
+- **Preserve the server-bakes-everything rule.** Per `docs/render_client_dataflow.md`:
+  the server bakes all geometry/orientation into DFU's native world frame and the client
+  renders raw — no client-side flips/rotations/transposes. The refactor must not
+  reintroduce any client-side coordinate transform. Known orientation issues (if any
+  remain) are left exactly as-is; this is structural work only.
+- **One client at the end.** No window where zero viewers work, and no two viewers left
+  alive afterward. Client-page deletions (R5) come *after* the 3D client is the proven
+  sole renderer.
+- **Deletion is final for the TCP path.** Removing `Sim.Net` forecloses the
+  engine-agnostic binary-TCP transport (the old Godot/native-client path). The browser
+  talks to `Sim.Web` directly and never needed it. Revisit only if a non-browser client
+  is ever actually wanted — at which point it's a fresh transport on `net/`, not a revival.
+
+## Deferred within this milestone
+- The player-as-agent control loop, collision/free-roam physics, and first-person
+  *gameplay* (this milestone only unlocks them — see "Enabled, not built here").
+- All new rendering features (water shader, building interiors, post-processing, season
+  visual swap, flat/wind animation) — separate `[absent]`/`[stub]` TODO items.
+- A native/Godot client and any non-browser transport (foreclosed by R0; out of scope).
+- The final Unity excision — deleting the vendored DFU tree (`Assets/Scripts/`,
+  `Assets/Game/`) — is a different `[infra]` milestone gated on the porting backlog
+  (TODOS.md line 276), not this one.
