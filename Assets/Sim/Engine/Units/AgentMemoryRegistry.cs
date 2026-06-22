@@ -48,6 +48,9 @@ namespace DaggerfallWorkshop.Sim.Engine
     /// <summary>Reinforce the perceiver's recognized category (of the signature) toward an outcome.</summary>
     public struct MemoryReinforceIntent : IEvent { public EntityId Perceiver; public AtomBag Signature; public Fixed Outcome; }
 
+    /// <summary>Stamp/refresh one atom on the agent's memory of a place (building).</summary>
+    public struct PlaceObserveIntent : IEvent { public EntityId Agent; public int Building; public AtomTypeId Atom; public Fixed Value; }
+
     /// <summary>
     /// Sole writer of per-agent memory. Systems read percepts and emit intents; this registry
     /// applies them by calling the memory core (Perceive folds + builds a record routed to THINGS;
@@ -60,8 +63,22 @@ namespace DaggerfallWorkshop.Sim.Engine
 
         public AgentMemoryRegistry(EventBus events, AgentMemoryConfig cfg) : base(events) { _cfg = cfg; }
 
+        const byte PlaceStrength = 200;   // observed places stay vivid; unrefreshed fade via consolidation
+
         /// <summary>Load-time: give an agent an empty memory.</summary>
         public void Seed(EntityId id) { if (!_d.ContainsKey(id)) _d[id] = new AgentMemory(); }
+
+        /// <summary>Load-time direct place stamp (no intent) — the first SeedX of agent-memory seeding.</summary>
+        public void SeedPlace(EntityId agent, int building, AtomTypeId atom, Fixed value)
+        { if (_d.TryGetValue(agent, out var mem)) MergePlaceAtom(mem, building, atom, value, 0); }
+
+        static void MergePlaceAtom(AgentMemory mem, int building, AtomTypeId atom, Fixed value, long tick)
+        {
+            var key = new MemoryKey(building);
+            var add = AtomBag.Create(new[] { new Atom(atom, value) });
+            AtomBag delta = mem.Stores.Places.TryGet(key, out var rec) ? AtomBag.Merge(rec.DeltaBag, add) : add;
+            mem.Stores.Places.Encode(new MemoryRecord(key, CategoryId.None, delta, PlaceStrength, tick, tick, MemoryFlags.None));
+        }
 
         public override void Update(long tick)
         {
@@ -82,6 +99,11 @@ namespace DaggerfallWorkshop.Sim.Engine
                 CategoryId cat = rm.Meanings.Recognize(reinforce[i].Signature);
                 if (!cat.IsNone) rm.Meanings.Reinforce(cat, reinforce[i].Signature, reinforce[i].Outcome);
             }
+
+            var places = Events.GetEvents<PlaceObserveIntent>();
+            for (int i = 0; i < places.Length; i++)
+                if (_d.TryGetValue(places[i].Agent, out var pm))
+                    MergePlaceAtom(pm, places[i].Building, places[i].Atom, places[i].Value, tick);
 
             var cons = Events.GetEvents<MemoryConsolidateIntent>();
             for (int i = 0; i < cons.Length; i++)
