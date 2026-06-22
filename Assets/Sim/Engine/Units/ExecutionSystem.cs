@@ -22,17 +22,14 @@ namespace DaggerfallWorkshop.Sim.Engine
         readonly BehaviorRegistry _behavior;
         readonly PositionRegistry _position;
         readonly WorldClockRegistry _clock;
-        readonly SharedActivityRegistry _shared;
 
         public ExecutionSystem(EventBus events, IntentRegistry intent, BehaviorRegistry behavior,
-                               PositionRegistry position, WorldClockRegistry clock,
-                               SharedActivityRegistry shared) : base(events)
+                               PositionRegistry position, WorldClockRegistry clock) : base(events)
         {
             _intent = intent;
             _behavior = behavior;
             _position = position;
             _clock = clock;
-            _shared = shared;
         }
 
         public override void Update(long tick)
