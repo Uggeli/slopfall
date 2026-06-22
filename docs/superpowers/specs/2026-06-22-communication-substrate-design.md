@@ -42,12 +42,16 @@ scores ads on remembered danger (Phase 2) — they avoid it. Heard, not seen. Th
    emergent behaviour from leaked information. The speaker chooses a channel to trade reach against the
    chance of being overheard (whisper to a confidant; shout to alert the square). *(Deferred channels:
    written/posted notices — persistent, place-bound; relay-chains — rumour drift.)*
-4. **Hearing is a NEW sense.** Agents perceive by **sight only** today (`SenseSystem`, 12u, LOS-blocked).
-   Communication adds **hearing** — receiving utterances within a channel's radius — as a second
-   perceptual modality, **LOS-relaxed** (sound rounds corners; whisper/talk are short so walls still
-   mostly contain them, a shout carries through). The `Audience` field is *who the speaker aims at*;
-   the *hearers* are everyone in radius (addressee **+ eavesdroppers**). Initially hearing carries
-   utterances; it generalises later to non-speech sounds (combat, screams, footsteps).
+4. **Hearing is a new RAW SENSE feeding the perception system — the general noise channel.** Agents
+   perceive by **sight only** today (`SenseSystem` → `SensedRegistry`, the raw-sight sense). Add a
+   **`HearingSystem`** beside it: a raw sense that each tick computes what every agent **hears** — all
+   noise within audible range — and feeds it into the **same perception pipeline** sight uses
+   (attention → interpretation → memory/decision). This is bigger than communication: it **enables all
+   noise-based behaviour** — eavesdropping on speech, hearing a brawl / scream / forge, danger-by-sound,
+   stealth. An **utterance is just the highest-fidelity noise** (speech carrying an `AtomBag`); other
+   actions emit lower-fidelity noise (a `NoiseLevel`, little/no content). Hearing is **LOS-relaxed**
+   (sound rounds corners). `Audience` is *who the speaker aims at*; *hearers* are everyone in audible
+   range (addressee **+ eavesdroppers**).
 5. **Reception is one router keyed by act.** Inform → memory ingest; Request → an ad/intent for the
    receiver; Offer → an evaluation→accept/decline; Express → a relation update. The router is the
    single extension point; the substrate (utterance + reach + dispatch) never changes.
@@ -74,6 +78,20 @@ scores ads on remembered danger (Phase 2) — they avoid it. Heard, not seen. Th
     headless, and text-free (the sim/render split); the same structured utterance can render as a
     speech bubble, a log line, or LLM prose without the sim changing. Determinism is never hostage to
     a model.
+12. **Conversation is a sustained ACTIVITY, not only a one-shot utterance.** A lone warning-shout is a
+    single `Utterance`; but **`Gossip`/`Negotiate`** are new **activities** — bound participants
+    actively listening *and* talking, taking turns over a **duration**, each turn an utterance on the
+    substrate. Duration is load-bearing: it is the speaker's **time commitment** (opportunity cost in
+    ODD, competing with other drives) *and* the **window** in which eavesdroppers can overhear the
+    exchange. Conversation builds on the existing co-location grouping (`SocialSystem` already groups
+    co-located socialisers); the substrate is the same, the activity is the time-extended, two-way form.
+13. **Noise level is a property of every action — it drives audibility.** Each `ActivitySpec` carries
+    a **NoiseLevel** that sets the **audible radius** the hearing sense uses. This unifies "who hears
+    speech" with "who hears any sound": Whisper/Talk/Shout are simply the speech noise tiers, while
+    combat/forge are loud and sleep/sneak silent. The **eavesdrop radius of a conversation = its noise
+    level**; a heated negotiation carries, a whispered plot does not. It generalises hearing to
+    non-speech (a scream, a brawl, a hammer become perceptible) and is the future lever for
+    stealth/loudness.
 
 ## Architecture
 
@@ -92,24 +110,29 @@ Utterance : IEvent {
 }
 ```
 
-### Who hears — the hearing sense (new) and its radius tiers
+### The hearing raw-sense → perception (new), and its noise tiers
 
 Perception is **sight-only** today: `SenseSystem` rebuilds `SensedRegistry.Of(agent)` every 5 ticks at
-a **12-unit, LOS-blocked** radius (`SenseSystem.cs:23`); there is **no audio channel**. Communication
-adds **hearing**: who receives an utterance = **every agent within the channel's radius**, regardless
-of whether they're the `Audience` — overhearers eavesdrop. Hearing is **LOS-relaxed** (sound rounds
-corners) where sight is blocked.
+a **12-unit, LOS-blocked** radius (`SenseSystem.cs:23`); there is **no audio channel**. Add a
+**`HearingSystem`** as a second raw sense feeding the same perception pipeline: each tick it gathers,
+per agent, the **noises within audible range** — utterances and (later) any noisy action — and routes
+them onward (attention → interpretation → memory/decision), exactly as sight-percepts flow. Who hears
+an utterance = **every agent within its audible radius**, addressee or not — overhearers eavesdrop.
+Hearing is **LOS-relaxed** (sound rounds corners) where sight is blocked. The audible radius comes
+from the source's **noise level** (below); for speech that's the channel tier:
 
 - **Whisper** — smallest radius (~conversational-adjacent); only those very close hear, so it's the
   *least* likely to leak (still not guaranteed private).
 - **Talk** — small radius (a few units / room scale); nearby bystanders overhear. **Not private.**
 - **Shout** — largest radius (~25u+, carries through); alerts the area, freely overheard.
 
-Implementation: a hearing-reach helper does a coarse grid scan around the speaker at the channel's
-radius (the same bucket structure `SenseSystem` uses, wider + LOS-relaxed) and returns the hearers.
-It is a **new sense path beside sight**, so sight stays cheap and unchanged. Radii are species/config
-constants, tuned later. (Indoor venue keepers/occupants are included when the speaker is inside, as
-`RequestSystem.cs:79` already special-cases.)
+Implementation: a hearing-reach helper does a coarse grid scan around the speaker at a radius derived
+from the **source action's noise level** (see *Conversational activities & noise* — Whisper/Talk/Shout
+are the speech noise tiers; the same helper later serves any noisy action). It uses the same bucket
+structure `SenseSystem` uses, wider + LOS-relaxed, and returns the hearers. It is a **new sense path
+beside sight**, so sight stays cheap and unchanged. Noise→radius mapping is species/config, tuned
+later. (Indoor venue keepers/occupants are included when the speaker is inside, as `RequestSystem.cs:79`
+already special-cases.)
 
 **Audience vs. hearers:** the `Audience` is only *who the speaker aims at* (matters for directed acts —
 a `Request`/`Offer` the addressee may answer). **All hearers receive the content** and may act on it;
@@ -172,6 +195,32 @@ frightened witness **shouts** a danger warning (fear-driven `Inform`), a merchan
 minimal speaker (a witness shouting danger) and the spread loop, with full speaking-as-ads as the
 acts generalise. Content is drawn from the speaker's **own memory** — it relays what it knows.
 
+### Conversational activities & noise level
+
+Integration: `ActivityCatalog.Spec` (`Assets/Sim/Systems/ActivityCatalog.cs:10`) is the per-activity
+spec (has `DurationMinutes`, `Delta[]`, `Social`, gates…); `SpecFor(ActivityKind)` (`:422`) is the
+lookup. Add a **`NoiseLevel`** field there, and new `ActivityKind` values **`Gossip`/`Negotiate`** with
+`SpecFor` entries (`Social=true`, a `DurationMinutes`, a mid `NoiseLevel`). Two layers of "talking":
+
+- **One-shot utterance** — a single `Utterance` (shout a warning, hail a passer-by). No binding, no
+  duration; emitted and gone.
+- **Conversation activity** — new `ActivityKind`s **`Gossip`** and **`Negotiate`**: the agent *enters*
+  the activity (a `BehaviorData` state) for a `DurationMinutes`, **bound** with one or more partners,
+  and over that span both **listen and talk** — each turn an `Utterance` (Talk channel) whose content
+  is drawn from memory (Gossip = share/compare known facts; Negotiate = `Offer`/counter toward a deal).
+  Binding reuses `SocialSystem`'s co-location grouping; the conversation is just the substrate run in a
+  turn-taking loop for a duration. Bystanders within the noise radius hear every turn (eavesdrop).
+
+**`ActivitySpec.NoiseLevel`** (new field on every spec) is the single audibility knob:
+
+- The hearing-reach helper takes the **source action's noise level**, not a fixed per-channel radius —
+  `audibleRadius = f(NoiseLevel)`. Whisper/Talk/Shout are the **speech** noise tiers (low/mid/high);
+  Gossip ≈ Talk, a heated Negotiate louder, a warning Shout highest. Non-speech actions get noise too
+  (combat loud, forge loud, sleep silent), so the same hearing sense will later surface a brawl or a
+  scream — communication and ambient sound share one mechanism.
+- Duration × noise define the **eavesdrop window**: a long, loud conversation leaks far and for a
+  while; a short whisper barely at all.
+
 ### Client exposure & LLM text rendering (the render edge)
 
 The same `Utterance` events that drive reception are **collected per tick and surfaced on the
@@ -225,9 +274,10 @@ row above. That is what "foundational" means here.
 ## Data flow
 
 ```
-decide   -> speaking is an ODD ad (Inform/Request/Offer/Express) selected by drives
-speak    -> emit Utterance{speaker, audience, channel, act, content, confidence}
-hear     -> reach gate (Sensed/hearing radius) selects receivers
+decide   -> speaking/conversing is an ODD ad (one-shot Utterance, or enter a Gossip/Negotiate activity)
+speak    -> emit Utterance{speaker, audience, channel, act, content, confidence}  (per turn)
+hear     -> HearingSystem (raw sense): noises within audible radius (= noise level) -> perception;
+            every agent in range receives it, addressee + eavesdroppers
 receive  -> router by act:
               Inform  -> second-hand memory ingest (trust×confidence strength, source-tagged)
               Request -> ad/intent for the receiver
@@ -257,9 +307,10 @@ client   -> town3d shows bubbles/log/overlays now; an LLM renders records -> pro
 ## Scope / deferred
 
 - **In (foundational layer):** the `Utterance` model (atom-bag content + act + channel), the new
-  **hearing sense** (whisper/talk/shout radius tiers, LOS-relaxed, eavesdroppable), the reception
-  **router skeleton** (all hearers ingest; addressee answers directed acts), the **Inform act →
-  second-hand memory** path with trust-scaling + source attribution — proven end-to-end by **danger
+  **hearing sense** with **`ActivitySpec.NoiseLevel`-driven** reach (whisper/talk/shout = speech noise
+  tiers, LOS-relaxed, eavesdroppable), the reception **router skeleton** (all hearers ingest; addressee
+  answers directed acts), a basic **`Gossip` conversation activity** (bound partners trade `Inform`
+  turns over a duration) plus the one-shot warning shout, the **Inform act → second-hand memory** path with trust-scaling + source attribution — proven end-to-end by **danger
   spread** (shout → hear → avoid) — plus the **structured utterance stream to town3d** so the client
   catches communications (bubbles/log from the records). Speaking-as-an-ad so the decision loop can
   choose to talk. *(Client exposure is buildable now — the WebSocket pump is healthy; a sim-side
@@ -271,4 +322,7 @@ client   -> town3d shows bubbles/log/overlays now; an LLM renders records -> pro
   (motivated false content); written/**posted** notices (persistent, place-bound); **Declare**
   (law/ownership/authority); language/faction barriers to comprehension; the crime→**bounty/justice**
   consumer of directed crime-reports; **LLM text rendering** of utterances at the client/render edge
-  (the structured stream is designed for it now; the model comes later).
+  (the structured stream is designed for it now; the model comes later); the **`Negotiate` activity**
+  (needs the Offer act); **non-speech noise → perception** (combat/scream/forge emitting `NoiseLevel`
+  the hearing sense surfaces — same mechanism, broader content); richer **turn-taking** protocol; and
+  **stealth/loudness** modifiers on noise.
