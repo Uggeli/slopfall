@@ -62,6 +62,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         public readonly EarningsRegistry Earnings;
         public readonly PerceivableRegistry Perceivable;
         public readonly AgentMemoryRegistry AgentMemory;
+        public readonly SharedActivityRegistry SharedActivity;
 
         // --- diagnostic accumulators (read-only; never mutate sim state) ---
         // Bridges the fast sim tick to the slower snapshot pump: collects every tick's Utterances
@@ -98,6 +99,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             RequestCooldown = new RequestCooldownRegistry(e); Earnings = new EarningsRegistry(e);
             Perceivable = new PerceivableRegistry(e);
             AgentMemory = new AgentMemoryRegistry(e, AgentMemoryConfig.Default);
+            SharedActivity = new SharedActivityRegistry(e);
             UtteranceLog = new UtteranceLogRegistry(e);
 
             var registries = new Registry[]
@@ -107,7 +109,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 Personality, Stats, Effects, EffectAggregate, StatusFlags, Progression, Employment,
                 Residency, Affects, Meanings, Relations, Memory, Conscience, Lineage, Subjective, Sensed,
                 Coin, Stock, Larder, Treasury, Items, ItemTake, PlaceMemory, Creatures, Path,
-                SocialCooldown, RequestCooldown, Earnings, Perceivable, AgentMemory, UtteranceLog,
+                SocialCooldown, RequestCooldown, Earnings, Perceivable, AgentMemory, SharedActivity, UtteranceLog,
             };
 
             var systems = new SimSystem[]
