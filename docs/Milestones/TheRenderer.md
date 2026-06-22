@@ -113,9 +113,16 @@ main           pick a mode; wire engine + net + ui
   and FAILs here on tick drift; R2 was gated against a local `baseline/local-r2-base.png` from the
   unmodified town3d (run-to-run noise floor ~0.01%). A server-side "run to tick N then pause" is
   still the clean cross-machine fix (see R0.5).
-- [client] **R3 — Carve `ui/`.** Move the inspector panels and the HUD/speed/gfx widgets
-  into `ui/`, mounted by the mode, fed by `net/`. Done = inspect + HUD work unchanged,
-  DOM concerns out of engine.
+- [client] **R3 — Carve `ui/`.** DONE. Three modules: `ui/comms.js` (utterance feed, no deps),
+  `ui/inspector.js` (`mountInspector({net,camera})` — picking + selection + all detail panels),
+  `ui/hud.js` (`mountHud({net,camera})` — gfx sliders, debug toggles, speed buttons, clock/weather
+  readout, status line). The mode mounts them and feeds them `net` + the camera it owns; net's
+  `onDetail/onBuilding/onStatus/onOpen` callbacks delegate to ui. `town3d.html` dropped 594 → 346
+  lines (all DOM-widget logic now in `ui/`, 278 lines). Each carve parity-gated (comms/inspector/
+  hud all PASS; final 4/921600 px = 0.000%); inspector click path validated by an interaction smoke
+  (`parity/smoke-r3.mjs`: agents stream → click → panel opens, zero console errors). Design:
+  `docs/superpowers/specs/2026-06-22-the-renderer-r3-ui-carve-design.md`. The shell is now just the
+  fly-cam + capture + animate loop + onSnapshot + init — i.e. the future `modes/observer` + `main`.
 - [client] **R4 — The boundary: focal-point contract + `modes/observer`.** Introduce the
   explicit `engine` API (`render(frame)`, streams around a focal point; a camera the mode
   owns) and reframe today's behaviour as `modes/observer` (orbit/fly cam → focal point =

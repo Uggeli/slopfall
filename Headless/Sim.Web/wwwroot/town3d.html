@@ -83,16 +83,16 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createNet } from './net/client.js';
-import { renderer, scene, grid, world, gfx } from './engine/scene.js';
+import { renderer, scene, world, gfx } from './engine/scene.js';
 import { loadModel } from './engine/assets.js';
 import { updateAtmosphere } from './engine/atmosphere.js';
 import { town, setTownClimateSeason, getFlatSheet, buildFlatInstances } from './engine/world.js';
 import { terrainGroup, buildTerrain, streamRegionTerrain, terrainTargetMeshes,
          getRegionMeta, setRegionMeta } from './engine/terrain.js';
-import { agents, setSpritePools, clearSelRing, updateAgents } from './engine/agents.js';
-
-const ui = id => document.getElementById(id);
-const stat = s => ui('stat').textContent = s;
+import { setSpritePools, updateAgents } from './engine/agents.js';
+import { pushUtterances } from './ui/comms.js';
+import { mountInspector } from './ui/inspector.js';
+import { mountHud, stat } from './ui/hud.js';
 
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 10000);
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -109,11 +109,6 @@ if (CAPTURE) window.__captureReady = false;
 controls.maxPolarAngle = Math.PI * 0.495;    // keep the camera above the ground plane
 
 let terrainTiles = null;        // array of tile data (centre + neighbours)
-
-// Apply the 'show terrain' HUD toggle to the engine terrain group (→ ui/ in R3).
-function positionTerrain() {
-  terrainGroup.visible = ui('terr').checked;
-}
 
 // WASD fly-cam (on top of OrbitControls): move camera + target together over the
 // ground plane. W/S forward-back, A/D strafe, E/Space up, Q down, Shift sprints.
@@ -205,18 +200,6 @@ function frameRegion() {
   controls.update();
 }
 
-function applyToggles() {
-  town.scale.set(ui('mirx').checked ? -1 : 1, 1, ui('mirz').checked ? -1 : 1);
-  town.traverse(o => {
-    if (!o.isMesh) return;
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    for (const m of mats) { m.wireframe = ui('wire').checked; m.needsUpdate = true; }
-  });
-  grid.visible = ui('grid').checked;
-}
-for (const id of ['mirx', 'mirz', 'wire', 'grid']) ui(id).addEventListener('change', applyToggles);
-ui('terr').addEventListener('change', () => positionTerrain());
-
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
@@ -231,10 +214,9 @@ function animate() {
   controls.update();
   if (gatePairs) for (const g of gatePairs) { g.open.visible = !world.night; g.closed.visible = world.night; }
   updateAtmosphere(dt);
-  // HUD clock (engine writes no DOM; the shell reflects engine `world` here → ui/ in R3).
-  ui('clock').textContent = `${String(world.hour).padStart(2,'0')}:${String(world.minute).padStart(2,'0')} · ${world.weather}`;
+  hud.updateClock();   // clock/weather readout (HUD owns the DOM; reads engine `world`)
   streamRegionTerrain(dt, controls.target, camera, net);
-  if (net.curSnap.size) updateAgents(now, camera, net, selectedId);
+  if (net.curSnap.size) updateAgents(now, camera, net, inspector.selectedId);
   // Flat billboards are instanced and camera-face in the vertex shader — no per-frame lookAt.
   if (_capState === 'settle') {
     controls.update();
@@ -246,227 +228,9 @@ function animate() {
 // ---- M5a: day/night sky, sun arc, weather tint, fog → engine/atmosphere.js ----
 let gatePairs = null;   // populated by init(); toggled each frame in animate()
 
-// ---- Graphics sliders: fog distance/toggle, brightness, FOV, render scale ----
-// These feed live into the engine gfx/camera/renderer state. gfx.fogFar and brightness
-// are read each frame by updateAtmosphere(); FOV and resolution apply on change.
-function syncGfx() {
-  gfx.fogFar = +ui('fog').value;
-  gfx.bright = +ui('bright').value / 100;
-  gfx.fogOn = ui('fogOn').checked;
-  camera.fov = +ui('fov').value; camera.updateProjectionMatrix();
-  renderer.setPixelRatio(devicePixelRatio * (+ui('res').value / 100));
-  renderer.setSize(innerWidth, innerHeight);
-  ui('fogVal').textContent = gfx.fogFar >= 1000 ? (gfx.fogFar / 1000).toFixed(1) + 'km' : gfx.fogFar + 'm';
-  ui('brightVal').textContent = Math.round(gfx.bright * 100) + '%';
-  ui('fovVal').textContent = camera.fov + '°';
-  ui('resVal').textContent = ui('res').value + '%';
-}
-// Reflect the active fogFar in the slider (init picks town 1600 vs region 3200).
-function setFogSlider() { ui('fog').value = gfx.fogFar; syncGfx(); }
-for (const id of ['fog', 'bright', 'fov', 'res', 'fogOn']) ui(id).addEventListener('input', syncGfx);
 
 // ---- Live agents (M4a): sprite billboards + per-frame interp → engine/agents.js ----
 let flats = null;   // THREE.Group of flat billboards; populated by init(), billboarded each frame
-
-// ---- Click-to-inspect: pick a person billboard, show its live detail ----
-// A flat ring marks the selected agent (engine/agents.js keeps it on their feet).
-const raycaster = new THREE.Raycaster();
-const ptr = new THREE.Vector2();
-let selectedId = -1, selectedBuildingI = -1, inspectTimer = null, downX = 0, downY = 0;
-let agentTab = 'status', lastAgentDetail = null, oddCollapsed = new Set();
-
-// Distinguish a click from an orbit-drag: only pick if the pointer barely moved.
-renderer.domElement.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY; });
-renderer.domElement.addEventListener('pointerup', e => {
-  if (e.button !== 0 || Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return;
-  ptr.x = (e.clientX / innerWidth) * 2 - 1;
-  ptr.y = -(e.clientY / innerHeight) * 2 + 1;
-  raycaster.setFromCamera(ptr, camera);
-  const hitA = raycaster.intersectObjects(agents.children, false)[0];
-  if (hitA && hitA.object.userData.id != null) { selectAgent(hitA.object.userData.id); return; }
-  // No agent under the cursor: try a building. Recurse — region tiles are nested groups.
-  const hitB = raycaster.intersectObjects(town.children, true)[0];
-  if (hitB) { pickBuilding(hitB.point.x, hitB.point.z); return; }
-  deselect();
-});
-addEventListener('keydown', e => { if (e.code === 'Escape') deselect(); });
-
-// Drop whatever is currently selected (agent or building) and stop watching.
-function clearSelection() {
-  if (selectedId >= 0) net.send({ type: 'watch', id: null });
-  selectedId = -1; selectedBuildingI = -1; lastAgentDetail = null; oddCollapsed.clear();
-  clearInterval(inspectTimer); inspectTimer = null;
-  clearSelRing();
-}
-function deselect() { clearSelection(); ui('detail').style.display = 'none'; }
-
-function selectAgent(id) {
-  if (selectedId === id) return;
-  clearSelection();
-  selectedId = id; agentTab = 'status';
-  ui('detail').style.display = 'block';
-  ui('detail').innerHTML = `<div class="dh">#${id}…</div>`;
-  net.send({ type: 'watch', id });                       // start ODD snapshotting this agent
-  const ask = () => net.send({ type: 'inspect', id });
-  ask();
-  inspectTimer = setInterval(ask, 1000);             // keep the panel live while selected
-}
-
-function pickBuilding(x, z) {
-  clearSelection();
-  selectedBuildingI = -2;                            // pending (any non -1 marks "building mode")
-  ui('detail').style.display = 'block';
-  ui('detail').innerHTML = `<div class="dh">building…</div>`;
-  net.send({ type: 'pickBuilding', x, z });
-}
-
-// Server needs.V axes, in order (NeedsRegistry.NeedAxis); each is a deficit 0..1.
-const NEED_LABELS = ['hunger', 'tiredness', 'loneliness', 'poverty', 'goods', 'fear', 'attire'];
-function renderDetail(d) {
-  if (!d || d.id !== selectedId) return;   // stale (deselected or reselected since the ask)
-  if (d.busy) return;                      // transient registry contention — keep last render
-  lastAgentDetail = d;
-  renderAgentPanel();
-}
-
-function renderAgentPanel() {
-  const d = lastAgentDetail; if (!d) return;
-  if (d.missing) {
-    ui('detail').innerHTML = `<div class="dh"><span class="dx">×</span>#${d.id}</div><div class="dim">no longer here</div>`;
-    wireAgent(); return;
-  }
-  let h = `<div class="dh"><span class="dx">×</span>#${d.id} ${d.name ?? ''}</div>`
-    + `<div class="tabs"><span class="tab ${agentTab === 'status' ? 'active' : ''}" data-tab="status">status</span>`
-    + `<span class="tab ${agentTab === 'odd' ? 'active' : ''}" data-tab="odd">ODD</span></div>`;
-  if (agentTab === 'status') {
-    h += `<div class="dim">${d.kind} · ${d.race} · lvl ${d.level}</div>`
-      + `<div class="dim">activity: ${d.activity} (${d.phase})</div>`
-      + `<div class="dim">coin: ${(d.coin ?? 0).toFixed(2)}</div>`
-      + (d.spouse >= 0 ? `<div class="dim">spouse: <span class="dlink" data-id="${d.spouse}">#${d.spouse}</span></div>` : '');
-    if (Array.isArray(d.needs)) {
-      h += `<div class="ndh">needs</div>`;
-      for (let i = 0; i < NEED_LABELS.length; i++) h += needBar(NEED_LABELS[i], d.needs[i]);
-    }
-  } else {
-    h += renderOdd(d.odd);
-  }
-  ui('detail').innerHTML = h;
-  wireAgent();
-}
-
-// Reconstruct the tree from the flat nodes[] via parent links. Node 0 is the root
-// sentinel; its children are the root-level actions. Children sort by Total desc.
-function renderOdd(odd) {
-  if (!odd || !Array.isArray(odd.nodes) || odd.nodes.length < 2)
-    return `<div class="dim">no decision captured yet…</div>`;
-  const kids = {};
-  odd.nodes.forEach((n, i) => { if (i === 0) return; (kids[n.parent] ||= []).push(i); });
-  let out = `<div class="dim">decided ${odd.ts ?? '—'}</div><div class="odd">`;
-  const walk = (idx, depth) => {
-    const cs = (kids[idx] || []).slice().sort((a, b) => odd.nodes[b].total - odd.nodes[a].total);
-    for (const ci of cs) {
-      const n = odd.nodes[ci];
-      const hasKids = !!kids[ci];
-      const collapsed = oddCollapsed.has(ci);
-      const caret = hasKids ? `<span class="tcaret" data-idx="${ci}">${collapsed ? '▸' : '▾'}</span> ` : '• ';
-      const mark = ci === odd.chosen ? ' ◄' : '';
-      out += `<div class="tnode${ci === odd.chosen ? ' chosen' : ''}" style="padding-left:${depth * 12}px">`
-        + `<span>${caret}${n.verb}${mark}</span>`
-        + `<span class="sc">${n.direct.toFixed(2)} / ${n.prop.toFixed(2)} / <b>${n.total.toFixed(2)}</b></span>`
-        + `</div>`;
-      if (hasKids && !collapsed) walk(ci, depth + 1);
-    }
-  };
-  walk(0, 0);
-  return out + `</div>`;
-}
-
-function renderBuilding(b) {
-  if (selectedBuildingI === -1) return;   // deselected since the request
-  if (b.busy) return;
-  selectedBuildingI = b.i ?? -2;
-  if (b.missing) {
-    ui('detail').innerHTML = `<div class="dh"><span class="dx">×</span>building</div><div class="dim">none here</div>`;
-    wireBuilding(); return;
-  }
-  let h = `<div class="dh"><span class="dx">×</span>${b.name ?? b.kind}</div>`
-    + `<div class="dim">${b.kind}${b.production ? ' · ' + b.production : ''} · q${b.quality}</div>`;
-  if (b.settlement)
-    h += `<div class="dim">${b.settlement.name} (${b.settlement.kind}) · pop ${b.settlement.residents} · treasury ${Math.round(b.settlement.treasury)}</div>`;
-  if (Array.isArray(b.residents) && b.residents.length) {
-    h += `<div class="ndh">residents</div>`;
-    for (const r of b.residents)
-      h += `<div class="dim">• <span class="dlink" data-id="${r.id}">${r.name ?? '#' + r.id}</span> <span class="role">${r.role}</span></div>`;
-  }
-  if (Array.isArray(b.workers) && b.workers.length) {
-    h += `<div class="ndh">workers</div>`;
-    for (const w of b.workers)
-      h += `<div class="dim">• <span class="dlink" data-id="${w.id}">${w.name ?? '#' + w.id}</span></div>`;
-  }
-  ui('detail').innerHTML = h;
-  wireBuilding();
-}
-
-function wireAgent() {
-  const p = ui('detail');
-  const x = p.querySelector('.dx'); if (x) x.onclick = deselect;
-  p.querySelectorAll('.tab').forEach(t => t.onclick = () => { agentTab = t.dataset.tab; renderAgentPanel(); });
-  p.querySelectorAll('.dlink').forEach(el => el.onclick = () => selectAgent(Number(el.dataset.id)));
-  p.querySelectorAll('.tcaret').forEach(el => el.onclick = () => {
-    const i = Number(el.dataset.idx);
-    if (oddCollapsed.has(i)) oddCollapsed.delete(i); else oddCollapsed.add(i);
-    renderAgentPanel();
-  });
-}
-function wireBuilding() {
-  const p = ui('detail');
-  const x = p.querySelector('.dx'); if (x) x.onclick = deselect;
-  p.querySelectorAll('.dlink').forEach(el => el.onclick = () => selectAgent(Number(el.dataset.id)));
-}
-function needBar(label, v) {
-  v = Math.max(0, Math.min(1, v || 0));   // deficit 0..1 (drift can exceed 1; clamp the bar)
-  const pct = Math.round(v * 100);
-  const col = v < 0.4 ? '#5cc77a' : v < 0.7 ? '#d4b04a' : '#c75c5c';   // green→amber→red as it worsens
-  return `<div class="nb"><span>${label}</span><span class="nbar"><i style="width:${pct}%;background:${col}"></i></span></div>`;
-}
-
-// --- comms log (P4): structured utterances off the snapshot stream, rendered as a
-// minimal scrolling feed. Atom ids -> concept names via a one-time /asset/atoms fetch.
-let atomNames = {};   // "6001" -> "Danger"
-fetch('/asset/atoms').then(r => r.json()).then(t => { atomNames = t || {}; })
-  .catch(() => { /* names optional — fall back to raw ids */ });
-
-const CHANNEL_GLYPH = { Whisper: '·', Talk: '–', Shout: '⟶' };
-const commLines = [];               // recent rendered lines (newest last)
-const COMM_MAX = 10;                // keep the panel small
-
-function atomName(id) { return atomNames[String(id)] || ('#' + id); }
-
-function utterText(u) {
-  // "#42 ⟶ shout: Danger,Provisions @b7" — speaker, channel glyph, act, content, subject.
-  const glyph = CHANNEL_GLYPH[u.channel] || '–';
-  const body = (u.content && u.content.length)
-    ? u.content.map(c => atomName(c.atom)).join(', ')
-    : (u.act || '');
-  const subj = (u.subject != null && u.subject >= 0) ? ` @b${u.subject}` : '';
-  return `#${u.speaker} ${glyph} ${(u.channel || '').toLowerCase()}: ${body}${subj}`;
-}
-
-function pushUtterances(list) {
-  if (!list || !list.length) return;
-  for (const u of list) commLines.push(utterText(u));
-  while (commLines.length > COMM_MAX) commLines.shift();
-  const el = document.getElementById('commlines');
-  if (el) {
-    el.textContent = '';
-    for (const line of commLines) {
-      const div = document.createElement('div');
-      div.textContent = line;
-      el.appendChild(div);
-    }
-    el.parentElement.scrollTop = el.parentElement.scrollHeight;   // follow the tail
-  }
-}
 
 // App-side reactions to a decoded snapshot (net owns the buffer + decode).
 function onSnapshot(msg) {
@@ -476,7 +240,7 @@ function onSnapshot(msg) {
   // Capture grabs the first published frame at-or-past CAP_TICK (timing-dependent tick, deterministic per machine).
   if (_capState === 'ff' && msg.tick >= CAP_TICK) {
     _capState = 'settle';
-    setSpeed(0);
+    hud.setSpeed(0);
     camera.position.set(CAP_CAM[0], CAP_CAM[1], CAP_CAM[2]);
     controls.target.set(CAP_CAM[3], CAP_CAM[4], CAP_CAM[5]);
     controls.update();
@@ -486,24 +250,13 @@ function onSnapshot(msg) {
 
 const net = createNet({
   onSnapshot,
-  onDetail: (d) => renderDetail(d),
-  onBuilding: (b) => renderBuilding(b),
+  onDetail: (d) => inspector.renderDetail(d),
+  onBuilding: (b) => inspector.renderBuilding(b),
   onStatus: (s) => stat(s),
-  onOpen: () => setSpeed(CAPTURE ? -1 : 10),
+  onOpen: () => hud.setSpeed(CAPTURE ? -1 : 10),
 });
-
-// Speed control wrapper: net transport + HUD button highlight (the latter → ui/ in R3).
-function setSpeed(scale) {
-  net.send({ type: 'speed', scale });
-  document.querySelectorAll('#speed button').forEach(b =>
-    b.style.color = Number(b.dataset.s) === scale ? '#9fd0ff' : '#8893a7');
-}
-
-// Speed control = engine tick rate (server handles {type:"speed",scale}). scale is
-// ticks/real-second: 0 pauses, 10 is the normal rate, -1 (MAX) runs flat out.
-document.querySelectorAll('#speed button').forEach(btn => {
-  btn.addEventListener('click', () => setSpeed(Number(btn.dataset.s)));
-});
+const hud = mountHud({ net, camera });
+const inspector = mountInspector({ net, camera });
 
 async function init() {
   stat('fetching town layout…');
@@ -524,10 +277,10 @@ async function init() {
     } else {
       terrainTiles = await (await fetch('/asset/terrain', { cache: 'no-store' })).json();
       buildTerrain(terrainTiles);
-      positionTerrain();                     // apply the 'show terrain' toggle to the new tiles
+      hud.positionTerrain();                 // apply the 'show terrain' toggle to the new tiles
     }
   } catch (e) { console.warn('terrain load failed', e); }
-  setFogSlider();   // seed the fog slider with the chosen town/region distance
+  hud.setFogSlider();   // seed the fog slider with the chosen town/region distance
 
   stat(`loading ${data.modelIds.length} unique models…`);
 
@@ -576,7 +329,7 @@ async function init() {
     });
   }
 
-  applyToggles();
+  hud.applyToggles();
   if (getRegionMeta()) frameRegion(); else frame(data.min, data.max);
 
   const climates = ['Desert', 'Mountain', 'Temperate', 'Swamp'];
