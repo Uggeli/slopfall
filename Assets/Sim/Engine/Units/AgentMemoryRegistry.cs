@@ -108,7 +108,12 @@ namespace DaggerfallWorkshop.Sim.Engine
             var cons = Events.GetEvents<MemoryConsolidateIntent>();
             for (int i = 0; i < cons.Length; i++)
                 if (_d.TryGetValue(cons[i].Agent, out var mem))
+                {
                     Consolidation.Pass(mem.Stores.Things, mem.Meanings, _cfg.Consolidation);
+                    // PLACES fade on the same sleep cadence — danger a place no longer earns
+                    // decays away (re-observation refreshes a place's strength back to vivid).
+                    mem.Stores.Places.Decay(_cfg.Consolidation.DecayNormalRate, _cfg.Consolidation.DecaySurpriseRate);
+                }
 
             var gone = Events.GetEvents<DespawnedEvent>();
             for (int i = 0; i < gone.Length; i++) _d.Remove(gone[i].Entity);

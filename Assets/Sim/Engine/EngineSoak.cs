@@ -68,14 +68,21 @@ namespace DaggerfallWorkshop.Sim.Engine
             // Agent-memory learning arc: categories minted + records held, plus the "blend lean"
             // (mean |valence| + mean confidence over all category nodes — how much learned feeling
             // the agents have accrued, i.e. how far the Interpret blend has shifted off the old store).
-            long cats = 0, recs = 0; int memAgents = 0, learned = 0, nodes = 0, reinforced = 0;
-            double absVal = 0, conf = 0, maxAbsVal = 0, maxConf = 0;
+            long cats = 0, recs = 0, placeRecs = 0, dangerRecs = 0; int memAgents = 0, learned = 0, nodes = 0, reinforced = 0;
+            double absVal = 0, conf = 0, maxAbsVal = 0, maxConf = 0, dangerSum = 0;
             foreach (var kv in w.AgentMemory.All)
             {
                 var meanings = kv.Value.Meanings;
                 int c2 = meanings.Count;
                 cats += c2; recs += kv.Value.Stores.Things.Count; memAgents++;
                 if (c2 > 0) learned++;
+
+                // PLACES learning: how many place facts agents hold + how much remembered danger.
+                var places = kv.Value.Stores.Places;
+                placeRecs += places.Count;
+                for (int pi = 0; pi < places.Count; pi++)
+                    if (places[pi].DeltaBag.TryGet(Memory.PlaceAtoms.Danger, out var dv))
+                    { dangerSum += dv.ToDouble(); dangerRecs++; }
                 for (int ni = 0; ni < c2; ni++)
                 {
                     var node = meanings[ni];
@@ -91,6 +98,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 Console.WriteLine($"           mem[cat/agent={(double)cats / memAgents:F2} rec/agent={(double)recs / memAgents:F1} learned%={100.0 * learned / memAgents:F0}]");
                 if (nodes > 0)
                     Console.WriteLine($"           val[meanAbs={absVal / nodes:F3} conf={conf / nodes:F3} maxAbs={maxAbsVal:F2} maxConf={maxConf:F2} reinforcedNodes={reinforced}/{nodes}]");
+                Console.WriteLine($"           places[rec/agent={(double)placeRecs / memAgents:F1} dangerRecs={dangerRecs} meanDanger={(dangerRecs > 0 ? dangerSum / dangerRecs : 0):F3}]");
             }
         }
     }
