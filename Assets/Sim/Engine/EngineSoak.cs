@@ -68,8 +68,8 @@ namespace DaggerfallWorkshop.Sim.Engine
             // Agent-memory learning arc: categories minted + records held, plus the "blend lean"
             // (mean |valence| + mean confidence over all category nodes — how much learned feeling
             // the agents have accrued, i.e. how far the Interpret blend has shifted off the old store).
-            long cats = 0, recs = 0; int memAgents = 0, learned = 0, nodes = 0;
-            double absVal = 0, conf = 0;
+            long cats = 0, recs = 0; int memAgents = 0, learned = 0, nodes = 0, reinforced = 0;
+            double absVal = 0, conf = 0, maxAbsVal = 0, maxConf = 0;
             foreach (var kv in w.AgentMemory.All)
             {
                 var meanings = kv.Value.Meanings;
@@ -79,16 +79,18 @@ namespace DaggerfallWorkshop.Sim.Engine
                 for (int ni = 0; ni < c2; ni++)
                 {
                     var node = meanings[ni];
-                    absVal += System.Math.Abs(node.Valence.ToDouble());
-                    conf += node.Confidence.ToDouble();
-                    nodes++;
+                    double av = System.Math.Abs(node.Valence.ToDouble()), cv = node.Confidence.ToDouble();
+                    absVal += av; conf += cv; nodes++;
+                    if (cv > 0) reinforced++;
+                    if (av > maxAbsVal) maxAbsVal = av;
+                    if (cv > maxConf) maxConf = cv;
                 }
             }
             if (memAgents > 0)
             {
                 Console.WriteLine($"           mem[cat/agent={(double)cats / memAgents:F2} rec/agent={(double)recs / memAgents:F1} learned%={100.0 * learned / memAgents:F0}]");
                 if (nodes > 0)
-                    Console.WriteLine($"           val[meanAbs={absVal / nodes:F2} conf={conf / nodes:F2}]");
+                    Console.WriteLine($"           val[meanAbs={absVal / nodes:F3} conf={conf / nodes:F3} maxAbs={maxAbsVal:F2} maxConf={maxConf:F2} reinforcedNodes={reinforced}/{nodes}]");
             }
         }
     }
