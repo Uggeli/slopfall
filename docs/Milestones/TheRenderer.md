@@ -138,10 +138,18 @@ main           pick a mode; wire engine + net + ui
   server). Regression caught + fixed mid-step: a bulk delete swept up `let terrainTiles` (used by
   init), silently swallowed by init's try/catch — terrain vanished until made a local `const`.
   Design: `docs/superpowers/specs/2026-06-22-the-renderer-r4-observer-mode-design.md`.
-- [client] **R5 — Sole-client cutover.** Delete `wwwroot/index.html` (2D canvas
-  spectator) and `wwwroot/view3d.html` (single-model debug viewer); make the town client
-  the default page (update `Sim.Web/Program.cs` static-file/default-doc routing). Done =
-  exactly one web client exists; no parallel viewer left to rot.
+- [client] **R5 — Sole-client cutover.** DONE. Deleted `wwwroot/index.html` (2D canvas
+  spectator) and `wwwroot/view3d.html` (single-model debug viewer); `town3d.html` is the only
+  web client. `Program.cs` configures it as the default document
+  (`DefaultFilesOptions` → `town3d.html`), so `GET /` serves the town client. Verified: `/` →
+  town viewer (200), `/index.html` + `/view3d.html` → 404, `/town3d.html` → 200; final parity
+  PASS. Exactly one web client; no parallel viewer left to rot.
+
+**Milestone complete.** `town3d.html` went 1167 → ~199 lines; the client is now `net/client.js`
++ `engine/` (scene, assets, atmosphere, world, terrain, agents, index) + `ui/` (comms, inspector,
+hud) + `modes/observer.js` + thin `main`. The engine↔mode boundary is established: `engine.render`
+takes only `{camera, focal}` for the view, so a first-person `modes/player` is free on the
+rendering side (see "Enabled, not built here").
 
 ## Enabled, not built here
 

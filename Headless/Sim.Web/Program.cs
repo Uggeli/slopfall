@@ -191,7 +191,11 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 var app = builder.Build();
 
-app.UseDefaultFiles();
+// town3d.html is the sole web client; serve it for "/" (index.html/view3d.html removed in R5).
+var defaultFiles = new DefaultFilesOptions();
+defaultFiles.DefaultFileNames.Clear();
+defaultFiles.DefaultFileNames.Add("town3d.html");
+app.UseDefaultFiles(defaultFiles);
 app.UseStaticFiles();
 app.UseWebSockets();
 
