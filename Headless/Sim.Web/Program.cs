@@ -9,7 +9,7 @@ using Sim.AssetExport;
 
 // Web spectator: pan over the living town/region in a browser (town3d.html) on the
 // parallel CQRS engine. Usage: dotnet run [--port 8080] [--tps 30] [--starthour H]
-//   region-wide by default; --town <region> <location> for a single town (default Daggerfall/Gothway Garden)
+//   region-wide by default (Betony); --town <region> <location> for a single town (default Daggerfall/Gothway Garden)
 
 string region = null, location = null;
 int port = 8080;
@@ -33,8 +33,11 @@ for (int i = 0; i < args.Length; i++)
             break;
     }
 }
-region ??= "Daggerfall";
-location ??= "Gothway Garden";
+// Mode-aware defaults: region-wide spectate defaults to the small Betony region;
+// a single town defaults to Daggerfall/Gothway Garden (Gothway Garden is a Daggerfall
+// location, so it must NOT pair with the region-mode default).
+if (wholeRegion) region ??= "Betony";
+else { region ??= "Daggerfall"; location ??= "Gothway Garden"; }
 
 // Daggerfall NPC names: parse the name banks once and hand the generator to the
 // loader before any world boots. Best-effort — if the file is missing, NPCs keep
