@@ -61,7 +61,23 @@ composes the two; returns 1.0 for building-less / unremembered ads. `V` multipli
 
 ---
 
-### Task 2: soak validation — is danger-avoidance visible?
+### Task 2 — OUTCOME (validated; no further work)
+
+3-day soak: with 61 kills, danger memory reached only **6 records / 340 agents** — danger is **sparse
+by design**. A witness is an agent that *personally perceived* the kill (sensed the victim/killer);
+most kills have no memory-agent in range, so few learn. **This is correct, not a limitation**: an
+agent cannot know danger it never witnessed. Population-scale danger-avoidance is therefore not a soak
+signal today, and that is the intended semantics. The coupling itself is validated by the pure-fn
+tests + its live presence in `V`'s gate + the determinism gate; economy/provisions stay healthy
+(pop 340, provisions memory persists ~200, kind atoms permanent). No densifying of witnessing, no
+dedicated avoidance metric (6/340 would be noise).
+
+**Deferred (the natural next sim feature):** *social information-relaying* — talking / shouting /
+rumor as communication channels that **propagate** place facts (danger especially) between agents, so
+one witness's knowledge spreads through the population. That is what makes danger-avoidance visible at
+scale, by the principled route (heard-from-others), not by widening first-hand perception.
+
+### (original) Task 2: soak validation — is danger-avoidance visible?
 
 **Interfaces:** soak metric counting decisions that landed on a danger-remembered building vs total
 building-decisions (an "avoidance rate"); and the existing kills trend over a multi-day run.
