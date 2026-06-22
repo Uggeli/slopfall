@@ -67,6 +67,23 @@ main           pick a mode; wire engine + net + ui
   remove the `Sim.Net` project from `Sim.slnx`. Done = whole solution builds; the full
   test suite runs (TODOS.md line 15 cleared — was "1 of 218 tests runs"). This is the
   safety net for everything below: a green server-side suite to refactor against.
+- [infra] **R0.5 — Parity harness (the mechanical "looks identical" gate).** The whole
+  milestone's acceptance is per-stage visual parity, but there is no JS test harness and
+  no browser here. Build one: a Playwright + bundled-Chromium (SwiftShader software-WebGL)
+  setup that boots `Sim.Web` at a fixed seed, loads town3d in a deterministic **capture
+  mode** (fixed camera pose, fixed time-of-day, paused at a known sim tick), screenshots,
+  and diffs against a committed baseline within a small tolerance (sub-pixel AA noise).
+  - **De-risk first:** the opening task is a spike — `npx playwright install chromium`,
+    render a WebGL page headlessly, confirm a non-blank PNG of the expected scene. If
+    SwiftShader can't render Three.js on this box, fall back to manual eyeballing and
+    drop the rest of R0.5 — but learn that in an hour, not after building the harness.
+  - **Capture mode** is the one place we touch town3d outside a pure move: a `?capture=`
+    URL mode (or query params) that sets the camera + pauses the clock at a fixed tick.
+    This is test infrastructure, not a rendering change, and it stays in as the regression
+    gate. It also adds the repo's first `package.json` + a Playwright dev-dependency.
+  - **Baseline** is captured here, from the known-good *current* town3d, before any
+    carving. Done = `npm run parity` (or equiv) green against baseline on unmodified
+    town3d; this command is then re-run after each of R1–R4.
 - [client] **R1 — Carve `net/`.** Lift the WebSocket / `Frame` decode / `onSnap` /
   interpolation / `send` out of `town3d.html` into `net/client.js`; town3d imports it.
   Smallest seam, zero visual change. Done = the town renders identically, all transport
@@ -111,7 +128,11 @@ main           pick a mode; wire engine + net + ui
 - **Behaviour parity per stage.** Every extraction is a pure move. The rendered town must
   look identical after each stage (same Gothway Garden, same crowd, same atmosphere). No
   "improve while refactoring" — new rendering features (water, interiors, post-processing,
-  seasons, flat animation) are separate TODO items and stay out.
+  seasons, flat animation) are separate TODO items and stay out. **Enforced mechanically:**
+  the R0.5 parity harness (screenshot-diff vs. baseline) is re-run after each of R1–R4; a
+  pure move must land within tolerance. If the R0.5 spike shows headless WebGL is
+  infeasible here, this degrades to manual per-stage eyeballing — but parity is still the
+  gate either way.
 - **Preserve the server-bakes-everything rule.** Per `docs/render_client_dataflow.md`:
   the server bakes all geometry/orientation into DFU's native world frame and the client
   renders raw — no client-side flips/rotations/transposes. The refactor must not
