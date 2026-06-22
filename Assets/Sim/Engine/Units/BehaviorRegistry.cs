@@ -3,8 +3,13 @@ using System.Collections.Generic;
 namespace DaggerfallWorkshop.Sim.Engine
 {
     // CQRS conversion of BehaviorRegistry. Reuses BehaviorData (and ActivityKind/
-    // ActivityPhase) from the DaggerfallWorkshop.Sim namespace. Sole writer is this
-    // registry, applying BehaviorSetIntent; removes despawned entities.
+    // ActivityPhase) from the DaggerfallWorkshop.Sim namespace. This registry is the sole
+    // APPLIER of BehaviorSetIntent; removes despawned entities. The intent has MULTIPLE
+    // emitters — ExecutionSystem (Doing/Moving agents) and SharedActivitySystem
+    // (queued/served agents: the promotion flip + waiter slot placement). There is NO
+    // single-writer-of-BehaviorSetIntent invariant; correctness relies on at most one
+    // emitter writing a given agent in a given tick (single-writer-PER-AGENT), since the
+    // apply below is last-write-wins in nondeterministic parallel order.
 
     /// Intent: "set entity's current activity to this whole BehaviorData." ExecutionSystem
     /// always sets a freshly-built BehaviorData, so the intent carries the whole row.

@@ -23,6 +23,10 @@ namespace Sim.MemoryTests
             => Assert.True(OddSystem.SleepShouldWake(false, false, durationExpired: true, false));
 
         [Fact]
+        public void CapReached_WakesSleeper()
+            => Assert.True(OddSystem.SleepShouldWake(false, false, false, true));
+
+        [Fact]
         public void NothingSalient_StaysAsleep()   // percepts suppressed: no cadence wake here
             => Assert.False(OddSystem.SleepShouldWake(false, false, false, false));
     }

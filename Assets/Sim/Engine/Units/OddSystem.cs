@@ -148,6 +148,14 @@ namespace DaggerfallWorkshop.Sim.Engine
                         continue;   // percept-cadence preemption never reaches a sleeper
                     }
 
+                    // Served-but-still-Queued window: during the one-tick promotion,
+                    // _shared.IsServed(id) is true while Phase is still Queued (SharedActivitySystem
+                    // flips it to Doing this tick). Deciding now would race that flip, so skip.
+                    // ONLY for Queued agents — a Doing agent that is still IsServed MUST still
+                    // re-decide on expiry to complete service and free the slot.
+                    if (behavior.Phase == ActivityPhase.Queued && _shared.IsServed(id))
+                        continue;
+
                     if (behavior.Phase == ActivityPhase.Doing)
                     {
                         currentRemaining = behavior.RemainingGameMinutes - gameMinutes;
@@ -158,11 +166,16 @@ namespace DaggerfallWorkshop.Sim.Engine
                     }
                     else if (behavior.Phase == ActivityPhase.Queued)
                     {
-                        double since = behavior.SinceDecisionGameMinutes + gameMinutes;
-                        double cap = 48 + (Hash(id.Value, 0) & 0x1F);
+                        // Cadence-limited re-decide ONLY: trigger on the staggered preemptTick.
+                        // The since>=cap trigger is intentionally gone — nothing advances a
+                        // Queued agent's SinceDecisionGameMinutes (ExecutionSystem's countdown
+                        // only touches Doing agents), so since>=cap could become permanently
+                        // true and, with the bare-return stay path, would re-decide every tick.
+                        // preemptTick caps re-decides at one per PreemptEveryTicks; dawn/dusk
+                        // still forces a rethink via reDecideAll above.
                         int stagger = (int)(Hash(id.Value, 1) % PreemptEveryTicks);
                         bool preemptTick = (tick % PreemptEveryTicks) == stagger;
-                        if (since >= cap || preemptTick) // dawn/dusk already sets decide via reDecideAll
+                        if (preemptTick)
                             decide = true;
                     }
                     // Moving entities keep walking unless dawn/dusk re-decides.
@@ -309,7 +322,7 @@ namespace DaggerfallWorkshop.Sim.Engine
 
             double duration = bestSpec.DurationMinutes * (0.85 + 0.3 * Hash01(id.Value, tick));
 
-            if (_shared.AnchorOf(id, out var heldAnchor))
+            if (current != null && _shared.AnchorOf(id, out var heldAnchor))
             {
                 // Same shop+Buy always keeps its place; otherwise stay unless the winner is
                 // meaningfully better than continuing to wait (hysteresis = balking gate).
@@ -317,35 +330,21 @@ namespace DaggerfallWorkshop.Sim.Engine
                 if (!stay)
                 {
                     double currentScore = verbIndex.TryGetValue(current.Activity, out var ci) ? verbScore[ci] : 0.0;
-                    double winnerScore = verbScore[winner];
+                    // winner == -1 when no ad scored positively (e.g. a queued buyer who can
+                    // no longer afford Buy and nothing else scored). Guard the lookup.
+                    double winnerScore = winner >= 0 ? verbScore[winner] : 0.0;
                     stay = !ShouldSwitchCommitment(true, currentScore, winnerScore, Hysteresis);
                 }
                 if (stay)
                 {
-                    // Same shop + Buy still wins, or winner doesn't clear the hysteresis bar:
-                    // stay in line. Re-commit the CURRENT behaviour directly (BehaviorSetIntent,
-                    // not IntentSetIntent, because IntentSetIntent routes through ExecutionSystem
-                    // which always produces Phase=Doing/Moving — it cannot preserve Phase=Queued).
-                    // The only change is SinceDecisionGameMinutes = 0, resetting the decision
-                    // clock so the per-agent cap staggering is restored and this agent won't
-                    // re-decide again until the next cap (~48+ game-minutes from now).
-                    // Queue slot (TargetX/TargetZ) and all other state are copied from
-                    // `current`, which holds the slot as set by SharedActivitySystem.
-                    Events.Publish(new BehaviorSetIntent
-                    {
-                        Id = id,
-                        Data = new BehaviorData
-                        {
-                            Activity = current.Activity,
-                            Phase = ActivityPhase.Queued,
-                            TargetBuilding = current.TargetBuilding,
-                            TargetX = current.TargetX,
-                            TargetZ = current.TargetZ,
-                            RemainingGameMinutes = current.RemainingGameMinutes,
-                            SinceDecisionGameMinutes = 0,
-                            TargetItem = current.TargetItem,
-                        }
-                    });
+                    // Stay in line: publish NOTHING. SharedActivitySystem is the SOLE writer
+                    // of a Queued agent's BehaviorData (slot placement + the served→Doing
+                    // promotion flip). If OddSystem re-committed the row here it would race
+                    // those writes in the same tick (BehaviorRegistry applies BehaviorSetIntent
+                    // last-write-wins in nondeterministic parallel order). A bare return cannot
+                    // storm because the Queued re-decide branch in Update is cadence-limited to
+                    // preemptTick (every PreemptEveryTicks) — nothing advances a Queued agent's
+                    // SinceDecisionGameMinutes (ExecutionSystem's countdown only touches Doing).
                     return;
                 }
                 Events.Publish(new QueueLeaveIntent { Agent = id });   // leave the line, fall through

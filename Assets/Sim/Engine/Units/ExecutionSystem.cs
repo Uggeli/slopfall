@@ -3,8 +3,14 @@ using System.Collections.Generic;
 namespace DaggerfallWorkshop.Sim.Engine
 {
     // CQRS conversion of the old DaggerfallWorkshop.Sim.ExecutionSystem. Carries out
-    // decisions: sole emitter of BehaviorSetIntent (BehaviorRegistry is the sole
-    // applier) and of IntentClearIntent (its explicit handoff ack replacing the old
+    // decisions: a primary emitter of BehaviorSetIntent for Doing/Moving agents
+    // (BehaviorRegistry is the sole applier). NOTE: it is NOT the only emitter —
+    // SharedActivitySystem also emits BehaviorSetIntent for queued/served agents (the
+    // served→Doing promotion flip and waiter slot placement). Do not rely on a
+    // single-writer-of-BehaviorSetIntent invariant; the per-tick contract is instead
+    // single-writer-PER-AGENT (a queued agent is written only by SharedActivitySystem,
+    // a Doing agent only by ExecutionSystem). Also emits IntentClearIntent (its explicit
+    // handoff ack replacing the old
     // in-place Intent.Remove after a read). Reads Intent + Position + Behavior +
     // WorldClock read-only; reacts to ArrivedAtTargetEvent / GreetingEvent /
     // AskJourneyEvent off the bus instead of the old subscribe-and-spool lists.

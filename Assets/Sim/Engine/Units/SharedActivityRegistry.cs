@@ -43,9 +43,10 @@ namespace DaggerfallWorkshop.Sim.Engine
     }
 
     /// Holds live shared-activity instances keyed by anchor. Apply order each tick:
-    /// leaves (free slots), then joins (append waiters), then promote (fill free
-    /// Served slots from the head of the line), then reap empties. CQRS: systems
-    /// publish Join/Leave intents; reads are settled state.
+    /// leaves (free slots), then joins (append waiters), then despawn-removals (a dead
+    /// agent vacates its slot exactly like a leave), then promote (fill free Served slots
+    /// from the head of the line), then reap empties. CQRS: systems publish Join/Leave
+    /// intents; reads are settled state.
     public sealed class SharedActivityRegistry : Registry
     {
         readonly Dictionary<QueueAnchor, SharedActivityInstance> _byAnchor =
@@ -61,6 +62,13 @@ namespace DaggerfallWorkshop.Sim.Engine
 
             foreach (ref readonly var jn in Events.GetEvents<QueueJoinIntent>())
                 JoinAgent(jn);
+
+            // Despawns (death): a SERVED agent never emits a QueueLeaveIntent, so without
+            // this its counter slot would stay occupied forever and every waiter behind it
+            // would deadlock Queued. Treat a despawn exactly like a leave, positioned AFTER
+            // leaves+joins and BEFORE promote so the freed slot is filled this same tick.
+            foreach (ref readonly var d in Events.GetEvents<DespawnedEvent>())
+                RemoveAgent(d.Entity);
 
             // Promote: deterministic — fill free Served slots from the head.
             foreach (var inst in _byAnchor.Values)
