@@ -17,12 +17,15 @@ Status of each system (built vs aspirational) is in [systems status](systems-sta
 - [`../odd_spec.md`](../odd_spec.md), [`../odd_convergence.md`](../odd_convergence.md) — the ODD
   planner spec and its convergence on the Atoms architecture (O0–O5 phases).
 - [`../drive_engine.md`](../drive_engine.md) — the need/drive/deficit-pole model.
-- [`../decision_architecture.md`](../decision_architecture.md), and the **cognitive substrate**:
-  [`../cognitive_substrate.md`](../cognitive_substrate.md) +
-  [`S1 membrane`](../cognitive_substrate_S1_membrane.md) /
-  [`S2 emotion`](../cognitive_substrate_S2_emotion.md) /
-  [`S3 meanings`](../cognitive_substrate_S3_meanings.md) /
-  [`S4 conscience`](../cognitive_substrate_S4_conscience.md).
+- the **cognitive foundation** — current canon (the older `cognitive_substrate_*` S1–S4 docs were
+  retired in favour of these): the `what_is_*` series —
+  [`../what_is_a_bunny.md`](../what_is_a_bunny.md) /
+  [`../what_is_world.md`](../what_is_world.md) /
+  [`../what_is_drive.md`](../what_is_drive.md) /
+  [`../what_is_a_memory.md`](../what_is_a_memory.md) /
+  [`../what_is_an_atom.md`](../what_is_an_atom.md) — with the course correction in
+  [`../cognitive_layer_audit.md`](../cognitive_layer_audit.md) and the Phase-0 design/plan under
+  `superpowers/`.
 - [`../fear.md`](../fear.md) — fear as the sixth drive; threat controller; freeze/fight gating.
 
 ## Living world
@@ -43,8 +46,6 @@ Status of each system (built vs aspirational) is in [systems status](systems-sta
 - [`../regional_loader_stage2.md`](../regional_loader_stage2.md) — regional loader (all settlements
   into one unified space).
 - [`../regional_finance_stage3.md`](../regional_finance_stage3.md) — per-settlement public finance.
-- [`../fattening_roadmap.md`](../fattening_roadmap.md) — roadmap for progressively "fattening" the
-  sim.
 
 ## Items
 - [`../items_and_inventory.md`](../items_and_inventory.md) — items as atoms, ownership/theft,

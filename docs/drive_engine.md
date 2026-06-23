@@ -6,9 +6,9 @@ with the doc's real structure: a drive is `pole × target → residual`, only tr
 stored-and-ticked, and everything else is a per-tick read.
 
 It is scoped to the whole program the user locked: **full engine + social as a live directed
-target-field + fear live (which pulls in the V2 threat layer)**. Discipline carries from
-`fattening_roadmap.md`: behavior-preserving refactor first, then change behavior; tune after, not
-during; test that systems are wired in and entities use them.
+target-field + fear live (which pulls in the V2 threat layer)**. Discipline: behavior-preserving
+refactor first, then change behavior; tune after, not during; test that systems are wired in and
+entities use them.
 
 > **⚠️ Implementation status (2026-06-23 audit — see `cognitive_layer_audit.md` §2.1).** The
 > data model below (4-field `DriveDef` + `LevelSource`, the Kahn `DriveGraph`, the projections, the

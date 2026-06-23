@@ -1,6 +1,6 @@
 # What Is a Memory?
 
-Companion to *What Is a Bunny?*, *What Is a World?*, and *What Is a Drive?*. The bunny doc owns the **concept** — the six kinds, feeling-rebuilt-never-replayed, the surprise+stakes write trigger, gist-as-delta, consolidation-as-intersection, confident false memory. The world doc owns the **slots** — the `Memory` registry, pipeline rows 1b/2/5/7, `MemoryWrite` events, open issue #4 and open (ii). This doc is the design pass between them: the data structures, the write/recall/consolidation mechanics, and the bounded-storage policy — pinned *before* a proto, the same way the drive doc had to exist before p1 meant anything.
+Companion to *What Is a Bunny?*, *What Is a World?*, *What Is a Drive?*, and *What Is an Atom?*. The bunny doc owns the **concept** — the six kinds, feeling-rebuilt-never-replayed, the surprise+stakes write trigger, gist-as-delta, consolidation-as-intersection, confident false memory. The world doc owns the **slots** — the `Memory` registry, pipeline rows 1b/2/5/7, `MemoryWrite` events, open issue #4 and open (ii). This doc is the design pass between them: the data structures, the write/recall/consolidation mechanics, and the bounded-storage policy — pinned *before* a proto, the same way the drive doc had to exist before p1 meant anything.
 
 ## The short answer
 
@@ -51,11 +51,11 @@ The bunny doc's six kinds are *functional* distinctions. Physically they collaps
 | **PLACES** | spatial | position (tile-res), chunk-indexed | category-ref + delta-bag ("burrow, *mine*, at the oak"; "this meadow — *fooled here before*") |
 | **THINGS** | entity (dossiers) | **signature** (+ optional generational `entityRef`) | category-ref + delta-bag ("*this* fox — didn't chase"; "the big tom — boxes") |
 | **EVENTS** | episodic + self | (subject, verb, object, place) | category-ref + delta-bag + inert affect tag; **self-memory = the subject is me** — same store, no fourth structure |
-| **MEANINGS** | categorical + factual | signature-prototype | a category node: prototype + predicted atoms (running stats) + valence + confidence (see below) |
+| **MEANINGS** | categorical + factual | signature-prototype | a category node: prototype + predicted atoms (running stats) + **learned charge** + confidence (see below) — recognition + a *learned* valence; the **innate** affective tone is the atom's, not the node's (*What Is an Atom?*) |
 
 Two collapses, both already implied by the bunny doc:
 
-- **Categorical + factual are one store.** "Facts ARE the interpretation substrate" and "a category isn't a label, it's an expectation" are the same observation from two sides: a fact (*fox = danger*) is just a field of the category node (*predator* carries `valence: aversive, confidence: high`). One node type holds both the grouping and the rules about it.
+- **Categorical + factual are one store.** "Facts ARE the interpretation substrate" and "a category isn't a label, it's an expectation" are the same observation from two sides: a learned fact (*this fox is fast*) is just a field of the category node. One node type holds both the grouping and the rules about it. *(Mind the affect/cognition split: the node carries recognition + any **learned** charge; the **innate** "predator = aversive" reaction is not a node field — it is the predator-atoms' affective tone read through a prey disposition, see* What Is an Atom?*.)*
 - **Episodic + self are one store.** "What an entity did" and "what I did" differ only in the subject slot. Competence ("digging here fails") consolidates out of self-episodes by exactly the machinery that distils "foxes chase" out of fox-episodes.
 
 Keying THINGS by **signature**, not entity id, is deliberate: recognition is signature-match (that's what a nose does), and it keeps dossiers meaningful for entities currently out of view. Where a record does hold a live reference, it's a generational `entityRef` (world doc A2) — a dead entity's ref derefs as *gone*, which the planner already absorbs as perceptual staleness. Nothing special to add.
@@ -99,7 +99,9 @@ MemoryRecord {
 CategoryNode {
     prototype    : signature centroid — what recognition matches against
     predicted    : per-AtomType running stats { mean (8.8 fixed-point), spread, count }
-    valence      : the fact field — appetitive/aversive charge + confidence
+    valence      : LEARNED appetitive/aversive charge + confidence — the cognition-side
+                   valence accreted from experience. The INNATE affective tone is the
+                   atom's (tone × disposition), NOT this field (see What Is an Atom?).
     flags        : INNATE
 }
 ```
@@ -111,7 +113,7 @@ CategoryNode {
 
 ### The innate seed (resolved this pass)
 
-The registry table says `Memory` is "learned"; the interpretation table invokes "species-knowledge." Both are right: **the species ships a small seed of MEANINGS nodes** — *predator* (fox-scent prototype, `valence: aversive`, high confidence), *food*, *water*, *conspecific*, *shelter* — flagged `INNATE` (decay- and evict-immune), and **learning accretes in the same store**: new nodes minted beside the seed, and the seed's own stats updated by experience (a bunny can learn *this* fox is slow, even though *predator* is innate). "Learned" describes the accretion; the seed is what makes tick one work — without it, safety's reset-on-percept has no threat-recognition to track and surprise has no prediction to violate. The encoding machinery cannot bootstrap from an empty dictionary, so the dictionary doesn't start empty.
+The registry table says `Memory` is "learned"; the interpretation table invokes "species-knowledge." Both are right: **the species ships a small seed of MEANINGS nodes** — *predator* (fox-scent prototype, high confidence), *food*, *water*, *conspecific*, *shelter* — flagged `INNATE` (decay- and evict-immune), and **learning accretes in the same store**: new nodes minted beside the seed, and the seed's own stats updated by experience (a bunny can learn *this* fox is slow, even though *predator* is innate). The seed's job is **recognition + prediction** — so tick one can recognise a fox *as* predator and surprise has a prediction to violate. The **aversion** is not in the seed: that a predator is frightening is **affect** — the predator-atoms' aversive tone read through a prey disposition (*What Is an Atom?*) — not a `valence` field on the node. "Learned" describes the accretion; without the recognition seed the encoding machinery cannot bootstrap from an empty dictionary, so the dictionary doesn't start empty.
 
 > **Flagged for later — the seed needn't be only genetic.** A kit's seed could be part-transmitted by parents (alarm-thump associations, taught food valences): same store, same node shape, a *social* installer instead of the species table. That's a teaching/culture mechanism riding entirely on existing machinery — social signals (already a percept source) + high-stakes encoding in a critical period. Future content, no new architecture; noted so it isn't reinvented.
 
@@ -148,7 +150,7 @@ What falls out free, because the slots are shared:
 
 > Vetoable: the alternative is a small reserved recall sub-budget (K_sense + K_memory), if shared-K starves recall too aggressively under calm-but-busy scenes. Default is shared-K — it's the p3-consistent pick and the one with the emergent predictions; p6 can stress it.
 
-**Door 2 — lookup (row 2, Interpretation).** The MEANINGS store is not recalled *into* perception — it **is** the interpretation substrate. Recognition / valence / trust are direct semantic lookups; the matched node's prediction is what surprise is measured against; its valence feeds the pole writes (the third writer). Not capacity-limited, not a percept: you don't *attend to* knowing what a fox is.
+**Door 2 — lookup (row 2, Interpretation).** The MEANINGS store is not recalled *into* perception — it **is** the cognition substrate. Recognition / learned-charge / trust are direct semantic lookups; the matched node's prediction is what surprise is measured against. The pole writes (the third writer) are fed by valence from **both** faculties: the atom's affective tone × disposition (innate) and the node's learned charge (cognition). Not capacity-limited, not a percept: you don't *attend to* knowing what a fox is.
 
 **Recall is itself a write.** Any record reconstructed through Door 1 (or whose dossier filled a recognition gap) gets a `Refresh` emitted by row 5 — strength bumped, `lastRefresh` updated. That's reconsolidation, and it's the loop that makes "re-encounter refreshes" true for free, since a re-encounter *is* a recall-assisted recognition. *(Proposed addition to the world doc's systems table: row 5's read set gains the attended memory-percepts — it must see which recalls won attention to refresh them — sign-off owed.)*
 
