@@ -10,6 +10,15 @@ target-field + fear live (which pulls in the V2 threat layer)**. Discipline carr
 `fattening_roadmap.md`: behavior-preserving refactor first, then change behavior; tune after, not
 during; test that systems are wired in and entities use them.
 
+> **⚠️ Implementation status (2026-06-23 audit — see `cognitive_layer_audit.md` §2.1).** The
+> data model below (4-field `DriveDef` + `LevelSource`, the Kahn `DriveGraph`, the projections, the
+> derived-level discipline) is faithfully built. But **D0's prepotency cull is not actually wired by
+> the gate-edges it builds:** `OddSystem`'s cull keys off a hand-tagged `Prepotent` bool set on only
+> `Socialize`/`Visit`, so the `{hunger,energy,fear} ⊣ {social,goods,coin}` edges are recorded but
+> inert for the goods/coin ads (`Buy`/`Steal`/`Beg`/`Gossip`) — a starving agent shops and begs
+> freely. Making the gate cull by the *axis its edges name* is Phase-0 fix 0.4. The deleted
+> drives/fear unit tests (commit `2cdc353a3`) also leave D0 unverified.
+
 ## The mapping (doc term → codebase)
 
 | Drive-doc concept | Real name (doc) | Where it lives here |

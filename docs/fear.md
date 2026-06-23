@@ -5,6 +5,15 @@ drive — not a scalar pole but the drive doc's **directed drive**: a pole × a 
 over perceived threats — and stands up the **emotion-as-controller** loop, the **flight** and
 **fight** responses, and a real **combat** layer on top of the V2a threat infrastructure.
 
+> **⚠️ Implementation status (2026-06-23 audit — see `cognitive_layer_audit.md`).** This doc
+> describes intent; the live code diverges in three places. (1) The controller's *shape* is
+> faithfully built (`NeedsSystem.FearLevel`), but the **prepotency cull it relies on is partly
+> inert** — the `Fear ⊣ {social, goods, coin}` gate only removes `Socialize`/`Visit` ads, never the
+> goods/coin ads, so a frightened agent can still shop/beg (§2.1, §2.4). (2) **Fear-completion fires
+> only on objective creatures**, not on ambiguous cues — so the ignition bifurcation below cannot
+> actually trigger from a faint non-creature read (§2.3). (3) The unit tests below were **deleted**
+> and not migrated (§2.1).
+
 ## What fear is here
 
 Fear is `NeedAxis.Fear`, a sixth drive in the engine, but special on every authored axis:
@@ -68,9 +77,13 @@ the aggregate, for two reasons that are both **frozen placeholders** awaiting th
 - **Sparse creatures** (3 across a whole region) — proximity to a threat is rare.
 
 So the soak shows the *mechanism* alive (1 death, fear pinning the starving) while the *frequency*
-waits on tuning. The unit tests carry the proof of the dynamics: ignition bifurcation (bold ignores /
-timid bootstraps), rise-near-threat / reset-when-gone, escape-affordability (fed flees / starving
-pins), an attacker killing a creature, the crime-tag, and the prepotency hysteresis.
+waits on tuning. **These dynamics are currently unverified:** the unit tests that backed them
+(`FearTests`, `AffectsTests`) were **deleted** in commit `2cdc353a3` (2026-06-22) and not migrated to
+the surviving projects. Re-establishing them — ignition bifurcation (bold ignores / timid bootstraps),
+rise-near-threat / reset-when-gone, escape-affordability (fed flees / starving pins), an attacker
+killing a creature, the crime-tag, and the prepotency hysteresis — is a Phase-0 follow-up
+(`cognitive_layer_audit.md` §2.1). They are all pure static methods (`CompleteThreat`,
+`DesperationFactor`, `PrepotencyGate`), so trivially unit-testable.
 
 ## Carried discipline
 
