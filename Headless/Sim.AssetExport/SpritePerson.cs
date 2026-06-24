@@ -23,7 +23,9 @@ namespace Sim.AssetExport
         public int CellW, CellH;     // sheet cell size (px)
         public int Cols, Rows;       // Cols = max frames across records; Rows = record count (<=20)
         public int[] Frames;         // frame count per record row
-        public float WorldW, WorldH; // billboard size in metres
+        public float WorldW, WorldH; // billboard size in metres (record 0; legacy/fallback)
+        public int[] RecW, RecH;     // native sprite pixel size per record row
+        public float[] RecWorldW, RecWorldH; // billboard size in metres, per record
     }
 
     public static class SpritePerson
@@ -74,6 +76,10 @@ namespace Sim.AssetExport
 
             int rows = Math.Min(MaxRows, tex.RecordCount);
             var frames = new int[rows];
+            var recW = new int[rows];
+            var recH = new int[rows];
+            var recWorldW = new float[rows];
+            var recWorldH = new float[rows];
             int cellW = 1, cellH = 1, cols = 1;
             for (int r = 0; r < rows; r++)
             {
@@ -81,6 +87,13 @@ namespace Sim.AssetExport
                 frames[r] = fc;
                 cols = Math.Max(cols, fc);
                 var sz = tex.GetSize(r);
+                var sc = tex.GetScale(r);
+                recW[r] = sz.Width;
+                recH[r] = sz.Height;
+                // Each record carries its own native size AND its own DF scale factor, so
+                // the billboard for that record must use them (idle vs walk differ in both).
+                recWorldW[r] = (sz.Width + sz.Width * sc.Width / 256f) * GlobalScale;
+                recWorldH[r] = (sz.Height + sz.Height * sc.Height / 256f) * GlobalScale;
                 cellW = Math.Max(cellW, sz.Width);
                 cellH = Math.Max(cellH, sz.Height);
             }
@@ -115,17 +128,14 @@ namespace Sim.AssetExport
                 }
             }
 
-            var sz0 = tex.GetSize(0);
-            var sc0 = tex.GetScale(0);
-            float worldW = (sz0.Width + sz0.Width * sc0.Width / 256f) * GlobalScale;
-            float worldH = (sz0.Height + sz0.Height * sc0.Height / 256f) * GlobalScale;
-
             var meta = new SpriteMeta
             {
                 Archive = archive,
                 CellW = cellW, CellH = cellH, Cols = cols, Rows = rows,
                 Frames = frames,
-                WorldW = worldW, WorldH = worldH,
+                WorldW = recWorldW[0], WorldH = recWorldH[0],
+                RecW = recW, RecH = recH,
+                RecWorldW = recWorldW, RecWorldH = recWorldH,
             };
             return (Png.Encode(aw, ah, atlas), meta);
         }

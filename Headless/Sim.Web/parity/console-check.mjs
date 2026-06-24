@@ -1,0 +1,12 @@
+import { chromium } from 'playwright';
+import { SWIFTSHADER_ARGS } from './spike.mjs';
+const PORT = process.argv[2] || '8090';
+const browser = await chromium.launch({ headless: true, args: SWIFTSHADER_ARGS });
+const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+const logs = [];
+page.on('console', m => logs.push(`[${m.type()}] ${m.text()}`));
+page.on('pageerror', e => logs.push(`[PAGEERROR] ${e.stack || e}`));
+await page.goto(`http://localhost:${PORT}/town3d.html`, { waitUntil: 'load' });
+await page.waitForTimeout(8000);
+console.log(logs.join('\n') || '(no console output)');
+await browser.close();

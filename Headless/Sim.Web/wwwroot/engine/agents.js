@@ -89,7 +89,7 @@ export function updateAgents(t, cam, net, selectedId) {
     let p = people.get(id);
     if (!p || p.archive !== archive) {
       if (p) { if (p.tintMat) p.tintMat.dispose(); agents.remove(p.mesh); }
-      const geo = new THREE.PlaneGeometry(s.meta.worldW, s.meta.worldH);
+      const geo = new THREE.PlaneGeometry(1, 1);   // unit quad; sized per displayed record below
       const mesh = new THREE.Mesh(geo, s.mat);
       mesh.userData.id = id;   // for click-to-inspect raycasting
       agents.add(mesh);
@@ -101,11 +101,6 @@ export function updateAgents(t, cam, net, selectedId) {
     const pr = net.prevSnap.get(id) || c;
     const x = pr[0] + (c[0] - pr[0]) * alpha, z = pr[1] + (c[1] - pr[1]) * alpha;
     const gy = pr[3] + (c[3] - pr[3]) * alpha;
-    p.mesh.position.set(x, gy + s.meta.worldH / 2, z);
-    // Aim at the camera in the XZ plane only (same height as the sprite), so the
-    // billboard stays vertical. Using a fixed Y here tilted it by the town's ground
-    // pad height (gy), which differs per town — hence the axis flip when panning.
-    p.mesh.lookAt(cam.position.x, p.mesh.position.y, cam.position.z);   // upright billboard
 
     if (id === selectedId) { selRing.position.set(x, gy + 0.05, z); selRing.visible = true; }
 
@@ -138,6 +133,20 @@ export function updateAgents(t, cam, net, selectedId) {
     const fc = s.meta.frames[record] || 1;
     const frame = Math.floor(t * fps) % fc;
     setCellUV(p.geo, s, record, frame, flip);
+
+    // Size the billboard to THIS record's own world dimensions. Each animation record has
+    // its own native pixel size and DF scale factor (a civilian's idle frame is taller and
+    // differently scaled than its walk frames), so sizing every record from record 0 made
+    // non-idle agents render shrunken. recWorldW/H are per-record metres (fall back to the
+    // legacy single size for older metas). The unit quad is scaled, not rebuilt, per frame.
+    const rw = (s.meta.recWorldW && s.meta.recWorldW[record]) || s.meta.worldW;
+    const rh = (s.meta.recWorldH && s.meta.recWorldH[record]) || s.meta.worldH;
+    p.mesh.scale.set(rw, rh, 1);
+    p.mesh.position.set(x, gy + rh / 2, z);
+    // Aim at the camera in the XZ plane only (same height as the sprite), so the
+    // billboard stays vertical. Using a fixed Y here tilted it by the town's ground
+    // pad height (gy), which differs per town — hence the axis flip when panning.
+    p.mesh.lookAt(cam.position.x, p.mesh.position.y, cam.position.z);   // upright billboard
 
     // Phase tint: Queued agents get a muted-amber overlay so a queue reads as "waiting".
     // We clone the shared archive material only when needed (one clone per queued agent),

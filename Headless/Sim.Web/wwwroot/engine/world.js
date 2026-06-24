@@ -143,12 +143,22 @@ export function buildFlatInstances(meta, tex, list) {
   return mesh;
 }
 
-// Set a plane's UVs to a sheet cell (record row, frame col); optional horizontal flip.
-// Shared with agents (sprite animation).
+// Set a plane's UVs to a sprite within a sheet cell (record row, frame col); optional flip.
+// Maps the sprite's NATIVE pixel rectangle, not the full padded cell — records vary in
+// size and are packed bottom-aligned + horizontally centred (server SpritePerson.Build),
+// so mapping the whole cell would scale each record by its size-vs-cell ratio. The plane
+// is sized to the record's own world dimensions by the caller, so UV + plane stay in step.
+// Falls back to the full cell for metas without per-record sizes.
 export function setCellUV(geo, s, record, frame, flip) {
   const m = s.meta;
-  const uL = (frame * m.cellW) / s.sheetW, uR = ((frame + 1) * m.cellW) / s.sheetW;
-  const vT = (record * m.cellH) / s.sheetH, vB = ((record + 1) * m.cellH) / s.sheetH;  // flipY=false: v=0 top
+  const w = (m.recW && m.recW[record]) || m.cellW;
+  const h = (m.recH && m.recH[record]) || m.cellH;
+  // sprite placement within its cell — must mirror the server packing exactly:
+  // ox = f*cellW + (cellW-w)/2  (C# int division → floor), oy = r*cellH + (cellH-h).
+  const ox = frame * m.cellW + Math.floor((m.cellW - w) / 2);
+  const oy = record * m.cellH + (m.cellH - h);
+  const uL = ox / s.sheetW, uR = (ox + w) / s.sheetW;
+  const vT = oy / s.sheetH, vB = (oy + h) / s.sheetH;  // flipY=false: v=0 top
   const a = flip ? uR : uL, b = flip ? uL : uR;
   const uv = geo.attributes.uv;
   uv.setXY(0, a, vT); uv.setXY(1, b, vT); uv.setXY(2, a, vB); uv.setXY(3, b, vB);
