@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DaggerfallWorkshop.Sim
 {
@@ -25,6 +26,12 @@ namespace DaggerfallWorkshop.Sim
         /// engine edit.
         public static readonly int[] HardCullSources;
 
+        /// Per the gate table, the axes that ANY deficiency hard-culls (the
+        /// discretionary/growth set = {SocialDef} after the F3 correction). F3's
+        /// by-axis cull removes ads whose ServesAxis is in here. Adding a HardCull
+        /// edge to a new target auto-extends it with no engine edit.
+        public static readonly int[] HardCullTargets;
+
         /// Per-target, the drives that grade it DOWN via a DesperationGraded edge
         /// (e.g. hunger ⊣ fear: starvation overrides fear, never culls it). Indexed
         /// by target axis; empty where nothing desperation-grades it. The
@@ -39,6 +46,7 @@ namespace DaggerfallWorkshop.Sim
             for (int i = 0; i < n; i++) adj[i] = new List<int>();
 
             var cullSources = new List<int>();
+            var cullTargets = new SortedSet<int>();
             var desperationByTarget = new List<int>[n];
             for (int i = 0; i < n; i++) desperationByTarget[i] = new List<int>();
             for (int src = 0; src < n; src++)
@@ -51,12 +59,13 @@ namespace DaggerfallWorkshop.Sim
                     int tgt = gates[g].Target;
                     adj[src].Add(tgt);
                     indegree[tgt]++;
-                    if (gates[g].Kind == GateKind.HardCull) culls = true;
+                    if (gates[g].Kind == GateKind.HardCull) { culls = true; cullTargets.Add(tgt); }
                     else if (gates[g].Kind == GateKind.DesperationGraded) desperationByTarget[tgt].Add(src);
                 }
                 if (culls) cullSources.Add(src);
             }
             HardCullSources = cullSources.ToArray();
+            HardCullTargets = cullTargets.ToArray();
             DesperationSourcesByTarget = new int[n][];
             for (int i = 0; i < n; i++) DesperationSourcesByTarget[i] = desperationByTarget[i].ToArray();
 

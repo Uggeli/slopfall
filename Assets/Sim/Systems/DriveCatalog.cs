@@ -62,15 +62,15 @@ namespace DaggerfallWorkshop.Sim
     {
         public static readonly DriveDef[] Defs = new DriveDef[NeedAxis.Count];
 
-        // Every deficiency pole hard-culls every growth/discretionary drive
-        // DIRECTLY (drive doc proto p1: never only transitively). The roster's
-        // growth/discretionary set — social, goods, coin — shared by every
-        // deficiency source (hunger, energy, and fear).
+        // Every deficiency pole hard-culls the genuinely DISCRETIONARY/growth drives
+        // DIRECTLY (drive doc proto p1: never only transitively). F3: that set is
+        // social *leisure* only — goods/coin are INSTRUMENTAL to hunger (the
+        // work->buy->eat chain needs them), so a deficiency must not cull them; they
+        // are gated by the chain's affordability + larder/stock roots (F1) instead.
+        // Shared by every deficiency source (hunger, energy, and fear).
         static readonly GateEdge[] DeficiencyGates =
         {
             new GateEdge { Target = NeedAxis.SocialDef, Kind = GateKind.HardCull },
-            new GateEdge { Target = NeedAxis.GoodsDef,  Kind = GateKind.HardCull },
-            new GateEdge { Target = NeedAxis.CoinDef,   Kind = GateKind.HardCull },
         };
 
         // Hunger additionally rules the DESPERATION edge hunger ⊣ safety: a starving
@@ -79,8 +79,6 @@ namespace DaggerfallWorkshop.Sim
         static readonly GateEdge[] HungerGates =
         {
             new GateEdge { Target = NeedAxis.SocialDef, Kind = GateKind.HardCull },
-            new GateEdge { Target = NeedAxis.GoodsDef,  Kind = GateKind.HardCull },
-            new GateEdge { Target = NeedAxis.CoinDef,   Kind = GateKind.HardCull },
             new GateEdge { Target = NeedAxis.Fear,      Kind = GateKind.DesperationGraded },
         };
 
