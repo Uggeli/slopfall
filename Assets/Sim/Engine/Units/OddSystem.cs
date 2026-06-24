@@ -271,6 +271,10 @@ namespace DaggerfallWorkshop.Sim.Engine
                 a => verbScore[a]);
             OddTree.Propagate(buffer, n, LookaheadDecay);
             int winner = OddTree.Traverse(buffer, n);
+            // F2: terminal revalidation. Traverse returns a root verb; re-validate its preconditions
+            // against THIS tick (stock/larder/coin can have changed since Build) and drop to the
+            // next-best valid root, else Object Zero (winner == -1 falls through below).
+            winner = RevalidateWinner(winner, verbAd, verbScore, roots, coin);
             if (SnapshotEnabled && (n > roots.Count + 1 || !Snapshots.ContainsKey(id)))
                 Snapshots[id] = FormatTree(buffer, n, verbs);
             if (SnapshotWatch.ContainsKey(id))
@@ -366,6 +370,33 @@ namespace DaggerfallWorkshop.Sim.Engine
                     Item = bestItem,
                 },
             });
+        }
+
+        // F2: re-validate the chosen winner against the current tick. Reuses IsRootEligible
+        // (the same gate that built the root set). If the winner is stale, pick the highest-
+        // scoring root still valid now; -1 => caller falls to Object Zero (already handled).
+        int RevalidateWinner(int winner, List<Ad> verbAd, List<double> verbScore, List<int> roots, double coin)
+        {
+            if (winner < 0) return winner;
+            if (RootValidNow(verbAd[winner], coin)) return winner;
+            int best = -1; double bestScore = double.NegativeInfinity;
+            for (int i = 0; i < roots.Count; i++)
+            {
+                int vi = roots[i];
+                if (!RootValidNow(verbAd[vi], coin)) continue;
+                if (verbScore[vi] > bestScore) { bestScore = verbScore[vi]; best = vi; }
+            }
+            return best;
+        }
+
+        bool RootValidNow(Ad ad, double coin)
+        {
+            var spec = ad.Spec;
+            double saleCost = spec != null && spec.SaleReliefAxis >= 0 && spec.SalePrice > 0
+                ? spec.SaleUnits * spec.SalePrice : 0;
+            bool larderGated = spec != null && spec.LarderGated;
+            double larder = larderGated ? _larder.Get(ad.Building) : 1;
+            return IsRootEligible(coin, saleCost, larderGated, larder, SaleStockAvailable(ad));
         }
 
         // --- Inline reproduction of ActionDiscovery.GatherAds against the Engine
