@@ -214,7 +214,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             const double Sticky = 1.4;
 
             var incumbentSpec = incumbent != ActivityKind.None ? ActivityCatalog.SpecFor(incumbent) : null;
-            bool incumbentLeisure = incumbentSpec != null && incumbentSpec.Prepotent;
+            bool incumbentLeisure = incumbentSpec != null && IsHardCullTarget(incumbentSpec.ServesAxis);
 
             var sc = new ScoreContext
             {
@@ -237,6 +237,10 @@ namespace DaggerfallWorkshop.Sim.Engine
             {
                 var ad = ads[i];
                 double s = V(ad, sc);
+                // F3 hard cull: a loud deficiency REMOVES discretionary (social) ads from the market —
+                // not just down-weights them. c.Prepotency <= 0 means the loudest hard-cull source
+                // crossed the threshold. Instrumental goods/coin (ServesAxis -1) are never culled.
+                if (sc.Prepotency <= 0 && IsHardCullTarget(ad.Spec.ServesAxis)) continue;
                 if (s <= 0 && ActionCatalog.Enables(ad.Verb).Length == 0) continue;
                 if (ad.Verb == incumbent && ad.Building == incumbentBuilding) s *= Sticky;
                 if (verbIndex.TryGetValue(ad.Verb, out int vi))
@@ -681,7 +685,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 * (s.DistanceScale > 0 ? DistFactor(ad, c, s.DistanceScale) : 1.0)
                 * (s.Outdoor ? c.Outdoor : 1.0)
                 * (s.Social ? Liveliness(ad) * (c.Hour >= 17 ? 1.5 : 1.0) * c.Cozy : 1.0)
-                * (s.Prepotent ? c.Prepotency : 1.0)
+                * (IsHardCullTarget(s.ServesAxis) ? c.Prepotency : 1.0)
                 * (s.FearDriven ? DesperationFactor(c.Needs, NeedAxis.Fear) : 1.0)
                 * (s.Kind == ActivityKind.Attack && c.IsGuard ? GuardCombatBoost : 1.0)
                 * (s.RelationSensitive ? RelationFactor(RegardFieldAt(ad.Building, c)) : 1.0)
@@ -919,6 +923,16 @@ namespace DaggerfallWorkshop.Sim.Engine
             if (saleCost > 0 && coin < saleCost) return false;
             if (larderGated && larder <= 0) return false;
             return true;
+        }
+
+        /// True if an ad's ServesAxis is a prepotency hard-cull target (a discretionary/growth drive a
+        /// deficiency suppresses). Pure — unit-tested. Drives off the DriveGraph edge table (F3).
+        public static bool IsHardCullTarget(int servesAxis)
+        {
+            if (servesAxis < 0) return false;
+            var t = DriveGraph.HardCullTargets;
+            for (int i = 0; i < t.Length; i++) if (t[i] == servesAxis) return true;
+            return false;
         }
 
         public const double CullEnterThreshold = 0.7;
