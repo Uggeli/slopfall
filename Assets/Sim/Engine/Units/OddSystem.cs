@@ -256,9 +256,11 @@ namespace DaggerfallWorkshop.Sim.Engine
             {
                 var ad = verbAd[vi];
                 var spec = ad.Spec;
-                bool coinSink = spec != null && spec.SaleReliefAxis >= 0 && spec.SalePrice > 0;
-                if (coinSink && coin < spec.SaleUnits * spec.SalePrice) continue;
-                if (spec != null && spec.LarderGated && _larder.Get(ad.Building) <= 0) continue;
+                double saleCost = spec != null && spec.SaleReliefAxis >= 0 && spec.SalePrice > 0
+                    ? spec.SaleUnits * spec.SalePrice : 0;
+                bool larderGated = spec != null && spec.LarderGated;
+                double larder = larderGated ? _larder.Get(ad.Building) : 1;
+                if (!IsRootEligible(coin, saleCost, larderGated, larder, SaleStockAvailable(ad))) continue;
                 roots.Add(vi);
             }
 
@@ -424,8 +426,10 @@ namespace DaggerfallWorkshop.Sim.Engine
             int adHour = _worldClock.Current.Hour;
             bool adHoliday = _holiday.CurrentId > 0;
             bool isKeeper = _residency.TryGet(agent, out var res) && res != null && res.Role == ResidentRole.Keeper;
-            ads.RemoveAll(a => !ActivityCatalog.PreconditionsMet(a.Spec, adHour, adHoliday, isKeeper)
-                               || !SaleStockAvailable(a));
+            // F1: stock no longer culls the pool — it gates ROOT-eligibility (see Decide).
+            // Only structural preconditions (hours/holiday/keeper) remove an ad here, so
+            // stock-gated ads stay in verbs/verbIndex for Enables propagation.
+            ads.RemoveAll(a => !ActivityCatalog.PreconditionsMet(a.Spec, adHour, adHoliday, isKeeper));
 
             return ads;
         }
@@ -873,6 +877,17 @@ namespace DaggerfallWorkshop.Sim.Engine
             float dx = ad.X - c.Px, dz = ad.Z - c.Pz;
             double dist = System.Math.Sqrt(dx * dx + dz * dz);
             return 1.0 / (1.0 + dist / scale);
+        }
+
+        /// A sale/larder/coin gate is ROOT-eligibility only — the ad stays in the pool for Enables
+        /// propagation even when it can't be pursued standalone this tick. saleCost = SaleUnits*SalePrice
+        /// (0 if not a coin-sink). Pure — unit-tested.
+        public static bool IsRootEligible(double coin, double saleCost, bool larderGated, double larder, bool inStock)
+        {
+            if (!inStock) return false;                 // F1: stock gates root-eligibility, not pool membership
+            if (saleCost > 0 && coin < saleCost) return false;
+            if (larderGated && larder <= 0) return false;
+            return true;
         }
 
         public const double CullEnterThreshold = 0.7;
