@@ -233,6 +233,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             var verbAd = new List<Ad>();
             var verbScore = new List<double>();
             var verbIndex = new Dictionary<ActivityKind, int>();
+            bool culledSocial = false;   // F3 metric: a social-leisure ad was hard-removed this decision
             for (int i = 0; i < ads.Count; i++)
             {
                 var ad = ads[i];
@@ -240,7 +241,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 // F3 hard cull: a loud deficiency REMOVES discretionary (social) ads from the market —
                 // not just down-weights them. c.Prepotency <= 0 means the loudest hard-cull source
                 // crossed the threshold. Instrumental goods/coin (ServesAxis -1) are never culled.
-                if (sc.Prepotency <= 0 && IsHardCullTarget(ad.Spec.ServesAxis)) continue;
+                if (sc.Prepotency <= 0 && IsHardCullTarget(ad.Spec.ServesAxis)) { culledSocial = true; continue; }
                 if (s <= 0 && ActionCatalog.Enables(ad.Verb).Length == 0) continue;
                 if (ad.Verb == incumbent && ad.Building == incumbentBuilding) s *= Sticky;
                 if (verbIndex.TryGetValue(ad.Verb, out int vi))
@@ -279,6 +280,16 @@ namespace DaggerfallWorkshop.Sim.Engine
             // against THIS tick (stock/larder/coin can have changed since Build) and drop to the
             // next-best valid root, else Object Zero (winner == -1 falls through below).
             winner = RevalidateWinner(winner, verbAd, verbScore, roots, coin);
+            if (MetricsEnabled)
+            {
+                LastDecisionCulledSocial[id] = culledSocial;
+                bool chain = false;
+                if (winner >= 0)
+                    for (int bi = 1; bi < n; bi++)
+                        if (buffer[bi].ParentIndex == 0 && buffer[bi].Action == winner)
+                        { chain = buffer[bi].PropagatedScore > 0; break; }
+                LastDecisionWasChain[id] = chain;
+            }
             if (SnapshotEnabled && (n > roots.Count + 1 || !Snapshots.ContainsKey(id)))
                 Snapshots[id] = FormatTree(buffer, n, verbs);
             if (SnapshotWatch.ContainsKey(id))
@@ -601,6 +612,16 @@ namespace DaggerfallWorkshop.Sim.Engine
                 if (index.TryGetValue(en[i], out int vi)) list.Add(vi);
             return list;
         }
+
+        // --- F1/F3 soak metrics (observability), gated so they're free when off. ---
+        // LastDecisionWasChain: the agent's last winner had propagated children folded in
+        // (lookahead lifted it — the F1 signal). LastDecisionCulledSocial: a loud deficiency
+        // removed at least one social-leisure ad from that agent's market (the F3 signal).
+        public static bool MetricsEnabled = false;
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<EntityId, bool> LastDecisionWasChain
+            = new System.Collections.Concurrent.ConcurrentDictionary<EntityId, bool>();
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<EntityId, bool> LastDecisionCulledSocial
+            = new System.Collections.Concurrent.ConcurrentDictionary<EntityId, bool>();
 
         // --- Decision snapshot (observability), unchanged. ---
         public static bool SnapshotEnabled = false;

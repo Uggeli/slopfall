@@ -14,6 +14,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         {
             long total = days * TicksPerDay;
             int startPop = w.Identity.Count;
+            OddSystem.MetricsEnabled = true;   // F1/F3 chain-count + social-cull-count
             Console.WriteLine($"soaking {days} game-day(s) = {total} ticks, start pop {startPop}");
             Report(w, 0);
 
@@ -64,6 +65,13 @@ namespace DaggerfallWorkshop.Sim.Engine
             string kills = m == null ? "" :
                 $" kills[gate={m.KillsAtGate} inside={m.KillsInside} day={m.KillsByDay} night={m.KillsByNight}]";
             Console.WriteLine($"           guards[posting={posting} attacking={attacking}] hungryMonsters={hungry}{kills}");
+
+            // F1/F3 decision metrics: how many agents' last decision rode a propagated chain
+            // (F1 working — was 0/337) and how many had social leisure hard-culled (F3 working).
+            int chains = 0, chainTotal = 0, socialCulled = 0;
+            foreach (var kv in OddSystem.LastDecisionWasChain) { chainTotal++; if (kv.Value) chains++; }
+            foreach (var kv in OddSystem.LastDecisionCulledSocial) if (kv.Value) socialCulled++;
+            Console.WriteLine($"           odd[chains={chains}/{chainTotal} socialCulled={socialCulled}]");
 
             // Agent-memory learning arc: categories minted + records held, plus the "blend lean"
             // (mean |valence| + mean confidence over all category nodes — how much learned feeling
