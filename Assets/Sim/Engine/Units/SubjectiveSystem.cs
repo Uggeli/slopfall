@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DaggerfallWorkshop.Sim.Memory;
 using DaggerfallWorkshop.Utility;
 
 namespace DaggerfallWorkshop.Sim.Engine
@@ -83,6 +84,37 @@ namespace DaggerfallWorkshop.Sim.Engine
         public static double BlendValence(double oldV, double newV, double confidence)
             => oldV * (1.0 - confidence) + newV * confidence;
 
+        const double SizeMassMenace = 0.3;   // FROZEN: raw menace a large body carries even unarmed
+
+        /// <summary>The prey-veto: Threat = max over aversive CUES read from the perceived bag.
+        /// L1 cues = capacity (each weapon's aversive tone x perceived Size) + raw size mass-menace.
+        /// Built as a max over a cue list so the L2 observed-behaviour cue and the Phase-C/D reputation
+        /// cue drop in as further entries (behaviour can make a low-capacity thing scary). NO oracle.</summary>
+        public static double ThreatRead(AtomBag bag, out double threatValence)
+        {
+            threatValence = 0;
+            if (bag == null || bag.Count == 0) return 0;
+            bool hasSize = bag.TryGet(AtomName.Size.ToId(), out var sizeFx);
+            double size = hasSize ? sizeFx.ToDouble() : 1.0;          // 1.0 = no shrink (only creatures carry Size)
+            double threat = 0;
+            for (int i = 0; i < bag.Count; i++)                       // capacity cues: weapon tone x size
+            {
+                AtomTone tone = AtomCatalog.For(bag[i].Type).Tone;
+                double menace = -tone.Valence.ToDouble();             // > 0 only for an aversive (weapon) atom
+                if (menace <= 0) continue;
+                double cue = menace * tone.Arousal.ToDouble() * size;
+                if (cue > threat) { threat = cue; threatValence = tone.Valence.ToDouble(); }
+            }
+            if (hasSize)                                             // raw mass-menace cue (sized things only)
+            {
+                double mass = SizeMassMenace * size;
+                if (mass > threat) { threat = mass; threatValence = -mass; }
+            }
+            if (threat > 1.0) threat = 1.0;
+            if (threatValence < -1.0) threatValence = -1.0;
+            return threat;
+        }
+
         /// interpret(self, other): what `other` means to `self` right now. A pure read,
         /// callable for sensed OR remembered entities. S1: valence is the dossier regard,
         /// recognition/trust the familiarity, attention a simple salience. S2 adds affect to
@@ -96,28 +128,21 @@ namespace DaggerfallWorkshop.Sim.Engine
             ResidencyRegistry residency, PerceivableRegistry perceivable, AgentMemoryRegistry agentMem,
             EntityId self, EntityId other)
         {
-            // A creature is read by what it IS (a CreatureRegistry member), not a dossier: an
-            // innate, recognized threat. No social history applies.
-            if (creatures.Contains(other))
-                return new EntityRead
-                {
-                    Other = other, Valence = ThreatValence,
-                    Recognition = 1.0, Trust = 1.0,
-                    Attention = 1.0 + System.Math.Abs(ThreatValence),   // threats grab attention
-                    Threat = 1.0,
-                };
+            // Threat = the prey-veto over perceived aversive cues (weapon tone x size). NO _creatures oracle.
+            double threat = 0, threatValence = 0;
+            if (perceivable != null)
+                threat = ThreatRead(perceivable.Bag(other), out threatValence);
 
             double familiarity = 0, baseValence;
             if (relations.TryGet(self, out var rels) && rels.Of.TryGetValue(other, out var rel))
             {
-                baseValence = rel.Regard;          // I know THEM — judge by my history with them (dossier)
+                baseValence = rel.Regard;          // I know THEM — judge by my history (dossier)
                 familiarity = rel.Familiarity;
             }
             else
             {
-                // A stranger — judge by their KIND. Blend the old role-scalar with the agent's OWN
-                // learned category (the new MeaningsStore), weighted by how confident that learning
-                // is: confidence 0 = today's behavior, 1 = fully the agent's perceived/reinforced read.
+                // A stranger — judge by their KIND. Blend the old role-scalar with the agent's learned
+                // category, weighted by confidence. (The role-scalar half is retired in B4.)
                 double oldV = MeaningsSystem.CategoryValence(meanings, residency, self, other);
                 double newV = 0, conf = 0;
                 if (agentMem != null && perceivable != null
@@ -126,22 +151,24 @@ namespace DaggerfallWorkshop.Sim.Engine
                 { newV = lv.ToDouble(); conf = lc.ToDouble(); }
                 baseValence = BlendValence(oldV, newV, conf);
             }
-            // + acute feeling (Affects, S2). Emotion-as-controller: this valence colors the
-            // decider's place-lens and the greet/dislike percepts.
             double valence = baseValence + affects.ValenceToward(self, other);
-            // S4 stigma: a beggar (Doing Beg — observable in the public molecule) is read
-            // through the perceiver's disposition — a cold soul disdains, a warm one pities.
+            // beggar-stigma: a beggar is read through the perceiver's Warmth (kept; B7).
             if (behavior.TryGet(other, out var ob) && ob != null
                 && ob.Phase == ActivityPhase.Doing && ob.Activity == ActivityKind.Beg
                 && personality.TryGet(self, out var p) && p != null)
                 valence += (p.Trait(TraitIndex.Warmth) - 0.5) * StigmaScale;
+
+            // The prey-veto: a perceived threat forces the read aversive, overriding the social blend.
+            if (threat > 0 && threatValence < valence) valence = threatValence;
+
             return new EntityRead
             {
                 Other = other,
                 Valence = valence,
                 Recognition = familiarity,
                 Trust = familiarity,
-                Attention = 0.1 + System.Math.Abs(valence) + familiarity,
+                Attention = 0.1 + System.Math.Abs(valence) + familiarity + threat,   // a threat grabs attention
+                Threat = threat,
             };
         }
 
