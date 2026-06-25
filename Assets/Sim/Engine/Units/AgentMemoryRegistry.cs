@@ -73,6 +73,11 @@ namespace DaggerfallWorkshop.Sim.Engine
         public void SeedPlace(EntityId agent, int building, AtomTypeId atom, Fixed value)
         { if (_d.TryGetValue(agent, out var mem)) MergePlaceAtom(mem, building, atom, value, 0, false, Fixed.One); }
 
+        /// <summary>Seed an innate category belief into the agent's MEANINGS store (load-time, direct —
+        /// the SeedPlace pattern). SeedPriors uses this.</summary>
+        public void SeedInnatePrior(EntityId agent, AtomBag signature, Fixed valence, Fixed confidence)
+        { if (_d.TryGetValue(agent, out var mem)) mem.Meanings.SeedInnate(signature, valence, confidence); }
+
         /// <summary>Upsert one observed fact into the agent's memory of a building. FIRST-HAND uses the
         /// atom's intrinsic salience (Kind=INNATE, Danger=SURPRISE, Provisions=ordinary) and refreshes
         /// to vivid. SECOND-HAND (heard) caps strength to salience × trustScale, flags None (fades),

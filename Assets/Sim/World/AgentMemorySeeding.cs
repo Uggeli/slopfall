@@ -24,6 +24,7 @@ namespace DaggerfallWorkshop.Sim
         public static void SeedAgent(SimWorld world, EntityId agent)
         {
             SeedPlaces(world, agent);
+            SeedPriors(world, agent);            // Phase C: innate kind-keyed category beliefs
             // Future SeedX (slot in here — callers need no change):
             //   SeedOwnerships(world, agent);    // the buildings/goods this agent owns
             //   SeedReputations(world, agent);   // standings it already holds
@@ -33,6 +34,23 @@ namespace DaggerfallWorkshop.Sim
         /// <summary>Innate place knowledge: for every building the agent KNOWS, stamp that
         /// building's kind atom into PLACES memory ("that's the tavern / the general store").
         /// The learned layer (provisions, danger) accretes on top of this at runtime.</summary>
+        /// <summary>Innate species priors: stamp this agent's kind-keyed innate category beliefs into
+        /// MEANINGS. L1 = in-group warmth, keyed by the agent's OWN signature (so it matches same-kind
+        /// kin under the store's near-exact recognition). The learned layer drifts these at runtime;
+        /// an individual dossier overrides the category entirely.</summary>
+        public static void SeedPriors(SimWorld world, EntityId agent)
+        {
+            if (!world.Identity.TryGet(agent, out var ident) || ident == null) return;
+            foreach (var prior in InnatePriors.For(ident.Kind))
+            {
+                AtomBag proto = prior.Target == PriorTarget.Self
+                    ? world.Perceivable.Signature(agent)
+                    : AtomBag.Empty;
+                if (proto.Count == 0) continue;                     // nothing to key on → skip
+                world.AgentMemory.SeedInnatePrior(agent, proto, prior.Valence, prior.Confidence);
+            }
+        }
+
         public static void SeedPlaces(SimWorld world, EntityId agent)
         {
             foreach (var building in world.PlaceMemory.Known(agent))
