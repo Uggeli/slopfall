@@ -226,6 +226,10 @@ namespace DaggerfallWorkshop.Sim.Engine
             Events.Publish(new PositionSetIntent { Id = id, X = px, Y = 0f, Z = pz, Yaw = 0f });
             Events.Publish(new VitalsSetIntent { Id = id, Data = new VitalsData { CurrentHealth = 20, MaxHealth = 20 } });
             Events.Publish(new CreatureSetIntent { Id = id, Data = new CreatureData { TargetX = px, TargetZ = pz, NextAttackTick = 0, HungerLevel = 0.6f } });
+            // Phase B/L1: stamp the creature's perceivable form atoms (weapons + size) so a perceiver
+            // reads threat from them (tone × size) — off the _creatures oracle. Beast: one form row.
+            foreach (var form in CreatureForms.Beast)
+                Events.Publish(new StampAtomIntent { Entity = id, Type = form.Type, Value = form.Value });
             return true;
         }
 
