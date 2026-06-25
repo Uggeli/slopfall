@@ -50,10 +50,13 @@ namespace Sim.MemoryTests
             var p = emitted[0];
             Assert.Equal(agent, p.Perceiver);
             Assert.Equal(seen, p.Perceived);
-            // v1 THINGS = identity dossiers: BOTH signature and percept are identity-only (no
-            // activity) so categories form on identity and recognition matches. Activity -> EVENTS (deferred).
-            Assert.DoesNotContain(p.Signature.Atoms, a => a.Type.Value >= PerceivableAtoms.ActivityBase);
-            Assert.DoesNotContain(p.Percept.Atoms, a => a.Type.Value >= PerceivableAtoms.ActivityBase);
+            // v1 THINGS = identity dossiers: signature is identity-only; percept may carry
+            // transient (activity/somatic) atoms. Categories form on identity and recognition matches.
+            // Signature is identity-only; the percept may carry transient (activity/somatic) atoms,
+            // so assert the split via the catalog, not a band boundary.
+            Assert.All(p.Signature.Atoms, a => Assert.True(AtomCatalog.For(a.Type).IsIdentity,
+                "signature carried a non-identity atom: " + AtomCatalog.NameOf(a.Type)));
+            Assert.DoesNotContain(p.Percept.Atoms, a => AtomCatalog.For(a.Type).Category == AtomCategory.Activity);
             Assert.Contains(p.Signature.Atoms, a => a.Type.Value == PerceivableAtoms.Kind(EntityKind.CivilianNPC).Value);
         }
 

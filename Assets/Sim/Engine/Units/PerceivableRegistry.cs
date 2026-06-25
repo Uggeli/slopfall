@@ -73,14 +73,14 @@ namespace DaggerfallWorkshop.Sim.Engine
         public AtomBag Bag(EntityId id) => _bags.TryGetValue(id, out var b) ? b : AtomBag.Empty;
         public int Count => _bags.Count;
 
-        /// <summary>The entity's identity atoms only (below the activity range) — its recognition signature.</summary>
+        /// <summary>The entity's identity atoms only (Kind/Role/Race) — its recognition signature.</summary>
         public AtomBag Signature(EntityId id)
         {
             AtomBag full = Bag(id);
             List<Atom> ids = null;
             for (int i = 0; i < full.Count; i++)
             {
-                if (full[i].Type.Value >= PerceivableAtoms.ActivityBase) continue;
+                if (!AtomCatalog.For(full[i].Type).IsIdentity) continue;
                 if (ids == null) ids = new List<Atom>(full.Count);
                 ids.Add(full[i]);
             }

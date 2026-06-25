@@ -20,7 +20,9 @@ namespace Sim.MemoryTests
             p.Seed(id, PerceivableAtoms.Kind(EntityKind.CivilianNPC), Fixed.One);   // identity
             p.Seed(id, PerceivableAtoms.Activity(ActivityKind.Beg), Fixed.One);      // state
             var sig = p.Signature(id);
-            Assert.DoesNotContain(sig.Atoms, a => a.Type.Value >= PerceivableAtoms.ActivityBase);
+            // A signature is identity atoms only — never a transient activity/somatic atom.
+            Assert.All(sig.Atoms, a => Assert.True(AtomCatalog.For(a.Type).IsIdentity,
+                "signature carried a non-identity atom: " + AtomCatalog.NameOf(a.Type)));
             Assert.Contains(sig.Atoms, a => a.Type.Value == PerceivableAtoms.Kind(EntityKind.CivilianNPC).Value);
         }
 
