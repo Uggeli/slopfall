@@ -31,9 +31,6 @@ namespace DaggerfallWorkshop.Sim
             //   SeedSocial(world, agent);        // kin / household ties known from birth
         }
 
-        /// <summary>Innate place knowledge: for every building the agent KNOWS, stamp that
-        /// building's kind atom into PLACES memory ("that's the tavern / the general store").
-        /// The learned layer (provisions, danger) accretes on top of this at runtime.</summary>
         /// <summary>Innate species priors: stamp this agent's kind-keyed innate category beliefs into
         /// MEANINGS. L1 = in-group warmth, keyed by the agent's OWN signature (so it matches same-kind
         /// kin under the store's near-exact recognition). The learned layer drifts these at runtime;
@@ -51,6 +48,9 @@ namespace DaggerfallWorkshop.Sim
             }
         }
 
+        /// <summary>Innate place knowledge: for every building the agent KNOWS, stamp that
+        /// building's kind atom into PLACES memory ("that's the tavern / the general store").
+        /// The learned layer (provisions, danger) accretes on top of this at runtime.</summary>
         public static void SeedPlaces(SimWorld world, EntityId agent)
         {
             foreach (var building in world.PlaceMemory.Known(agent))
