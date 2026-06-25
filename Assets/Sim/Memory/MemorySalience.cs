@@ -9,20 +9,10 @@ namespace DaggerfallWorkshop.Sim.Memory
     /// </summary>
     public static class MemorySalience
     {
-        public const byte Ordinary = 160;   // a learned, fade-able fact
+        public const byte Ordinary = 160;   // a learned, fade-able fact (kept for any external reference)
 
-        /// <summary>The seed meta for one atom type.</summary>
-        public static AtomMeta For(AtomTypeId atom)
-        {
-            int v = atom.Value;
-            // PLACES vocabulary (PlaceAtoms id range 5000+).
-            if (v >= PlaceAtoms.KindBase && v < PlaceAtoms.Provisions.Value)
-                return new AtomMeta(255, MemoryFlags.Innate);     // building kind: structural, permanent
-            if (v == PlaceAtoms.Danger.Value)
-                return new AtomMeta(255, MemoryFlags.Surprise);   // danger: survival-grade, resists decay
-            if (v == PlaceAtoms.Provisions.Value)
-                return new AtomMeta(Ordinary, MemoryFlags.None);  // provisions: ordinary learned fact
-            return new AtomMeta(Ordinary, MemoryFlags.None);      // default: ordinary
-        }
+        /// <summary>The seed meta for one atom type — now the catalog's Salience face. Kept as a thin
+        /// shim so the single caller (AgentMemoryRegistry.MergePlaceAtom) is untouched.</summary>
+        public static AtomMeta For(AtomTypeId atom) => AtomCatalog.For(atom).Salience;
     }
 }
