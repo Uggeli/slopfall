@@ -70,28 +70,30 @@ namespace DaggerfallWorkshop.Sim.Engine
 
         const double SizeMassMenace = 0.3;   // FROZEN: raw menace a large body carries even unarmed
 
-        /// <summary>The prey-veto: Threat = max over aversive CUES read from the perceived bag.
-        /// L1 cues = capacity (each weapon's aversive tone x perceived Size) + raw size mass-menace.
-        /// Built as a max over a cue list so the L2 observed-behaviour cue and the Phase-C/D reputation
-        /// cue drop in as further entries (behaviour can make a low-capacity thing scary). NO oracle.</summary>
-        public static double ThreatRead(AtomBag bag, out double threatValence)
+        /// <summary>The prey-veto: Threat = max over aversive CUES, read RELATIVE to the perceiver's
+        /// own size (its disposition emerges from its own form — a big/armed body fears equal menace
+        /// less). rel = targetSize / perceiverSize. Built as a max over cues so the L2 behaviour cue
+        /// and the Phase-C/D reputation cue drop in as further entries. NO oracle.</summary>
+        public static double ThreatRead(AtomBag bag, double perceiverSize, out double threatValence)
         {
             threatValence = 0;
             if (bag == null || bag.Count == 0) return 0;
+            if (perceiverSize < 0.01) perceiverSize = 0.01;          // floor: never divide by zero
             bool hasSize = bag.TryGet(AtomName.Size.ToId(), out var sizeFx);
-            double size = hasSize ? sizeFx.ToDouble() : 1.0;          // 1.0 = no shrink (only creatures carry Size)
+            double targetSize = hasSize ? sizeFx.ToDouble() : 1.0;
+            double rel = targetSize / perceiverSize;                 // my own size is the denominator
             double threat = 0;
-            for (int i = 0; i < bag.Count; i++)                       // capacity cues: weapon tone x size
+            for (int i = 0; i < bag.Count; i++)                      // capacity cues: weapon tone x relative size
             {
                 AtomTone tone = AtomCatalog.For(bag[i].Type).Tone;
-                double menace = -tone.Valence.ToDouble();             // > 0 only for an aversive (weapon) atom
+                double menace = -tone.Valence.ToDouble();            // > 0 only for an aversive (weapon) atom
                 if (menace <= 0) continue;
-                double cue = menace * tone.Arousal.ToDouble() * size;
+                double cue = menace * tone.Arousal.ToDouble() * rel;
                 if (cue > threat) { threat = cue; threatValence = tone.Valence.ToDouble(); }
             }
-            if (hasSize)                                             // raw mass-menace cue (sized things only)
+            if (hasSize)                                             // mass-menace: only a BIGGER body menaces
             {
-                double mass = SizeMassMenace * size;
+                double mass = SizeMassMenace * (rel > 1.0 ? rel - 1.0 : 0.0);
                 if (mass > threat) { threat = mass; threatValence = -mass; }
             }
             if (threat > 1.0) threat = 1.0;
@@ -112,10 +114,14 @@ namespace DaggerfallWorkshop.Sim.Engine
             PerceivableRegistry perceivable, AgentMemoryRegistry agentMem,
             EntityId self, EntityId other)
         {
-            // Threat = the prey-veto over perceived aversive cues (weapon tone x size). NO _creatures oracle.
+            // Threat = the prey-veto over perceived aversive cues, read RELATIVE to the perceiver's
+            // own size (disposition emerges from its own form). NO _creatures oracle.
             double threat = 0, threatValence = 0;
             if (perceivable != null)
-                threat = ThreatRead(perceivable.Bag(other), out threatValence);
+            {
+                double selfSize = perceivable.Bag(self).TryGet(AtomName.Size.ToId(), out var ssz) ? ssz.ToDouble() : 1.0;
+                threat = ThreatRead(perceivable.Bag(other), selfSize, out threatValence);
+            }
 
             double familiarity = 0, baseValence;
             if (relations.TryGet(self, out var rels) && rels.Of.TryGetValue(other, out var rel))
