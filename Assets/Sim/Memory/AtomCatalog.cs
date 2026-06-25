@@ -10,6 +10,7 @@ namespace DaggerfallWorkshop.Sim.Memory
         Kind, Role, Race,          // identity
         Activity, Somatic,         // transient state
         PlaceKind, PlaceProvisions, PlaceDanger,
+        Form,                      // descriptive form atoms (weapons, body) — Phase B
     }
 
     /// <summary>Reserved affective cell (Phase B fills it). Phase A leaves it neutral. The catalog
@@ -73,10 +74,10 @@ namespace DaggerfallWorkshop.Sim.Memory
 
             var m = new Dictionary<AtomName, AtomEntry>();
 
-            void Put(AtomName n, AtomCategory c, AtomMeta sal, bool share)
+            void Put(AtomName n, AtomCategory c, AtomMeta sal, bool share, AtomTone tone = default)
             {
                 if (n == AtomName.None) return;                       // sentinels carry no entry
-                m[n] = new AtomEntry(c, sal, share, AtomTone.Neutral);
+                m[n] = new AtomEntry(c, sal, share, tone);            // default(AtomTone) == Neutral
             }
 
             foreach (EntityKind k in Enum.GetValues(typeof(EntityKind)))
@@ -97,6 +98,13 @@ namespace DaggerfallWorkshop.Sim.Memory
 
             Put(AtomName.PlaceProvisions, AtomCategory.PlaceProvisions, ordinary, true);
             Put(AtomName.PlaceDanger,     AtomCategory.PlaceDanger,     surprise, true);
+
+            // Form atoms (Phase B): weapons carry aversive tone; Size is a neutral modulator (B1).
+            Put(AtomName.Fanged, AtomCategory.Form, ordinary, false,
+                new AtomTone(Fixed.FromDouble(-0.8), Fixed.FromDouble(0.9)));   // FROZEN placeholders
+            Put(AtomName.Fast,   AtomCategory.Form, ordinary, false,
+                new AtomTone(Fixed.FromDouble(-0.4), Fixed.FromDouble(0.6)));
+            Put(AtomName.Size,   AtomCategory.Form, ordinary, false);           // neutral — modulates weapon cues
 
             return m;
         }
@@ -133,6 +141,11 @@ namespace DaggerfallWorkshop.Sim.Memory
 
             Add(PlaceAtoms.Provisions, AtomName.PlaceProvisions);
             Add(PlaceAtoms.Danger,     AtomName.PlaceDanger);
+
+            // Form atoms — direct members (no source-enum helper); stamped via AtomName.X.ToId().
+            Add(AtomName.Fanged.ToId(), AtomName.Fanged);
+            Add(AtomName.Fast.ToId(),   AtomName.Fast);
+            Add(AtomName.Size.ToId(),   AtomName.Size);
 
             return m;
         }

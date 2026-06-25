@@ -47,5 +47,9 @@ namespace DaggerfallWorkshop.Sim.Memory
         // ── Place: graded facts ──
         // No From(...) overload — stamped directly via PlaceAtoms fields.
         PlaceProvisions, PlaceDanger,
+
+        // ── Form atoms (descriptive properties: weapons, body) — Phase B; no From overload,
+        //    stamped directly via AtomName.X.ToId(). Tone lives in AtomCatalog. ──
+        Fanged, Fast, Size,
     }
 }

@@ -61,5 +61,25 @@ namespace Sim.MemoryTests
             Assert.Equal(AtomName.SomaticHunger, AtomCatalog.NameOf(hunger));
             Assert.False(AtomCatalog.For(hunger).IsIdentity);
         }
+
+        [Fact]
+        public void Catalog_FormAtoms_HaveExpectedToneAndCategory()
+        {
+            AtomEntry fanged = AtomCatalog.For(AtomName.Fanged);
+            Assert.Equal(AtomCategory.Form, fanged.Category);
+            Assert.False(fanged.IsIdentity);                                   // not a recognition-signature atom
+            Assert.True(fanged.Tone.Valence.ToDouble() < 0.0, "Fanged is aversive");
+            Assert.True(fanged.Tone.Arousal.ToDouble() > 0.0, "Fanged is alarming");
+
+            // Fanged is the more aversive weapon than Fast.
+            Assert.True(AtomCatalog.For(AtomName.Fanged).Tone.Valence.ToDouble()
+                      < AtomCatalog.For(AtomName.Fast).Tone.Valence.ToDouble());
+
+            // Size is a neutral modulator (no tone of its own).
+            AtomEntry size = AtomCatalog.For(AtomName.Size);
+            Assert.Equal(AtomCategory.Form, size.Category);
+            Assert.Equal(Fixed.Zero, size.Tone.Valence);
+            Assert.Equal(Fixed.Zero, size.Tone.Arousal);
+        }
     }
 }
