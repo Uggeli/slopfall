@@ -32,14 +32,11 @@ namespace DaggerfallWorkshop.Sim.Engine
         const double GreetRecognitionBar = 0.25;
         const double DislikeValenceBar = -0.3;
         const double StigmaScale = 0.5;         // S4: how hard disposition (Warmth) colors the read of a beggar
-        const double ThreatValence = -1.0;      // innate dread of a hostile creature (V2)
-
         readonly WorldClockRegistry _clock;
         readonly SensedRegistry _sensed;
         readonly SubjectiveViewRegistry _subjective;
         readonly RelationsRegistry _relations;
         readonly AffectsRegistry _affects;
-        readonly MeaningsRegistry _meanings;
         readonly BehaviorRegistry _behavior;
         readonly PersonalityRegistry _personality;
         readonly CreatureRegistry _creatures;
@@ -55,7 +52,6 @@ namespace DaggerfallWorkshop.Sim.Engine
             SubjectiveViewRegistry subjective,
             RelationsRegistry relations,
             AffectsRegistry affects,
-            MeaningsRegistry meanings,
             BehaviorRegistry behavior,
             PersonalityRegistry personality,
             CreatureRegistry creatures,
@@ -69,7 +65,6 @@ namespace DaggerfallWorkshop.Sim.Engine
             _subjective = subjective;
             _relations = relations;
             _affects = affects;
-            _meanings = meanings;
             _behavior = behavior;
             _personality = personality;
             _creatures = creatures;
@@ -78,11 +73,6 @@ namespace DaggerfallWorkshop.Sim.Engine
             _perceivable = perceivable;
             _agentMem = agentMem;
         }
-
-        /// <summary>Confidence-weighted blend of the old role-scalar valence and the new learned
-        /// category valence: confidence 0 = old (today's behavior), 1 = fully learned.</summary>
-        public static double BlendValence(double oldV, double newV, double confidence)
-            => oldV * (1.0 - confidence) + newV * confidence;
 
         const double SizeMassMenace = 0.3;   // FROZEN: raw menace a large body carries even unarmed
 
@@ -118,14 +108,14 @@ namespace DaggerfallWorkshop.Sim.Engine
         /// interpret(self, other): what `other` means to `self` right now. A pure read,
         /// callable for sensed OR remembered entities. S1: valence is the dossier regard,
         /// recognition/trust the familiarity, attention a simple salience. S2 adds affect to
-        /// attention; S3 makes valence a MEANINGS lookup adjusted by the per-entity dossier
-        /// delta. An innate threat reads strongly aversive with Threat clarity = 1 (V2).
+        /// attention. For strangers, valence is the agent's own learned category via
+        /// RecognizedValence (fed by MemoryReinforceSystem).
         ///
         /// Static so OddSystem can read an entity it isn't sensing (a place's occupants).
         public static EntityRead Interpret(
-            CreatureRegistry creatures, RelationsRegistry relations, AffectsRegistry affects,
-            MeaningsRegistry meanings, BehaviorRegistry behavior, PersonalityRegistry personality,
-            ResidencyRegistry residency, PerceivableRegistry perceivable, AgentMemoryRegistry agentMem,
+            RelationsRegistry relations, AffectsRegistry affects,
+            BehaviorRegistry behavior, PersonalityRegistry personality,
+            PerceivableRegistry perceivable, AgentMemoryRegistry agentMem,
             EntityId self, EntityId other)
         {
             // Threat = the prey-veto over perceived aversive cues (weapon tone x size). NO _creatures oracle.
@@ -141,15 +131,14 @@ namespace DaggerfallWorkshop.Sim.Engine
             }
             else
             {
-                // A stranger — judge by their KIND. Blend the old role-scalar with the agent's learned
-                // category, weighted by confidence. (The role-scalar half is retired in B4.)
-                double oldV = MeaningsSystem.CategoryValence(meanings, residency, self, other);
-                double newV = 0, conf = 0;
+                // A stranger — the agent's OWN learned category over their perceived signature
+                // (fed by MemoryReinforceSystem). No role-scalar stereotype anymore.
+                double newV = 0;
                 if (agentMem != null && perceivable != null
                     && agentMem.TryGet(self, out var mem)
-                    && mem.Meanings.RecognizedValence(perceivable.Signature(other), out var lv, out var lc))
-                { newV = lv.ToDouble(); conf = lc.ToDouble(); }
-                baseValence = BlendValence(oldV, newV, conf);
+                    && mem.Meanings.RecognizedValence(perceivable.Signature(other), out var lv, out _))
+                    newV = lv.ToDouble();
+                baseValence = newV;
             }
             double valence = baseValence + affects.ValenceToward(self, other);
             // beggar-stigma: a beggar is read through the perceiver's Warmth (kept; B7).
@@ -207,8 +196,8 @@ namespace DaggerfallWorkshop.Sim.Engine
                 var view = new SubjectiveViewData();
                 for (int i = 0; i < sensed.Count; i++)
                 {
-                    var read = Interpret(_creatures, _relations, _affects, _meanings,
-                                         _behavior, _personality, _residency, _perceivable, _agentMem,
+                    var read = Interpret(_relations, _affects,
+                                         _behavior, _personality, _perceivable, _agentMem,
                                          self, sensed[i]);
                     view.Entities.Add(read);
                     InterpretPercepts(self, read, now, scratchGreet, scratchDislike);

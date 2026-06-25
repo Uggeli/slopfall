@@ -41,7 +41,6 @@ namespace DaggerfallWorkshop.Sim.Engine
         readonly CreatureRegistry _creatures;
         readonly AffectsRegistry _affects;
         readonly RelationsRegistry _relations;
-        readonly MeaningsRegistry _meanings;
         readonly PlaceMemoryRegistry _placeMemory;
         readonly AgentMemoryRegistry _agentMemory;
         readonly StockRegistry _stock;
@@ -69,7 +68,6 @@ namespace DaggerfallWorkshop.Sim.Engine
             CreatureRegistry creatures,
             AffectsRegistry affects,
             RelationsRegistry relations,
-            MeaningsRegistry meanings,
             PlaceMemoryRegistry placeMemory,
             AgentMemoryRegistry agentMemory,
             StockRegistry stock,
@@ -95,7 +93,6 @@ namespace DaggerfallWorkshop.Sim.Engine
             _creatures = creatures;
             _affects = affects;
             _relations = relations;
-            _meanings = meanings;
             _placeMemory = placeMemory;
             _agentMemory = agentMemory;
             _stock = stock;
@@ -912,19 +909,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             };
         }
 
-        // MeaningsSystem.SignatureOf/CategoryValence reproduced (the resident-role
-        // category lookup), reading the Engine MeaningsRegistry + ResidencyRegistry.
-        const int UnknownSignature = -1;
-
-        int SignatureOf(EntityId other)
-            => _residency.TryGet(other, out var r) && r != null ? (int)r.Role : UnknownSignature;
-
-        double CategoryValence(EntityId self, EntityId other)
-        {
-            if (!_meanings.TryGet(self, out var m) || m == null) return 0;
-            int sig = SignatureOf(other);
-            return m.Nodes.TryGetValue(sig, out var node) ? node.Valence * node.Confidence : 0;
-        }
+        double CategoryValence(EntityId self, EntityId other) => 0;   // role-scalar retired (B4); Interpret de-duped in B5
 
         static double TraitOf(ScoreContext c, int idx) => c.Person != null ? c.Person.Trait(idx) : 0.5;
 

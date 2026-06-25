@@ -41,7 +41,6 @@ namespace DaggerfallWorkshop.Sim.Engine
         public readonly EmploymentRegistry Employment;
         public readonly ResidencyRegistry Residency;
         public readonly AffectsRegistry Affects;
-        public readonly MeaningsRegistry Meanings;
         public readonly RelationsRegistry Relations;
         public readonly MemoryRegistry Memory;
         public readonly ConscienceRegistry Conscience;
@@ -87,7 +86,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             Effects = new EffectsRegistry(e); EffectAggregate = new EffectAggregateRegistry(e);
             StatusFlags = new StatusFlagsRegistry(e); Progression = new ProgressionRegistry(e);
             Employment = new EmploymentRegistry(e); Residency = new ResidencyRegistry(e);
-            Affects = new AffectsRegistry(e); Meanings = new MeaningsRegistry(e);
+            Affects = new AffectsRegistry(e);
             Relations = new RelationsRegistry(e); Memory = new MemoryRegistry(e);
             Conscience = new ConscienceRegistry(e); Lineage = new LineageRegistry(e);
             Subjective = new SubjectiveViewRegistry(e);
@@ -107,7 +106,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 WorldClock, Weather, Lighting, Holiday, Occupancy, TownGrid, Ledger, WorldMarket,
                 Settlements, Pois, Geography, Flora, Buildings, Position, Behavior, Intent, Identity, Needs, Vitals, Life,
                 Personality, Stats, Effects, EffectAggregate, StatusFlags, Progression, Employment,
-                Residency, Affects, Meanings, Relations, Memory, Conscience, Lineage, Subjective, Sensed,
+                Residency, Affects, Relations, Memory, Conscience, Lineage, Subjective, Sensed,
                 Coin, Stock, Larder, Treasury, Items, ItemTake, PlaceMemory, Creatures, Path,
                 SocialCooldown, RequestCooldown, Earnings, Perceivable, AgentMemory, SharedActivity, UtteranceLog,
             };
@@ -134,7 +133,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 new SomaticPerceptSystem(e, Needs),
                 new OddSystem(e, Residency, Behavior, Needs, Buildings, Position, Personality, Weather,
                     Holiday, Employment, Coin, Larder, Occupancy, Conscience, Subjective, Creatures,
-                    Affects, Relations, Meanings, PlaceMemory, AgentMemory, Stock, Items, WorldClock, SharedActivity, seed),
+                    Affects, Relations, PlaceMemory, AgentMemory, Stock, Items, WorldClock, SharedActivity, seed),
                 new ExecutionSystem(e, Intent, Behavior, Position, WorldClock),
                 new SharedActivitySystem(e, SharedActivity, Behavior),
                 new PerceivableActivitySystem(e, Behavior, Perceivable),
@@ -145,14 +144,13 @@ namespace DaggerfallWorkshop.Sim.Engine
                 new GossipSpeakSystem(e, Behavior, AgentMemory),
                 new HearingSystem(e, Behavior, Position),
                 new CommunicationSystem(e, Relations),
-                new SubjectiveSystem(e, WorldClock, Sensed, Subjective, Relations, Affects, Meanings,
+                new SubjectiveSystem(e, WorldClock, Sensed, Subjective, Relations, Affects,
                     Behavior, Personality, Creatures, Residency, SocialCooldown, Perceivable, AgentMemory),
                 new MemoryWriteSystem(e, Sensed, Perceivable, AgentMemoryConfig.Default),
                 new PlaceDangerSystem(e, Sensed, Creatures, Position, Buildings),
                 new ConsolidationSystem(e, Behavior, AgentMemoryConfig.Default),
                 new MemoryReinforceSystem(e, Perceivable),
                 new AffectsSystem(e, WorldClock, Affects),
-                new MeaningsSystem(e, WorldClock, Meanings, Residency),
                 new SocialSystem(e, Behavior, Relations, Personality, Memory, WorldClock, seed),
                 new RequestSystem(e, Behavior, Residency, Sensed, Coin, Relations, Personality, WorldClock, RequestCooldown),
                 new LifecycleSystem(e, Identity, Residency, Creatures, Settlements),
