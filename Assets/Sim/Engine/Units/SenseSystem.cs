@@ -23,6 +23,8 @@ namespace DaggerfallWorkshop.Sim.Engine
         const float SightRadius = 12f;
         const float CellSize = 16f;     // spatial-hash bucket; coarser than the LOS grid
 
+        static readonly List<EntityId> NoneSensed = new List<EntityId>();   // shared empty (never mutated)
+
         readonly WorldClockRegistry _clock;
         readonly BehaviorRegistry _behavior;
         readonly PositionRegistry _position;
@@ -86,6 +88,12 @@ namespace DaggerfallWorkshop.Sim.Engine
                     Sense(list[i], grid, buckets);
                 }
             }
+
+            // Indoor agents are skipped from the buckets above, so without this their last street
+            // SensedSetIntent goes stale ("seeing" people who aren't there). Clear them each sense-tick.
+            foreach (var kv in _behavior.All)
+                if (!IsOutAndAbout(kv.Value) && !_creatures.Contains(kv.Key))
+                    Events.Publish(new SensedSetIntent { Id = kv.Key, Sensed = NoneSensed });
         }
 
         void Sense(EntityId self, TownGridData grid, Dictionary<long, List<EntityId>> buckets)
