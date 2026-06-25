@@ -1,7 +1,7 @@
 namespace DaggerfallWorkshop.Sim.Memory
 {
-    /// Atom types for an agent's perception of its OWN body. Reserved band 7000-7099
-    /// to avoid colliding with entity Kind/Role/Race/Activity atom ranges.
+    /// Atom types for an agent's perception of its OWN body, identified by AtomName
+    /// (collision-free by enum, not a reserved id band) — see AtomNames.
     public static class SomaticAtoms
     {
         public static readonly AtomTypeId Hunger = AtomName.SomaticHunger.ToId();
