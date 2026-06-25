@@ -89,7 +89,7 @@ namespace Sim.MemoryTests
         {
             var bag = AtomBag.Create(new[]
             {
-                new Atom(PlaceAtoms.Danger, Fixed.One),                 // 6001 -> 1.0
+                new Atom(PlaceAtoms.Danger, Fixed.One),                 // PlaceDanger -> 1.0
                 new Atom(PlaceAtoms.Kind(BuildingKind.Tavern), Fixed.FromDouble(0.5)),
             });
 

@@ -4,8 +4,8 @@ namespace DaggerfallWorkshop.Sim.Memory
     /// to avoid colliding with entity Kind/Role/Race/Activity atom ranges.
     public static class SomaticAtoms
     {
-        public static readonly AtomTypeId Hunger = new AtomTypeId(7000);
-        public static readonly AtomTypeId Energy = new AtomTypeId(7001);   // tiredness deficit
-        public static readonly AtomTypeId Fear   = new AtomTypeId(7002);
+        public static readonly AtomTypeId Hunger = AtomName.SomaticHunger.ToId();
+        public static readonly AtomTypeId Energy = AtomName.SomaticEnergy.ToId();   // tiredness deficit
+        public static readonly AtomTypeId Fear   = AtomName.SomaticFear.ToId();
     }
 }

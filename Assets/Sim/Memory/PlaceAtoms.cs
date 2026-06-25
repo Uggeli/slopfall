@@ -5,8 +5,8 @@ namespace DaggerfallWorkshop.Sim.Memory
     public static class PlaceAtoms
     {
         public const int KindBase = 5000;
-        public static AtomTypeId Kind(BuildingKind kind) => new AtomTypeId(KindBase + (int)kind);
-        public static AtomTypeId Provisions => new AtomTypeId(6000);
-        public static AtomTypeId Danger => new AtomTypeId(6001);
+        public static AtomTypeId Kind(BuildingKind kind) => AtomNames.From(kind).ToId();
+        public static AtomTypeId Provisions => AtomName.PlaceProvisions.ToId();
+        public static AtomTypeId Danger => AtomName.PlaceDanger.ToId();
     }
 }

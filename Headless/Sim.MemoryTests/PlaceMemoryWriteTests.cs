@@ -14,10 +14,13 @@ namespace Sim.MemoryTests
         [Fact]
         public void PlaceAtoms_RangesDistinct()
         {
-            Assert.Equal(5000 + (int)BuildingKind.Tavern, PlaceAtoms.Kind(BuildingKind.Tavern).Value);
-            Assert.Equal(6000, PlaceAtoms.Provisions.Value);
-            Assert.Equal(6001, PlaceAtoms.Danger.Value);
-            Assert.True(PlaceAtoms.Kind(BuildingKind.Tavern).Value >= 5000);   // above the activity range
+            // Place atoms are named identities with the right category — distinct, no magic bands.
+            Assert.Equal(AtomName.PlaceTavern.ToId(), PlaceAtoms.Kind(BuildingKind.Tavern));
+            Assert.Equal(AtomCategory.PlaceKind,       AtomCatalog.For(PlaceAtoms.Kind(BuildingKind.Tavern)).Category);
+            Assert.Equal(AtomCategory.PlaceProvisions, AtomCatalog.For(PlaceAtoms.Provisions).Category);
+            Assert.Equal(AtomCategory.PlaceDanger,     AtomCatalog.For(PlaceAtoms.Danger).Category);
+            Assert.NotEqual(PlaceAtoms.Provisions.Value, PlaceAtoms.Danger.Value);
+            Assert.NotEqual(PlaceAtoms.Kind(BuildingKind.Tavern).Value, PlaceAtoms.Provisions.Value);
         }
 
         [Fact]
@@ -31,7 +34,9 @@ namespace Sim.MemoryTests
 
             r.TryGet(new EntityId(1), out var mem);
             Assert.True(mem.Stores.Places.TryGet(new MemoryKey(5), out var rec));
-            Assert.Equal(new[] { 5000 + (int)BuildingKind.Tavern, 6001 }, rec.DeltaBag.Atoms.Select(a => a.Type.Value).OrderBy(x => x).ToArray());
+            Assert.Equal(2, rec.DeltaBag.Count);
+            Assert.True(rec.DeltaBag.Contains(PlaceAtoms.Kind(BuildingKind.Tavern)), "delta bag missing the tavern-kind atom");
+            Assert.True(rec.DeltaBag.Contains(PlaceAtoms.Danger), "delta bag missing the danger atom");
 
             // re-observe danger with a new value -> value wins
             e.Publish(new PlaceObserveIntent { Agent = new EntityId(1), Building = 5, Atom = PlaceAtoms.Danger, Value = Fixed.FromDouble(0.9) });
