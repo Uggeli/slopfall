@@ -39,8 +39,6 @@ namespace DaggerfallWorkshop.Sim.Engine
         readonly AffectsRegistry _affects;
         readonly BehaviorRegistry _behavior;
         readonly PersonalityRegistry _personality;
-        readonly CreatureRegistry _creatures;
-        readonly ResidencyRegistry _residency;
         readonly SocialCooldownRegistry _cooldowns;
         readonly PerceivableRegistry _perceivable;
         readonly AgentMemoryRegistry _agentMem;
@@ -54,8 +52,6 @@ namespace DaggerfallWorkshop.Sim.Engine
             AffectsRegistry affects,
             BehaviorRegistry behavior,
             PersonalityRegistry personality,
-            CreatureRegistry creatures,
-            ResidencyRegistry residency,
             SocialCooldownRegistry cooldowns,
             PerceivableRegistry perceivable,
             AgentMemoryRegistry agentMem) : base(events)
@@ -67,8 +63,6 @@ namespace DaggerfallWorkshop.Sim.Engine
             _affects = affects;
             _behavior = behavior;
             _personality = personality;
-            _creatures = creatures;
-            _residency = residency;
             _cooldowns = cooldowns;
             _perceivable = perceivable;
             _agentMem = agentMem;

@@ -50,7 +50,7 @@ namespace Sim.MemoryTests
             Assert.True(r.Perceivable.Bag(new EntityId(1)).Contains(SomaticAtoms.Hunger));
 
             r.SetHunger(1, 0.0);                                    // need recovered
-            for (long t = 2; t < 14 && r.Perceivable.Bag(new EntityId(1)).Contains(SomaticAtoms.Hunger); t++)
+            for (long t = 2; t < 14 && r.Perceivable.Bag(new EntityId(1)).Contains(SomaticAtoms.Hunger); t++) // step past the next sense-tick (bound > SenseEveryTicks)
                 r.Step(t);                                          // step past the next sense-tick; clear publishes + applies
             Assert.False(r.Perceivable.Bag(new EntityId(1)).Contains(SomaticAtoms.Hunger));
         }

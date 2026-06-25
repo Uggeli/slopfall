@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using DaggerfallWorkshop.Sim;
 using DaggerfallWorkshop.Sim.Engine;
 using DaggerfallWorkshop.Sim.Memory;

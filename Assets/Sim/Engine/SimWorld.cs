@@ -145,7 +145,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 new HearingSystem(e, Behavior, Position),
                 new CommunicationSystem(e, Relations),
                 new SubjectiveSystem(e, WorldClock, Sensed, Subjective, Relations, Affects,
-                    Behavior, Personality, Creatures, Residency, SocialCooldown, Perceivable, AgentMemory),
+                    Behavior, Personality, SocialCooldown, Perceivable, AgentMemory),
                 new MemoryWriteSystem(e, Sensed, Perceivable, AgentMemoryConfig.Default),
                 new PlaceDangerSystem(e, Sensed, Creatures, Position, Buildings),
                 new ConsolidationSystem(e, Behavior, AgentMemoryConfig.Default),
