@@ -122,7 +122,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 var atoms = u.Content.Atoms;
                 for (int k = 0; k < atoms.Count; k++)
                 {
-                    if (atoms[k].Type.Value < PlaceAtoms.KindBase) continue;   // P2: only PLACE facts relay
+                    if (!AtomCatalog.For(atoms[k].Type).Shareable) continue;   // P2: only PLACE facts relay
                     Events.Publish(new PlaceObserveIntent
                     {
                         Agent = heard[i].Hearer, Building = u.SubjectBuilding, Atom = atoms[k].Type,
