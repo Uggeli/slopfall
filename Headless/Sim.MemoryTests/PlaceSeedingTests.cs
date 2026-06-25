@@ -35,7 +35,7 @@ namespace Sim.MemoryTests
                 if (places.Count == 0) continue;
                 anyPlaces = true;
 
-                // A seeded record carries a building-kind atom (KindBase..Provisions).
+                // A seeded record carries a building-kind atom (Category == PlaceKind).
                 for (int i = 0; i < places.Count && !anyKindAtom; i++)
                     if (places[i].DeltaBag.Atoms.Any(a => AtomCatalog.For(a.Type).Category == AtomCategory.PlaceKind))
                         anyKindAtom = true;

@@ -1,18 +1,13 @@
 namespace DaggerfallWorkshop.Sim.Memory
 {
     /// <summary>
-    /// The single id authority for perceivable atoms. Each helper maps an owning enum to a
-    /// collision-free AtomTypeId via a stable Base + (int)enum offset — a convention, not a
-    /// per-value mapper: the owning system picks which catalog atom to stamp. Ranges keep
-    /// categories separable. All current perceivable attributes are categorical -> presence atoms.
+    /// Maps each owning enum to its AtomName-identified AtomTypeId — see AtomNames.
+    /// The owning system picks which catalog atom to stamp; collision-freedom is guaranteed
+    /// by the AtomName enum, not by numeric id bands. All current perceivable attributes
+    /// are categorical → presence atoms.
     /// </summary>
     public static class PerceivableAtoms
     {
-        public const int KindBase = 1000;
-        public const int RoleBase = 2000;
-        public const int RaceBase = 3000;
-        public const int ActivityBase = 4000;
-
         public static AtomTypeId Kind(EntityKind kind) => AtomNames.From(kind).ToId();
         public static AtomTypeId Role(ResidentRole role) => AtomNames.From(role).ToId();
         public static AtomTypeId Race(int raceId) => AtomNames.FromRace(raceId).ToId();

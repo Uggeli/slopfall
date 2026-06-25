@@ -27,7 +27,7 @@ namespace DaggerfallWorkshop.Sim.Memory
     {
         public readonly AtomCategory Category;
         public readonly AtomMeta Salience;     // memory encode/decay seed (was MemorySalience.For)
-        public readonly bool Shareable;        // gossip-relayable (was the >= KindBase gate)
+        public readonly bool Shareable;        // gossip-relayable (catalog field, keyed by AtomName)
         public readonly AtomTone Tone;         // reserved (Phase B)
 
         public AtomEntry(AtomCategory category, AtomMeta salience, bool shareable, AtomTone tone)
@@ -40,11 +40,10 @@ namespace DaggerfallWorkshop.Sim.Memory
     }
 
     /// <summary>
-    /// The single frozen source of truth for per-atom metadata, keyed by AtomName. Replaces three
-    /// scattered band-checks: MemorySalience's by-band switch, the >= ActivityBase identity test,
-    /// and the >= KindBase gossip gate. Populated by iterating the From maps so catalog and From
-    /// stay one source of truth. For(AtomTypeId) resolves an emitted atom back to its entry via a
-    /// reverse map built over the current helpers (old bands now, dense ids after the helper flip).
+    /// The single frozen source of truth for per-atom metadata, keyed by AtomName. Replaced three
+    /// scattered band-checks: MemorySalience's by-category switch, the identity test, and the
+    /// gossip-gate. Populated by iterating the From maps so catalog and From stay one source of
+    /// truth. For(AtomTypeId) resolves an emitted atom back to its entry via a reverse map.
     /// </summary>
     public static class AtomCatalog
     {
