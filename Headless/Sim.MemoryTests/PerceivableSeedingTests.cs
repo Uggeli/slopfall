@@ -34,16 +34,14 @@ namespace Sim.MemoryTests
 
             var bag = world.Perceivable.Bag(sample);
             Assert.True(bag.Contains(PerceivableAtoms.Kind(EntityKind.CivilianNPC)), "civilian must carry a Kind atom");
-            Assert.Contains(bag.Atoms, a => a.Type.Value >= PerceivableAtoms.RoleBase
-                                         && a.Type.Value < PerceivableAtoms.RoleBase + 1000);   // a role atom
+            Assert.Contains(bag.Atoms, a => AtomCatalog.For(a.Type).Category == AtomCategory.Role);   // a role atom
 
             // Across the town, race atoms get seeded too (race >= 0).
             bool anyRace = false;
             foreach (var kv in world.Identity.All)
             {
                 if (kv.Value.Kind != EntityKind.CivilianNPC) continue;
-                if (world.Perceivable.Bag(kv.Key).Atoms.Any(a => a.Type.Value >= PerceivableAtoms.RaceBase
-                                                              && a.Type.Value < PerceivableAtoms.RaceBase + 1000))
+                if (world.Perceivable.Bag(kv.Key).Atoms.Any(a => AtomCatalog.For(a.Type).Category == AtomCategory.Race))
                 { anyRace = true; break; }
             }
             Assert.True(anyRace, "at least one civilian should carry a Race atom");

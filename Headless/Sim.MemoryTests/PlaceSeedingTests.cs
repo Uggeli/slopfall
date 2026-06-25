@@ -37,14 +37,13 @@ namespace Sim.MemoryTests
 
                 // A seeded record carries a building-kind atom (KindBase..Provisions).
                 for (int i = 0; i < places.Count && !anyKindAtom; i++)
-                    if (places[i].DeltaBag.Atoms.Any(a => a.Type.Value >= PlaceAtoms.KindBase
-                                                       && a.Type.Value < PlaceAtoms.Provisions.Value))
+                    if (places[i].DeltaBag.Atoms.Any(a => AtomCatalog.For(a.Type).Category == AtomCategory.PlaceKind))
                         anyKindAtom = true;
                 if (anyKindAtom) break;
             }
 
             Assert.True(anyPlaces, "expected at least one civilian with seeded PLACES memory");
-            Assert.True(anyKindAtom, "a seeded place record must carry a building-kind atom (>= KindBase)");
+            Assert.True(anyKindAtom, "a seeded place record must carry a building-kind atom (Category == PlaceKind)");
         }
     }
 }
