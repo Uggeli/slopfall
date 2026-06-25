@@ -31,7 +31,12 @@ namespace DaggerfallWorkshop.Sim.Engine
 
         void Stamp(EntityId id, AtomTypeId type, double value)
         {
-            if (value <= 0) return;
+            if (value <= 0)
+            {
+                // The need recovered — actively clear the stale somatic atom (was: linger forever).
+                Events.Publish(new ClearAtomIntent { Entity = id, Type = type });
+                return;
+            }
             Events.Publish(new StampAtomIntent
             {
                 Entity = id, Type = type,

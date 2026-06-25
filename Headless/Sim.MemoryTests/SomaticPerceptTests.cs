@@ -40,5 +40,19 @@ namespace Sim.MemoryTests
             Assert.True(bag.TryGet(SomaticAtoms.Hunger, out var v));
             Assert.True(v.Raw > Fixed.Zero.Raw);
         }
+
+        [Fact]
+        public void Hunger_Cleared_WhenNeedReturnsToZero()
+        {
+            var r = new Rig();
+            r.SetHunger(1, 0.7);
+            r.Step(0); r.Step(1);                                   // stamped
+            Assert.True(r.Perceivable.Bag(new EntityId(1)).Contains(SomaticAtoms.Hunger));
+
+            r.SetHunger(1, 0.0);                                    // need recovered
+            for (long t = 2; t < 14 && r.Perceivable.Bag(new EntityId(1)).Contains(SomaticAtoms.Hunger); t++)
+                r.Step(t);                                          // step past the next sense-tick; clear publishes + applies
+            Assert.False(r.Perceivable.Bag(new EntityId(1)).Contains(SomaticAtoms.Hunger));
+        }
     }
 }
