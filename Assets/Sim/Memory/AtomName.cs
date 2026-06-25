@@ -32,6 +32,7 @@ namespace DaggerfallWorkshop.Sim.Memory
         ActPatrol, ActStandWatch, ActGossip, ActNegotiate,
 
         // ── Somatic (an agent's perception of its own body) ──
+        // No From(...) overload — stamped directly via SomaticAtoms fields.
         SomaticHunger, SomaticEnergy, SomaticFear,
 
         // ── Place: building kinds (BuildingKind, minus None) ──
@@ -44,6 +45,7 @@ namespace DaggerfallWorkshop.Sim.Memory
         PlaceFarm, PlaceFishery, PlaceMine, PlacePasture, PlaceWeaver,
 
         // ── Place: graded facts ──
+        // No From(...) overload — stamped directly via PlaceAtoms fields.
         PlaceProvisions, PlaceDanger,
     }
 }

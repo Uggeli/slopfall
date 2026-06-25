@@ -40,6 +40,7 @@ namespace Sim.MemoryTests
         }
 
         // Tone is reserved (neutral) in Phase A — declared, not filled.
+        // All catalog entries share the same AtomTone.Neutral constant; checking one representative atom is sufficient.
         [Fact]
         public void Catalog_Tone_IsNeutral_InPhaseA()
         {

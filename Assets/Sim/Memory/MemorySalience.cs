@@ -1,11 +1,9 @@
 namespace DaggerfallWorkshop.Sim.Memory
 {
     /// <summary>
-    /// Intrinsic per-atom-type salience — the seed strength + flags a fact is etched at, before
-    /// experience reshapes it. Importance = strength (what_is_memory.md), graded by the canonical
-    /// flag tiers: INNATE = structural/permanent (never decays), SURPRISE = survival-grade
-    /// (decay-resistant), ordinary = learned fact (fades at the normal rate). Re-observation refreshes
-    /// an atom back to its salience (vivid again).
+    /// Thin shim for per-atom-type salience. The canonical tiers now live in AtomCatalog (INNATE,
+    /// SURPRISE, ordinary graded by strength + flags). For(AtomTypeId) simply delegates to
+    /// AtomCatalog.For(atom).Salience, kept here to avoid refactoring AgentMemoryRegistry's caller.
     /// </summary>
     public static class MemorySalience
     {

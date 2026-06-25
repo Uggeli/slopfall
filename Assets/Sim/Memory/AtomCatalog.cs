@@ -27,7 +27,7 @@ namespace DaggerfallWorkshop.Sim.Memory
     {
         public readonly AtomCategory Category;
         public readonly AtomMeta Salience;     // memory encode/decay seed (was MemorySalience.For)
-        public readonly bool Shareable;        // gossip-relayable (catalog field, keyed by AtomName)
+        public readonly bool Shareable;        // gossip-relayable (set per AtomName in the catalog)
         public readonly AtomTone Tone;         // reserved (Phase B)
 
         public AtomEntry(AtomCategory category, AtomMeta salience, bool shareable, AtomTone tone)
@@ -116,6 +116,7 @@ namespace DaggerfallWorkshop.Sim.Memory
 
             foreach (EntityKind k in Enum.GetValues(typeof(EntityKind)))
                 if (k != EntityKind.Unknown) Add(PerceivableAtoms.Kind(k), AtomNames.From(k));
+            // ResidentRole has no None sentinel — every value is a valid atom.
             foreach (ResidentRole r in Enum.GetValues(typeof(ResidentRole)))
                 Add(PerceivableAtoms.Role(r), AtomNames.From(r));
             foreach (int race in AtomNames.RaceRoster)
