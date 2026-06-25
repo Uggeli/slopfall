@@ -143,6 +143,18 @@ Innate nodes are seeded keyed by the **Kind atom alone** (`{Civilian}`, `{EnemyM
 | Innate confidence | 0.3 | `InnatePriors` |
 | Perceiver-size floor | 0.01 | `ThreatRead` |
 
+## Realization notes (from implementation-plan grounding, 2026-06-25)
+
+Grounding the plan against the live code refined three points — all faithful to the design intent (C9 anticipated the matching one):
+
+1. **`SeedInnate` wraps an existing primitive.** `MeaningsStore` already exposes `public CategoryId AddNode(AtomBag prototype, Fixed valence, Fixed confidence, bool innate)`. So C5's `SeedInnate(signature, valence, confidence)` is a one-line wrapper calling `AddNode(..., innate: true)` — a named load-time entry point, no new machinery.
+
+2. **Recognition is strict → in-group prior keyed by `Signature(self)` (C9 fallback taken).** `MeaningsStore` matches by L1 distance ≤ `MatchThresholdRaw = 128` (0.5 in Q8) — near-exact. A coarse `{Civilian}` prototype does NOT match a `{Civilian, Role, Race}` runtime signature (each extra identity atom adds 1.0 ≫ 0.5). So the in-group prior is seeded keyed by the agent's **own** `Perceivable.Signature(self)` (`{Kind, Role, Race}`), matching same-kind-role-race kin exactly. In-group warmth is therefore **"same-signature kin"** in L1 (e.g. a resident warm to fellow same-race residents), broadenable when recognition gains a coarse kind-level path (future). `Signature(self)` is available at seed-time (identity atoms are stamped before `SeedAgent` runs).
+
+3. **The monster *social* prior moves to Phase D; monster *wariness* is delivered by the threat channel.** Today `CreatureSystem.TrySpawn` stamps form atoms but no perceivable **Kind** atom, so `Signature(monster)` is empty and an `{EnemyMonster}` social prior could not match without first adding that atom. And the prey-veto already forces a monster's read aversive — so a social monster-prior would be **redundant and masked** in L1. The user's "wary of predators" is met by **Part 1** (relative-size disposition: small civilians read monsters as high-threat and flee). The social-category monster prior — and the monster perceivable Kind atom it needs — land naturally in **Phase D**, where episodic attribution ("this *kind* hurt me") makes them non-redundant. **L1 social content is therefore the in-group warmth only**, in a table built to grow (the `PriorTarget` seam carries `Self` today, `Kind(X)` targets with D).
+
+**Net L1 `InnatePriors`:** `CivilianNPC → [(Self, +0.2, conf 0.3)]`. The −0.6 monster row from C6 is deferred to D per note 3.
+
 ## Out of scope / future
 
 - **C/L2:** guard/armed-agent weapon form atoms (armed boldness + the civilian-reads-armed-guard behaviour); richer perceiver-capacity disposition.
