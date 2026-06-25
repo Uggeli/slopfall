@@ -36,7 +36,7 @@ namespace Sim.MemoryTests
 
             public int[] ActivityAtoms(EntityId id)
                 => Perceivable.Bag(id).Atoms
-                    .Where(x => x.Type.Value >= PerceivableAtoms.ActivityBase && x.Type.Value < PerceivableAtoms.ActivityBase + 1000)
+                    .Where(x => AtomCatalog.For(x.Type).Category == AtomCategory.Activity)
                     .Select(x => x.Type.Value).ToArray();
         }
 

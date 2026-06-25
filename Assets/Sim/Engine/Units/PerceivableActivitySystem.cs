@@ -37,15 +37,12 @@ namespace DaggerfallWorkshop.Sim.Engine
             }
         }
 
-        /// <summary>The activity-range atom currently in the bag (AtomTypeId.None if none).</summary>
+        /// <summary>The activity atom currently in the bag (AtomTypeId.None if none).</summary>
         static AtomTypeId CurrentActivityAtom(AtomBag bag)
         {
             for (int i = 0; i < bag.Count; i++)
-            {
-                int v = bag[i].Type.Value;
-                if (v >= PerceivableAtoms.ActivityBase && v < PerceivableAtoms.ActivityBase + 1000)
+                if (AtomCatalog.For(bag[i].Type).Category == AtomCategory.Activity)
                     return bag[i].Type;
-            }
             return AtomTypeId.None;
         }
     }
