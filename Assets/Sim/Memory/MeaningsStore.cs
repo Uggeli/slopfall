@@ -40,6 +40,12 @@ namespace DaggerfallWorkshop.Sim.Memory
             return id;
         }
 
+        /// <summary>Seed an INNATE category node — an evolved/birth prior the agent is born holding,
+        /// which RecognizedValence returns and Reinforce then drifts. The named load-time entry point
+        /// (SeedPriors uses it); a thin wrapper over AddNode(innate: true).</summary>
+        public CategoryId SeedInnate(AtomBag prototype, Fixed valence, Fixed confidence)
+            => AddNode(prototype, valence, confidence, innate: true);
+
         public bool TryGetNode(CategoryId id, out CategoryNode node)
         {
             // Nodes are in ascending id order — binary search.
