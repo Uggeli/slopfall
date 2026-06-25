@@ -39,8 +39,8 @@ namespace Sim.MemoryTests
             Assert.Equal(identity, e.IsIdentity);
         }
 
-        // Tone is reserved (neutral) in Phase A — declared, not filled.
-        // All catalog entries share the same AtomTone.Neutral constant; checking one representative atom is sufficient.
+        // PlaceDanger (a place fact) carries NO tone — after B1 only the Form atoms (Fanged/Fast) do.
+        // Guards that filling the catalog Tone face didn't accidentally tone a non-Form atom.
         [Fact]
         public void Catalog_Tone_IsNeutral_InPhaseA()
         {
