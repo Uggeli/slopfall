@@ -133,7 +133,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 new SomaticPerceptSystem(e, Needs),
                 new OddSystem(e, Residency, Behavior, Needs, Buildings, Position, Personality, Weather,
                     Holiday, Employment, Coin, Larder, Occupancy, Conscience, Subjective, Creatures,
-                    Affects, Relations, PlaceMemory, AgentMemory, Stock, Items, WorldClock, SharedActivity, seed),
+                    Affects, Relations, PlaceMemory, AgentMemory, Perceivable, Stock, Items, WorldClock, SharedActivity, seed),
                 new ExecutionSystem(e, Intent, Behavior, Position, WorldClock),
                 new SharedActivitySystem(e, SharedActivity, Behavior),
                 new PerceivableActivitySystem(e, Behavior, Perceivable),

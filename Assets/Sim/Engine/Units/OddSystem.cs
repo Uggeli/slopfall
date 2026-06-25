@@ -43,6 +43,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         readonly RelationsRegistry _relations;
         readonly PlaceMemoryRegistry _placeMemory;
         readonly AgentMemoryRegistry _agentMemory;
+        readonly PerceivableRegistry _perceivable;
         readonly StockRegistry _stock;
         readonly ItemRegistry _items;
         readonly WorldClockRegistry _worldClock;
@@ -70,6 +71,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             RelationsRegistry relations,
             PlaceMemoryRegistry placeMemory,
             AgentMemoryRegistry agentMemory,
+            PerceivableRegistry perceivable,
             StockRegistry stock,
             ItemRegistry items,
             WorldClockRegistry worldClock,
@@ -95,6 +97,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             _relations = relations;
             _placeMemory = placeMemory;
             _agentMemory = agentMemory;
+            _perceivable = perceivable;
             _stock = stock;
             _items = items;
             _worldClock = worldClock;
@@ -732,7 +735,8 @@ namespace DaggerfallWorkshop.Sim.Engine
             for (int i = 0; i < occ.Count; i++)
             {
                 if (occ[i] == c.Self) continue;
-                double v = Interpret(c.Self, occ[i]).Valence;
+                double v = SubjectiveSystem.Interpret(_relations, _affects, _behavior, _personality,
+                                                      _perceivable, _agentMemory, c.Self, occ[i]).Valence;
                 if (!any) { acc = v; any = true; }
                 else if (sum) acc += v;
                 else if (v > acc) acc = v;
@@ -866,50 +870,6 @@ namespace DaggerfallWorkshop.Sim.Engine
             }
             return found;
         }
-
-        // --- Inline reproduction of SubjectiveSystem.Interpret + MeaningsSystem
-        // category lookup against the Engine registries (logic preserved verbatim). ---
-
-        const double ThreatValence = -1.0;
-        const double StigmaScale = 0.5;
-
-        EntityRead Interpret(EntityId self, EntityId other)
-        {
-            if (_creatures.Contains(other))
-                return new EntityRead
-                {
-                    Other = other, Valence = ThreatValence,
-                    Recognition = 1.0, Trust = 1.0,
-                    Attention = 1.0 + System.Math.Abs(ThreatValence),
-                    Threat = 1.0,
-                };
-
-            double familiarity = 0, baseValence;
-            if (_relations.TryGet(self, out var rels) && rels != null && rels.Of.TryGetValue(other, out var rel))
-            {
-                baseValence = rel.Regard;
-                familiarity = rel.Familiarity;
-            }
-            else
-            {
-                baseValence = CategoryValence(self, other);
-            }
-            double valence = baseValence + _affects.ValenceToward(self, other);
-            if (_behavior.TryGet(other, out var ob) && ob != null
-                && ob.Phase == ActivityPhase.Doing && ob.Activity == ActivityKind.Beg
-                && _personality.TryGet(self, out var p) && p != null)
-                valence += (p.Trait(TraitIndex.Warmth) - 0.5) * StigmaScale;
-            return new EntityRead
-            {
-                Other = other,
-                Valence = valence,
-                Recognition = familiarity,
-                Trust = familiarity,
-                Attention = 0.1 + System.Math.Abs(valence) + familiarity,
-            };
-        }
-
-        double CategoryValence(EntityId self, EntityId other) => 0;   // role-scalar retired (B4); Interpret de-duped in B5
 
         static double TraitOf(ScoreContext c, int idx) => c.Person != null ? c.Person.Trait(idx) : 0.5;
 
