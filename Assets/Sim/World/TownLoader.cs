@@ -545,6 +545,9 @@ namespace DaggerfallWorkshop.Sim
             world.Perceivable.Seed(id, PerceivableAtoms.Kind(EntityKind.CivilianNPC), Fixed.One);
             if (race >= 0) world.Perceivable.Seed(id, PerceivableAtoms.Race(race), Fixed.One);
             world.Perceivable.Seed(id, PerceivableAtoms.Role(role), Fixed.One);
+            // Phase C: an honest body Size — a perceiver reads threat RELATIVE to its own size.
+            foreach (var form in HumanForms.Civilian)
+                world.Perceivable.Seed(id, form.Type, form.Value);
 
             // Empty private memory — the agent learns categories from perception over time.
             world.AgentMemory.Seed(id);
