@@ -46,7 +46,7 @@ namespace DaggerfallWorkshop.Sim.Engine
     public struct MemoryConsolidateIntent : IEvent { public EntityId Agent; }
 
     /// <summary>Reinforce the perceiver's recognized category (of the signature) toward an outcome.</summary>
-    public struct MemoryReinforceIntent : IEvent { public EntityId Perceiver; public AtomBag Signature; public Fixed Outcome; }
+    public struct MemoryReinforceIntent : IEvent { public EntityId Perceiver; public AtomBag Signature; public Fixed Outcome; public Fixed Scale; }
 
     /// <summary>Stamp/refresh one atom on the agent's memory of a place (building). First-hand by
     /// default; <see cref="SecondHand"/> (relayed by word of mouth) caps strength to
@@ -143,7 +143,9 @@ namespace DaggerfallWorkshop.Sim.Engine
             {
                 if (!_d.TryGetValue(reinforce[i].Perceiver, out var rm)) continue;
                 CategoryId cat = rm.Meanings.Recognize(reinforce[i].Signature);
-                if (!cat.IsNone) rm.Meanings.Reinforce(cat, reinforce[i].Signature, reinforce[i].Outcome);
+                // Scale.Raw == 0 means "unset" (Fixed zero-init) — treat as Fixed.One (full trust).
+                Fixed scale = reinforce[i].Scale.Raw == 0 ? Fixed.One : reinforce[i].Scale;
+                if (!cat.IsNone) rm.Meanings.Reinforce(cat, reinforce[i].Signature, reinforce[i].Outcome, scale);
             }
 
             var places = Events.GetEvents<PlaceObserveIntent>();

@@ -31,7 +31,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         {
             AtomBag sig = _perceivable.Signature(other);
             if (sig.Count == 0) return;
-            Events.Publish(new MemoryReinforceIntent { Perceiver = self, Signature = sig, Outcome = Fixed.FromDouble(outcome) });
+            Events.Publish(new MemoryReinforceIntent { Perceiver = self, Signature = sig, Outcome = Fixed.FromDouble(outcome), Scale = Fixed.One });
         }
     }
 }

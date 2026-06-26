@@ -109,29 +109,29 @@ namespace DaggerfallWorkshop.Sim.Memory
             valence = Fixed.Zero; confidence = Fixed.Zero; return false;
         }
 
+        /// <summary>First-hand reinforce — full trust (scale = 1).</summary>
+        public bool Reinforce(CategoryId id, AtomBag percept, Fixed outcome) => Reinforce(id, percept, outcome, Fixed.One);
+
         /// <summary>
-        /// StatFold + valence/confidence update for one category. Folds the percept into the
-        /// node's running stats, nudges valence toward the outcome (with a ±1 raw floor so it
-        /// converges), and raises confidence on a confirming outcome / lowers it on a
-        /// contradicting one (clamped to [0,1]). INNATE nodes learn too. Returns false if absent.
+        /// StatFold + valence/confidence update for one category, the valence MOVE scaled by trust
+        /// (scale ∈ [0,1]; 1 = first-hand). A low-trust (second-hand) report moves the belief LESS toward
+        /// the outcome and never past it; the ±1-raw floor keeps even a low-trust report from stalling.
+        /// Confidence is not scaled (L1). INNATE nodes learn too. Returns false if absent.
         /// </summary>
-        public bool Reinforce(CategoryId id, AtomBag percept, Fixed outcome)
+        public bool Reinforce(CategoryId id, AtomBag percept, Fixed outcome, Fixed scale)
         {
             CategoryNode node;
             if (!TryGetNode(id, out node)) return false;
 
             node.Predicted.Fold(percept);
 
-            // Valence: integer running mean toward the outcome; ±1 raw minimum step on a non-zero
-            // gap so quantization never stalls convergence short of the target.
             int gap = outcome.Raw - node.Valence.Raw;
             int step = gap >> Config.LearnShift;
-            if (step == 0 && gap != 0) step = gap > 0 ? 1 : -1;
+            step = (int)((long)step * scale.Raw / Fixed.Scale);   // trust-scale the move (Fixed has no operator*)
+            if (step == 0 && gap != 0) step = gap > 0 ? 1 : -1;   // floor so a low-trust report still nudges
             int valenceBefore = node.Valence.Raw;
             node.Valence = new Fixed(valenceBefore + step);
 
-            // Confidence: confirming (same sign as the prior valence, or prior valence within the
-            // neutral band) raises; contradicting lowers. Clamp to [0, Fixed.One].
             bool neutral = valenceBefore <= Config.NeutralBandRaw && valenceBefore >= -Config.NeutralBandRaw;
             bool confirming = neutral || ((outcome.Raw >= 0) == (valenceBefore >= 0));
             int conf = node.Confidence.Raw + (confirming ? Config.ConfidenceGainRaw : -Config.ConfidenceGainRaw);
