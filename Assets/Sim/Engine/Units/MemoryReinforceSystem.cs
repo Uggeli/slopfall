@@ -10,7 +10,7 @@ namespace DaggerfallWorkshop.Sim.Engine
     /// </summary>
     public sealed class MemoryReinforceSystem : SimSystem
     {
-        const double Grant = 1.0, Refuse = -1.0, Greet = 0.5, Dislike = -0.5;
+        const double Grant = 1.0, Refuse = -1.0, Greet = 0.5, Dislike = -0.5, Hurt = -1.0;
 
         readonly PerceivableRegistry _perceivable;
 
@@ -22,6 +22,9 @@ namespace DaggerfallWorkshop.Sim.Engine
             foreach (ref readonly var f in Events.GetEvents<HelpRefusedEvent>()) Emit(f.Asker, f.Refuser, Refuse);
             foreach (ref readonly var gr in Events.GetEvents<GreetingEvent>()) { Emit(gr.A, gr.B, Greet); Emit(gr.B, gr.A, Greet); }
             foreach (ref readonly var d in Events.GetEvents<DislikeNearbyEvent>()) Emit(d.Who, d.Whom, Dislike);
+            // Phase D/L1: "this kind hurt me" — being attacked reinforces the victim's category for the
+            // ATTACKER's kind, aversive. (Reinforce no-ops if the victim has no such category seeded.)
+            foreach (ref readonly var dm in Events.GetEvents<DamageEvent>()) Emit(dm.Target, dm.Source, Hurt);
         }
 
         void Emit(EntityId self, EntityId other, double outcome)
