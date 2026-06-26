@@ -143,9 +143,7 @@ namespace DaggerfallWorkshop.Sim.Engine
             {
                 if (!_d.TryGetValue(reinforce[i].Perceiver, out var rm)) continue;
                 CategoryId cat = rm.Meanings.Recognize(reinforce[i].Signature);
-                // Scale.Raw == 0 means "unset" (Fixed zero-init) — treat as Fixed.One (full trust).
-                Fixed scale = reinforce[i].Scale.Raw == 0 ? Fixed.One : reinforce[i].Scale;
-                if (!cat.IsNone) rm.Meanings.Reinforce(cat, reinforce[i].Signature, reinforce[i].Outcome, scale);
+                if (!cat.IsNone) rm.Meanings.Reinforce(cat, reinforce[i].Signature, reinforce[i].Outcome, reinforce[i].Scale);
             }
 
             var places = Events.GetEvents<PlaceObserveIntent>();

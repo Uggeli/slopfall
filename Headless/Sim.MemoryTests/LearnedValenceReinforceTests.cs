@@ -57,7 +57,7 @@ namespace Sim.MemoryTests
             mem.Meanings.AddNode(sig, Fixed.Zero, Fixed.FromDouble(0.5), false);   // a known category, neutral
 
             for (int i = 0; i < 10; i++)
-                e.Publish(new MemoryReinforceIntent { Perceiver = new EntityId(1), Signature = sig, Outcome = Fixed.FromDouble(1.0) });
+                e.Publish(new MemoryReinforceIntent { Perceiver = new EntityId(1), Signature = sig, Outcome = Fixed.FromDouble(1.0), Scale = Fixed.One });
             e.Tick(); r.Update(0);
 
             r.TryGet(new EntityId(1), out mem);
