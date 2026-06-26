@@ -69,6 +69,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         }
 
         const double SizeMassMenace = 0.3;   // FROZEN: raw menace a large body carries even unarmed
+        const double RepWeight = 1.0;        // F2: how strongly a learned aversion to a KIND reads as a threat
 
         /// <summary>The prey-veto: Threat = max over aversive CUES, read RELATIVE to the perceiver's
         /// own size (its disposition emerges from its own form — a big/armed body fears equal menace
@@ -136,8 +137,19 @@ namespace DaggerfallWorkshop.Sim.Engine
                 double newV = 0;
                 if (agentMem != null && perceivable != null
                     && agentMem.TryGet(self, out var mem)
-                    && mem.Meanings.RecognizedValence(perceivable.Signature(other), out var lv, out _))
+                    && mem.Meanings.RecognizedValence(perceivable.Signature(other), out var lv, out var lconf))
+                {
                     newV = lv.ToDouble();
+                    // F2 reputation cue: a learned aversion to this KIND reads as a THREAT — even with no
+                    // weapon form atoms. So a kind you LEARNED (D) or were TOLD (E) is dangerous is feared;
+                    // fear scales with how deep + confident the belief is. (Redundant for the form-scary
+                    // Beast — max() with its higher form-threat — the Drifter is where this bites.)
+                    if (newV < 0)
+                    {
+                        double rep = lconf.ToDouble() * (-newV) * RepWeight;
+                        if (rep > threat) { threat = rep; threatValence = newV; }
+                    }
+                }
                 baseValence = newV;
             }
             double valence = baseValence + affects.ValenceToward(self, other);
