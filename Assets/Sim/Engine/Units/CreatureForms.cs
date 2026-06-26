@@ -17,5 +17,12 @@ namespace DaggerfallWorkshop.Sim.Engine
             (AtomName.Fast.ToId(),   Fixed.One),
             (AtomName.Size.ToId(),   Fixed.FromDouble(0.5)),
         };
+
+        // Phase F/L1: the Drifter looks like an ordinary person — a body Size, NO weapon atoms.
+        // Mechanically a creature (it still attacks); perceptually harmless until learned.
+        public static readonly (AtomTypeId Type, Fixed Value)[] Drifter =
+        {
+            (AtomName.Size.ToId(), Fixed.FromDouble(0.4)),
+        };
     }
 }

@@ -215,26 +215,24 @@ namespace DaggerfallWorkshop.Sim.Engine
             }
             else { px = cx + (float)(System.Math.Cos(ang) * SpawnRadius); pz = cz + (float)(System.Math.Sin(ang) * SpawnRadius); }
 
+            bool drifter = (h & 1u) == 0u;   // ~half spawn as the harmless-looking Drifter (frozen split)
             Events.Publish(new IdentitySetIntent
             {
                 Id = id,
                 Data = new IdentityData
                 {
-                    Name = "Beast", Kind = EntityKind.EnemyMonster,
+                    Name = drifter ? "Drifter" : "Beast", Kind = EntityKind.EnemyMonster,
                     Race = -1, Gender = 0, CareerIndex = -1, Level = 1, FactionId = 0, Team = 0,
                 },
             });
             Events.Publish(new PositionSetIntent { Id = id, X = px, Y = 0f, Z = pz, Yaw = 0f });
             Events.Publish(new VitalsSetIntent { Id = id, Data = new VitalsData { CurrentHealth = 20, MaxHealth = 20 } });
             Events.Publish(new CreatureSetIntent { Id = id, Data = new CreatureData { TargetX = px, TargetZ = pz, NextAttackTick = 0, HungerLevel = 0.6f } });
-            // Phase B/L1: stamp the creature's perceivable form atoms (weapons + size) so a perceiver
-            // reads threat from them (tone × size) — off the _creatures oracle. Beast: one form row.
-            foreach (var form in CreatureForms.Beast)
+            // Perceivable FORM: weapons + size (Beast) or just a body (Drifter — looks harmless).
+            foreach (var form in (drifter ? CreatureForms.Drifter : CreatureForms.Beast))
                 Events.Publish(new StampAtomIntent { Entity = id, Type = form.Type, Value = form.Value });
-            // Phase F/L1: stamp the creature's perceivable APPEARANCE (neutral identity) — a "Beast"
-            // (a fanged quadruped). Verdict-free: the perceiver forms the fear (innate prior + form),
-            // it is never broadcast as "enemy". Lets the innate {Beast} prior match + damage reinforce it.
-            Events.Publish(new StampAtomIntent { Entity = id, Type = AtomName.Beast.ToId(), Value = Fixed.One });
+            // Perceivable APPEARANCE (neutral identity): a Beast or a Drifter. Verdict-free.
+            Events.Publish(new StampAtomIntent { Entity = id, Type = (drifter ? AtomName.Drifter : AtomName.Beast).ToId(), Value = Fixed.One });
             return true;
         }
 
