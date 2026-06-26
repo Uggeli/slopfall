@@ -118,16 +118,33 @@ namespace DaggerfallWorkshop.Sim.Engine
             for (int i = 0; i < heard.Length; i++)
             {
                 var u = heard[i].Said;
-                if (u.Act != SpeechAct.Inform || u.SubjectBuilding < 0 || u.Content == null) continue;
+                if (u.Act != SpeechAct.Inform) continue;
                 Fixed belief = BeliefScale(heard[i].Hearer, u.Speaker, u.Confidence);
-                var atoms = u.Content.Atoms;
-                for (int k = 0; k < atoms.Count; k++)
+
+                // Place-fact relay (P2): a heard place atom → second-hand PlaceObserveIntent.
+                if (u.SubjectBuilding >= 0 && u.Content != null)
                 {
-                    if (!AtomCatalog.For(atoms[k].Type).Shareable) continue;   // P2: only PLACE facts relay
-                    Events.Publish(new PlaceObserveIntent
+                    var atoms = u.Content.Atoms;
+                    for (int k = 0; k < atoms.Count; k++)
                     {
-                        Agent = heard[i].Hearer, Building = u.SubjectBuilding, Atom = atoms[k].Type,
-                        Value = atoms[k].Value, SecondHand = true, TrustScale = belief
+                        if (!AtomCatalog.For(atoms[k].Type).Shareable) continue;   // only PLACE facts relay
+                        Events.Publish(new PlaceObserveIntent
+                        {
+                            Agent = heard[i].Hearer, Building = u.SubjectBuilding, Atom = atoms[k].Type,
+                            Value = atoms[k].Value, SecondHand = true, TrustScale = belief
+                        });
+                    }
+                }
+
+                // Kind-belief relay (Phase E): a heard reputation ("that kind is dangerous") →
+                // second-hand, trust-scaled reinforce of the hearer's category for that kind.
+                if (u.SubjectKind != null && u.SubjectKind.Count > 0)
+                {
+                    Events.Publish(new MemoryReinforceIntent
+                    {
+                        Perceiver = heard[i].Hearer, Signature = u.SubjectKind,
+                        Outcome = -Fixed.One,   // a danger alarm conveys "this kind is bad" (-1.0)
+                        Scale = belief
                     });
                 }
             }
