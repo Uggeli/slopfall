@@ -40,9 +40,12 @@ namespace DaggerfallWorkshop.Sim
             if (!world.Identity.TryGet(agent, out var ident) || ident == null) return;
             foreach (var prior in InnatePriors.For(ident.Kind))
             {
-                AtomBag proto = prior.Target == PriorTarget.Self
-                    ? world.Perceivable.Signature(agent)
-                    : AtomBag.Empty;
+                AtomBag proto = prior.Target switch
+                {
+                    PriorTarget.Self => world.Perceivable.Signature(agent),
+                    PriorTarget.Kind => AtomBag.Create(new[] { new Atom(PerceivableAtoms.Kind(prior.Kind), Fixed.One) }),
+                    _ => AtomBag.Empty,
+                };
                 if (proto.Count == 0) continue;                     // nothing to key on → skip
                 world.AgentMemory.SeedInnatePrior(agent, proto, prior.Valence, prior.Confidence);
             }

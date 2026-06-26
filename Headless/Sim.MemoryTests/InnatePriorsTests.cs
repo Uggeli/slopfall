@@ -9,14 +9,16 @@ namespace Sim.MemoryTests
     public class InnatePriorsTests
     {
         [Fact]
-        public void Civilian_HasOneInGroupPrior_OthersEmpty()
+        public void Civilian_HasInGroupAndMonsterPriors()
         {
             var civ = InnatePriors.For(EntityKind.CivilianNPC);
-            Assert.Single(civ);
-            Assert.Equal(PriorTarget.Self, civ[0].Target);
-            Assert.True(civ[0].Valence.ToDouble() > 0.0);            // in-group warmth
-            Assert.True(civ[0].Confidence.ToDouble() > 0.0);
-            Assert.Empty(InnatePriors.For(EntityKind.EnemyMonster)); // monster prior deferred to Phase D
+            Assert.Equal(2, civ.Length);
+            Assert.Contains(civ, p => p.Target == PriorTarget.Self && p.Valence.ToDouble() > 0.0);  // in-group warmth
+            var monster = civ.Single(p => p.Target == PriorTarget.Kind);
+            Assert.Equal(EntityKind.EnemyMonster, monster.Kind);
+            Assert.True(monster.Valence.ToDouble() < 0.0);            // innate wariness of monster-kind
+            Assert.True(monster.Confidence.ToDouble() > 0.0);
+            Assert.Empty(InnatePriors.For(EntityKind.EnemyMonster));  // monsters don't socially interpret
         }
 
         [Fact]
