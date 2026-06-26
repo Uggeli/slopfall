@@ -4,9 +4,9 @@ namespace DaggerfallWorkshop.Sim.Engine
 {
     /// <summary>
     /// Per-creature-kind FORM atoms (weapons + body size) a creature broadcasts, so a perceiver can
-    /// read threat from them (tone × size, in SubjectiveSystem). L1 has one creature kind (the generic
-    /// Beast), so one row; this table gains rows — with their own sizes (Squirrel small, Bear large) —
-    /// when monster-type variety is introduced. Frozen, beside the other catalogs.
+    /// read threat from them (tone × size, in SubjectiveSystem). Two looks in L1: the form-scary Beast
+    /// (fanged) and the weapon-less Drifter (looks harmless); the table gains rows — with their own
+    /// sizes — as monster-type variety is introduced. Frozen, beside the other catalogs.
     /// </summary>
     public static class CreatureForms
     {
