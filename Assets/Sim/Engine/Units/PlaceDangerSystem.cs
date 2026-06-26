@@ -49,12 +49,15 @@ namespace DaggerfallWorkshop.Sim.Engine
                     { Agent = kv.Key, Building = building, Atom = PlaceAtoms.Danger, Value = Severity });
 
                     // A witness also SHOUTS the danger — bystanders in earshot who didn't see it learn
-                    // it second-hand (word of mouth), the principled way sparse first-hand danger spreads.
+                    // it second-hand (word of mouth). Phase E: the shout also names the KIND that attacked
+                    // (the killer is a creature — _creatures.Contains(d.Killer) above — so {EnemyMonster}),
+                    // so hearers deepen their monster-belief, not just the place-danger.
                     Events.Publish(new Utterance
                     {
                         Speaker = kv.Key, Audience = EntityId.None, Channel = CommChannel.Shout,
                         Act = SpeechAct.Inform, SubjectBuilding = building, Confidence = Severity,
-                        Content = AtomBag.Create(new[] { new Atom(PlaceAtoms.Danger, Severity) })
+                        Content = AtomBag.Create(new[] { new Atom(PlaceAtoms.Danger, Severity) }),
+                        SubjectKind = AtomBag.Create(new[] { new Atom(PerceivableAtoms.Kind(EntityKind.EnemyMonster), Fixed.One) })
                     });
                 }
             }

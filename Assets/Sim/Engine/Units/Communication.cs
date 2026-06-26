@@ -39,6 +39,7 @@ namespace DaggerfallWorkshop.Sim.Engine
         public SpeechAct Act;
         public int SubjectBuilding;   // the place the content is ABOUT (for place facts); <0 = none
         public AtomBag Content;
+        public AtomBag SubjectKind;   // the KIND the utterance is about (a reputation belief); null = none
         public Fixed Confidence;
     }
 

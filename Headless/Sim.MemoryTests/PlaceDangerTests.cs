@@ -33,6 +33,9 @@ namespace Sim.MemoryTests
             public void Run() { E.Tick(); System.Update(0); }
             // Flip + read what the system published.
             public PlaceObserveIntent[] Emitted() { E.Tick(); return E.GetEvents<PlaceObserveIntent>().ToArray(); }
+            // Flip + run the danger system + flip again so the emitted Utterances are readable.
+            public Utterance[] RunCapturingUtterances()
+            { E.Tick(); System.Update(0); E.Tick(); return E.GetEvents<Utterance>().ToArray(); }
         }
 
         [Fact]
@@ -98,6 +101,29 @@ namespace Sim.MemoryTests
             r.Run();
 
             Assert.Empty(r.Emitted());
+        }
+
+        [Fact]
+        public void WitnessShout_CarriesTheMonsterKind()
+        {
+            var r = new Rig();
+            var witness = new EntityId(1);
+            var victim = new EntityId(2);
+            var killer = new EntityId(99);   // the creature
+
+            r.Buildings.Add(new BuildingRow { Kind = BuildingKind.Tavern, X = 0f, Z = 0f });
+            r.Position.Seed(victim, 1f, 0f, 1f, 0f);
+            r.E.Publish(new CreatureSetIntent { Id = killer, Data = new CreatureData() });
+            r.E.Publish(new SensedSetIntent { Id = witness, Sensed = new System.Collections.Generic.List<EntityId> { victim } });
+            r.Apply();
+
+            r.E.Publish(new DeathEvent { Entity = victim, Killer = killer });
+            var shouts = r.RunCapturingUtterances();   // ticks PlaceDangerSystem; returns this tick's Utterances
+
+            var shout = System.Linq.Enumerable.Single(shouts, u => u.Speaker == witness);
+            Assert.NotNull(shout.SubjectKind);
+            Assert.Contains(shout.SubjectKind.Atoms,
+                a => a.Type.Value == PerceivableAtoms.Kind(EntityKind.EnemyMonster).Value);   // "a monster attacked"
         }
     }
 }
