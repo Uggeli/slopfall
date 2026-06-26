@@ -114,13 +114,13 @@ namespace Sim.MemoryTests
             r.Buildings.Add(new BuildingRow { Kind = BuildingKind.Tavern, X = 0f, Z = 0f });
             r.Position.Seed(victim, 1f, 0f, 1f, 0f);
             r.E.Publish(new CreatureSetIntent { Id = killer, Data = new CreatureData() });
-            r.E.Publish(new SensedSetIntent { Id = witness, Sensed = new System.Collections.Generic.List<EntityId> { victim } });
+            r.E.Publish(new SensedSetIntent { Id = witness, Sensed = new List<EntityId> { victim } });
             r.Apply();
 
             r.E.Publish(new DeathEvent { Entity = victim, Killer = killer });
             var shouts = r.RunCapturingUtterances();   // ticks PlaceDangerSystem; returns this tick's Utterances
 
-            var shout = System.Linq.Enumerable.Single(shouts, u => u.Speaker == witness);
+            var shout = shouts.Single(u => u.Speaker == witness);
             Assert.NotNull(shout.SubjectKind);
             Assert.Contains(shout.SubjectKind.Atoms,
                 a => a.Type.Value == PerceivableAtoms.Kind(EntityKind.EnemyMonster).Value);   // "a monster attacked"
