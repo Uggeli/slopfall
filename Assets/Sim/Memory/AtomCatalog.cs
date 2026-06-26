@@ -106,6 +106,11 @@ namespace DaggerfallWorkshop.Sim.Memory
                 new AtomTone(Fixed.FromDouble(-0.4), Fixed.FromDouble(0.6)));
             Put(AtomName.Size,   AtomCategory.Form, ordinary, false);           // neutral — modulates weapon cues
 
+            // Appearance atoms (Phase F): verdict-free neutral identity layer — what a thing LOOKS like.
+            // Registered as Kind/identity (IsIdentity == true) so they form a signature + category.
+            Put(AtomName.Beast,   AtomCategory.Kind, ordinary, false);
+            Put(AtomName.Drifter, AtomCategory.Kind, ordinary, false);
+
             return m;
         }
 
@@ -146,6 +151,10 @@ namespace DaggerfallWorkshop.Sim.Memory
             Add(AtomName.Fanged.ToId(), AtomName.Fanged);
             Add(AtomName.Fast.ToId(),   AtomName.Fast);
             Add(AtomName.Size.ToId(),   AtomName.Size);
+
+            // Appearance atoms (Phase F) — direct members; stamped via AtomName.X.ToId().
+            Add(AtomName.Beast.ToId(),   AtomName.Beast);
+            Add(AtomName.Drifter.ToId(), AtomName.Drifter);
 
             return m;
         }

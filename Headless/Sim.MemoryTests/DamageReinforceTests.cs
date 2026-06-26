@@ -9,7 +9,7 @@ namespace Sim.MemoryTests
     public class DamageReinforceTests
     {
         static AtomBag MonsterSig()
-            => AtomBag.Create(new[] { new Atom(PerceivableAtoms.Kind(EntityKind.EnemyMonster), Fixed.One) });
+            => AtomBag.Create(new[] { new Atom(AtomName.Beast.ToId(), Fixed.One) });
 
         [Fact]
         public void Damage_EmitsNegativeReinforce_ForAttackersKind()
@@ -18,7 +18,7 @@ namespace Sim.MemoryTests
             var perceivable = new PerceivableRegistry(e);
             var sys = new MemoryReinforceSystem(e, perceivable);
             var victim = new EntityId(1); var monster = new EntityId(2);
-            perceivable.Seed(monster, PerceivableAtoms.Kind(EntityKind.EnemyMonster), Fixed.One);
+            perceivable.Seed(monster, AtomName.Beast.ToId(), Fixed.One);
 
             e.Publish(new DamageEvent { Target = victim, Source = monster, Amount = 5, Type = DamageType.Physical });
             e.Tick(); perceivable.Update(0); sys.Update(0);
@@ -29,7 +29,7 @@ namespace Sim.MemoryTests
             Assert.Equal(victim, emitted[0].Perceiver);                        // the VICTIM learns
             Assert.True(emitted[0].Outcome.ToDouble() < 0.0);                  // hurt = aversive
             Assert.Contains(emitted[0].Signature.Atoms,
-                a => a.Type.Value == PerceivableAtoms.Kind(EntityKind.EnemyMonster).Value);  // about the monster KIND
+                a => a.Type.Value == AtomName.Beast.ToId().Value);  // about the monster KIND
         }
 
         [Fact]
@@ -41,8 +41,8 @@ namespace Sim.MemoryTests
             var sys = new MemoryReinforceSystem(e, perceivable);
             var victim = new EntityId(1); var monster = new EntityId(2);
 
-            // the monster is perceivable as its kind; the victim is born with the innate monster prior
-            perceivable.Seed(monster, PerceivableAtoms.Kind(EntityKind.EnemyMonster), Fixed.One);
+            // the monster is perceivable as its kind (Beast); the victim is born with the innate monster prior
+            perceivable.Seed(monster, AtomName.Beast.ToId(), Fixed.One);
             agentMem.Seed(victim);
             agentMem.SeedInnatePrior(victim, MonsterSig(), Fixed.FromDouble(-0.6), Fixed.FromDouble(0.3));
             agentMem.TryGet(victim, out var mem);

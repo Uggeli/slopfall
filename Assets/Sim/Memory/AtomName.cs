@@ -51,5 +51,11 @@ namespace DaggerfallWorkshop.Sim.Memory
         // ── Form atoms (descriptive properties: weapons, body) — Phase B; no From overload,
         //    stamped directly via AtomName.X.ToId(). Tone lives in AtomCatalog. ──
         Fanged, Fast, Size,
+
+        // ── Appearance (perceived neutral identity: what a thing LOOKS like) — Phase F.
+        //    A verdict-free identity layer: the perceiver forms "enemy"/"dangerous", it is never stamped.
+        //    Stamped directly via AtomName.X.ToId() (like the form atoms). The legacy verdict members
+        //    above (EnemyClass/EnemyMonster) are no longer stamped on anyone — perception uses these. ──
+        Beast, Drifter,
     }
 }

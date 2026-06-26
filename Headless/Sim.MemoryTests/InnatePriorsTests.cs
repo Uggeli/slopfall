@@ -15,8 +15,8 @@ namespace Sim.MemoryTests
             Assert.Equal(2, civ.Length);
             Assert.Contains(civ, p => p.Target == PriorTarget.Self && p.Valence.ToDouble() > 0.0);  // in-group warmth
             var monster = civ.Single(p => p.Target == PriorTarget.Kind);
-            Assert.Equal(EntityKind.EnemyMonster, monster.Kind);
-            Assert.True(monster.Valence.ToDouble() < 0.0);            // innate wariness of monster-kind
+            Assert.Equal(AtomName.Beast, monster.Kind);
+            Assert.True(monster.Valence.ToDouble() < 0.0);            // innate wariness of beast-kind
             Assert.True(monster.Confidence.ToDouble() > 0.0);
             Assert.Empty(InnatePriors.For(EntityKind.EnemyMonster));  // monsters don't socially interpret
         }

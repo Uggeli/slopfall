@@ -9,7 +9,7 @@ namespace Sim.MemoryTests
     public class GossipReinforceTests
     {
         static AtomBag MonsterKind()
-            => AtomBag.Create(new[] { new Atom(PerceivableAtoms.Kind(EntityKind.EnemyMonster), Fixed.One) });
+            => AtomBag.Create(new[] { new Atom(AtomName.Beast.ToId(), Fixed.One) });
 
         static Utterance Alarm(EntityId speaker)
             => new Utterance
@@ -37,7 +37,7 @@ namespace Sim.MemoryTests
             Assert.True(ri[0].Outcome.ToDouble() < 0.0);                                 // "this kind is bad"
             Assert.True(ri[0].Scale.ToDouble() > 0.0 && ri[0].Scale.ToDouble() <= 1.0);  // trust-scaled
             Assert.Contains(ri[0].Signature.Atoms,
-                a => a.Type.Value == PerceivableAtoms.Kind(EntityKind.EnemyMonster).Value);
+                a => a.Type.Value == AtomName.Beast.ToId().Value);
         }
 
         [Fact]

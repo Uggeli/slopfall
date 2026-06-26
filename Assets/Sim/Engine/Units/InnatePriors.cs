@@ -7,14 +7,15 @@ namespace DaggerfallWorkshop.Sim.Engine
     public enum PriorTarget { Self, Kind }
 
     /// <summary>One innate category belief: a starting valence + confidence about a PriorTarget.
-    /// Kind is the believed-about EntityKind, used only when Target == Kind.</summary>
+    /// Kind is the believed-about appearance AtomName (neutral identity), used only when Target == Kind;
+    /// AtomName.None for Self rows (matched by Signature, not a fixed atom).</summary>
     public readonly struct InnatePrior
     {
         public readonly PriorTarget Target;
-        public readonly EntityKind Kind;
+        public readonly AtomName Kind;
         public readonly Fixed Valence;
         public readonly Fixed Confidence;
-        public InnatePrior(PriorTarget target, EntityKind kind, Fixed valence, Fixed confidence)
+        public InnatePrior(PriorTarget target, AtomName kind, Fixed valence, Fixed confidence)
         { Target = target; Kind = kind; Valence = valence; Confidence = confidence; }
     }
 
@@ -25,12 +26,12 @@ namespace DaggerfallWorkshop.Sim.Engine
     /// </summary>
     public static class InnatePriors
     {
-        // CivilianNPC: innate warmth toward its own kind (Self) + innate wariness of monster-kind
+        // CivilianNPC: innate warmth toward its own kind (Self) + innate wariness of beast-kind
         // (the prey-of-predator prior). conf 0.3 = a lean (Reinforce drifts it; D feeds "this kind hurt me").
         static readonly InnatePrior[] Civilian =
         {
-            new InnatePrior(PriorTarget.Self, EntityKind.Unknown,      Fixed.FromDouble(0.2),  Fixed.FromDouble(0.3)),
-            new InnatePrior(PriorTarget.Kind, EntityKind.EnemyMonster, Fixed.FromDouble(-0.6), Fixed.FromDouble(0.3)),
+            new InnatePrior(PriorTarget.Self, AtomName.None,  Fixed.FromDouble(0.2),  Fixed.FromDouble(0.3)),
+            new InnatePrior(PriorTarget.Kind, AtomName.Beast, Fixed.FromDouble(-0.6), Fixed.FromDouble(0.3)),
         };
         static readonly InnatePrior[] None = new InnatePrior[0];
 

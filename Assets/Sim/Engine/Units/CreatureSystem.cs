@@ -231,9 +231,10 @@ namespace DaggerfallWorkshop.Sim.Engine
             // reads threat from them (tone × size) — off the _creatures oracle. Beast: one form row.
             foreach (var form in CreatureForms.Beast)
                 Events.Publish(new StampAtomIntent { Entity = id, Type = form.Type, Value = form.Value });
-            // Phase D/L1: stamp the perceivable KIND atom (identity) so a perceiver can recognize "a
-            // monster" — its signature. Lets the innate {EnemyMonster} prior match + damage reinforce it.
-            Events.Publish(new StampAtomIntent { Entity = id, Type = PerceivableAtoms.Kind(EntityKind.EnemyMonster), Value = Fixed.One });
+            // Phase F/L1: stamp the creature's perceivable APPEARANCE (neutral identity) — a "Beast"
+            // (a fanged quadruped). Verdict-free: the perceiver forms the fear (innate prior + form),
+            // it is never broadcast as "enemy". Lets the innate {Beast} prior match + damage reinforce it.
+            Events.Publish(new StampAtomIntent { Entity = id, Type = AtomName.Beast.ToId(), Value = Fixed.One });
             return true;
         }
 

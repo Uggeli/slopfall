@@ -43,7 +43,7 @@ namespace DaggerfallWorkshop.Sim
                 AtomBag proto = prior.Target switch
                 {
                     PriorTarget.Self => world.Perceivable.Signature(agent),
-                    PriorTarget.Kind => AtomBag.Create(new[] { new Atom(PerceivableAtoms.Kind(prior.Kind), Fixed.One) }),
+                    PriorTarget.Kind => AtomBag.Create(new[] { new Atom(prior.Kind.ToId(), Fixed.One) }),
                     _ => AtomBag.Empty,
                 };
                 if (proto.Count == 0) continue;                     // nothing to key on → skip
