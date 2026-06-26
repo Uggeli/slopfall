@@ -3,10 +3,10 @@ using DaggerfallWorkshop.Sim.Memory;
 namespace DaggerfallWorkshop.Sim.Engine
 {
     /// <summary>
-    /// Folds social-interaction outcomes into the perceiver's learned categories (the new MeaningsStore),
-    /// mirroring the old MeaningsSystem's signal but landing it in per-agent atom-categories. Stateless;
-    /// reads the 4 outcome events + Perceivable (for the other's signature), emits MemoryReinforceIntents
-    /// the AgentMemoryRegistry applies.
+    /// Folds interaction outcomes (social + damage) into the perceiver's learned categories (the new
+    /// MeaningsStore), mirroring the old MeaningsSystem's signal but landing it in per-agent atom-categories.
+    /// Stateless; reads the 5 outcome events (4 social + DamageEvent for "this kind hurt me") + Perceivable
+    /// (for the other's signature), emits MemoryReinforceIntents the AgentMemoryRegistry applies.
     /// </summary>
     public sealed class MemoryReinforceSystem : SimSystem
     {
