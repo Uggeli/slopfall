@@ -20,13 +20,14 @@ namespace DaggerfallWorkshop.Sim.Engine
         readonly CreatureRegistry _creatures;
         readonly PositionRegistry _position;
         readonly BuildingRegistry _buildings;
+        readonly PerceivableRegistry _perceivable;
 
         static readonly Fixed Severity = Fixed.One;   // a witnessed kill = max danger; consolidation fades it
 
         public PlaceDangerSystem(EventBus events, SensedRegistry sensed, CreatureRegistry creatures,
-            PositionRegistry position, BuildingRegistry buildings) : base(events)
+            PositionRegistry position, BuildingRegistry buildings, PerceivableRegistry perceivable) : base(events)
         {
-            _sensed = sensed; _creatures = creatures; _position = position; _buildings = buildings;
+            _sensed = sensed; _creatures = creatures; _position = position; _buildings = buildings; _perceivable = perceivable;
         }
 
         public override void Update(long tick)
@@ -38,6 +39,7 @@ namespace DaggerfallWorkshop.Sim.Engine
                 if (!_creatures.Contains(d.Killer)) continue;       // only creature kills mark a place dangerous
                 int building = NearestBuilding(d.Entity);
                 if (building < 0) continue;
+                AtomBag killerKind = _perceivable.Signature(d.Killer);   // the ACTUAL neutral kind (Beast/Drifter)
 
                 // Witnesses: agents whose current sensed set includes the victim or the killer.
                 foreach (var kv in _sensed.All)
@@ -50,14 +52,14 @@ namespace DaggerfallWorkshop.Sim.Engine
 
                     // A witness also SHOUTS the danger — bystanders in earshot who didn't see it learn
                     // it second-hand (word of mouth). Phase E: the shout also names the KIND that attacked
-                    // (the killer is a creature — _creatures.Contains(d.Killer) above — so {EnemyMonster}),
-                    // so hearers deepen their monster-belief, not just the place-danger.
+                    // (the killer's actual neutral kind from Perceivable — Beast or Drifter),
+                    // so hearers deepen their fear of the real kind, not just the place-danger.
                     Events.Publish(new Utterance
                     {
                         Speaker = kv.Key, Audience = EntityId.None, Channel = CommChannel.Shout,
                         Act = SpeechAct.Inform, SubjectBuilding = building, Confidence = Severity,
                         Content = AtomBag.Create(new[] { new Atom(PlaceAtoms.Danger, Severity) }),
-                        SubjectKind = AtomBag.Create(new[] { new Atom(PerceivableAtoms.Kind(EntityKind.EnemyMonster), Fixed.One) })
+                        SubjectKind = killerKind
                     });
                 }
             }

@@ -16,6 +16,7 @@ namespace Sim.MemoryTests
             public readonly CreatureRegistry Creatures;
             public readonly PositionRegistry Position;
             public readonly BuildingRegistry Buildings;
+            public readonly PerceivableRegistry Perceivable;
             public readonly PlaceDangerSystem System;
 
             public Rig()
@@ -24,11 +25,12 @@ namespace Sim.MemoryTests
                 Creatures = new CreatureRegistry(E);
                 Position = new PositionRegistry(E);
                 Buildings = new BuildingRegistry(E);
-                System = new PlaceDangerSystem(E, Sensed, Creatures, Position, Buildings);
+                Perceivable = new PerceivableRegistry(E);
+                System = new PlaceDangerSystem(E, Sensed, Creatures, Position, Buildings, Perceivable);
             }
 
             // Flip + apply queued intents into the registries.
-            public void Apply() { E.Tick(); Sensed.Update(0); Creatures.Update(0); Position.Update(0); }
+            public void Apply() { E.Tick(); Sensed.Update(0); Creatures.Update(0); Position.Update(0); Perceivable.Update(0); }
             // Flip so the DeathEvent is readable, then run the danger system.
             public void Run() { E.Tick(); System.Update(0); }
             // Flip + read what the system published.
@@ -104,7 +106,7 @@ namespace Sim.MemoryTests
         }
 
         [Fact]
-        public void WitnessShout_CarriesTheMonsterKind()
+        public void WitnessShout_CarriesTheKillersKind()
         {
             var r = new Rig();
             var witness = new EntityId(1);
@@ -116,14 +118,14 @@ namespace Sim.MemoryTests
             r.E.Publish(new CreatureSetIntent { Id = killer, Data = new CreatureData() });
             r.E.Publish(new SensedSetIntent { Id = witness, Sensed = new List<EntityId> { victim } });
             r.Apply();
+            r.Perceivable.Seed(killer, AtomName.Drifter.ToId(), Fixed.One);   // this killer is a Drifter
 
             r.E.Publish(new DeathEvent { Entity = victim, Killer = killer });
             var shouts = r.RunCapturingUtterances();   // ticks PlaceDangerSystem; returns this tick's Utterances
 
             var shout = shouts.Single(u => u.Speaker == witness);
             Assert.NotNull(shout.SubjectKind);
-            Assert.Contains(shout.SubjectKind.Atoms,
-                a => a.Type.Value == PerceivableAtoms.Kind(EntityKind.EnemyMonster).Value);   // "a monster attacked"
+            Assert.Contains(shout.SubjectKind.Atoms, a => a.Type == AtomName.Drifter.ToId());  // names the ACTUAL kind
         }
     }
 }
